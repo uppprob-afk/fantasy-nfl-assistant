@@ -13,6 +13,7 @@
   --bad: #b91c1c;
   --bad-soft: #fde8e8;
   --qb: #c0392b; --rb: #16a085; --wr: #2471a3; --te: #d68910; --k: #7d3c98; --def: #566573;
+  --div-pos: #2f6fd0; --div-neg: #c8682c;
   --radius: 12px;
   --shadow: 0 1px 2px rgba(0,0,0,.06);
 }
@@ -21,10 +22,11 @@
     --bg: #0f1115; --surface: #181b21; --surface-2: #22262e; --text: #e8eaee; --muted: #9aa1ad;
     --border: #2c313a; --accent: #6b9cff; --accent-soft: #1d2a45; --good: #4ade80;
     --warn: #fbbf24; --warn-soft: #2e2512; --bad: #f87171; --bad-soft: #351919;
-    --shadow: none;
+    --shadow: none; --div-pos: #4f86ea; --div-neg: #d0743a;
   }
 }
 :root[data-theme="dark"] {
+  --div-pos: #4f86ea; --div-neg: #d0743a;
   --bg: #0f1115; --surface: #181b21; --surface-2: #22262e; --text: #e8eaee; --muted: #9aa1ad;
   --border: #2c313a; --accent: #6b9cff; --accent-soft: #1d2a45; --good: #4ade80;
   --warn: #fbbf24; --warn-soft: #2e2512; --bad: #f87171; --bad-soft: #351919;
@@ -334,6 +336,30 @@ span.up { color: var(--good); } span.down { color: var(--bad); }
 .seg button { font: inherit; font-size: .85rem; font-weight: 600; border: 0; background: none; color: var(--muted);
   border-radius: 999px; padding: 6px 12px; cursor: pointer; }
 .seg button[aria-pressed="true"] { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.15); }
+
+/* Home + League */
+.stat .v { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.spark { display: inline-block; vertical-align: middle; }
+.oddsbar { height: 4px; border-radius: 999px; background: var(--surface-2); overflow: hidden; margin-top: 3px; min-width: 44px; }
+.oddsbar > span { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
+tr.team-row { cursor: pointer; }
+tr.team-row.open .chev { transform: rotate(90deg); }
+.wk-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: end; padding: 8px 14px; border-top: 1px solid var(--border); }
+.wk-row:first-child { border-top: 0; }
+.wk-team .t { font-weight: 600; font-size: .9rem; }
+.wk-team .m { font-size: .75rem; color: var(--muted); }
+.wk-bars { display: flex; gap: 6px; }
+.wk { display: flex; flex-direction: column; align-items: center; width: 22px; outline: none; }
+.wk-track { position: relative; height: 36px; width: 14px; }
+.wk-track::after { content: ""; position: absolute; left: -4px; right: -4px; top: 50%; height: 1px; background: var(--muted); opacity: .6; }
+.wk-bar { position: absolute; left: 0; right: 0; display: block; }
+.wk-bar.pos { bottom: 50%; background: var(--div-pos); border-radius: 4px 4px 0 0; }
+.wk-bar.neg { top: 50%; background: var(--div-neg); border-radius: 0 0 4px 4px; }
+.wk:focus .wk-bar, .wk:hover .wk-bar { filter: brightness(1.15); }
+.wk-r { font-size: .66rem; color: var(--muted); font-weight: 700; margin-top: 2px; }
+.wk-legend { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 6px 0 12px; }
+.wk-key { display: inline-block; width: 10px; height: 10px; border-radius: 3px; }
+.wk-key.pos { background: var(--div-pos); } .wk-key.neg { background: var(--div-neg); margin-left: 6px; }
 
 @media (max-width: 420px) {
   .pd { padding-left: 14px; }

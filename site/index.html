@@ -30,16 +30,13 @@
       </div>
     </div>
     <nav class="tabs" id="tabs" role="tablist">
-      <button role="tab" data-tab="team" aria-selected="true">My Team</button>
+      <button role="tab" data-tab="home" aria-selected="true">Home</button>
+      <button role="tab" data-tab="league">League</button>
       <button role="tab" data-tab="news">News</button>
-      <button role="tab" data-tab="standings">Standings</button>
-      <button role="tab" data-tab="matchups">Matchups</button>
-      <button role="tab" data-tab="playoffs">Playoffs</button>
       <button role="tab" data-tab="faab">FAAB</button>
       <button role="tab" data-tab="trades">Trades</button>
       <button role="tab" data-tab="lab">Trade Lab</button>
       <button role="tab" data-tab="planner">Planner</button>
-      <button role="tab" data-tab="rosters">Rosters</button>
       <button role="tab" data-tab="brief">Brief</button>
     </nav>
   </header>
@@ -47,16 +44,13 @@
   <main>
     <div id="status"></div>
     <div id="warnings"></div>
-    <section id="tab-team" class="tab-panel"></section>
+    <section id="tab-home" class="tab-panel"></section>
+    <section id="tab-league" class="tab-panel" hidden></section>
     <section id="tab-news" class="tab-panel" hidden></section>
-    <section id="tab-standings" class="tab-panel" hidden></section>
-    <section id="tab-matchups" class="tab-panel" hidden></section>
-    <section id="tab-playoffs" class="tab-panel" hidden></section>
     <section id="tab-faab" class="tab-panel" hidden></section>
     <section id="tab-trades" class="tab-panel" hidden></section>
     <section id="tab-lab" class="tab-panel" hidden></section>
     <section id="tab-planner" class="tab-panel" hidden></section>
-    <section id="tab-rosters" class="tab-panel" hidden></section>
     <section id="tab-brief" class="tab-panel" hidden></section>
   </main>
 
@@ -69,6 +63,7 @@
   <script src="data/trades.js"></script>
   <script src="data/outlook.js"></script>
   <script src="data/lab.js"></script>
+  <script src="data/league.js"></script>
   <script src="lab.js"></script>
   <script src="data/brief.js"></script>
   <script src="app.js"></script>
