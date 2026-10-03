@@ -10,10 +10,10 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from . import brief, cards, dashboard, faab, lab, league, lineups, nflverse, outlook, projections, scanner, tendencies, trades
+from . import brief, cards, dashboard, faab, lab, league, lineups, nflverse, outlook, projections, scanner, tendencies, trades, waivers
 from .config import ROOT, ConfigError, load_config
 from .output import write_site_data, write_snapshot
-from .players import find_player, ir_allowed_statuses, player_brief, slim_players
+from .players import find_player, ir_allowed_statuses, player_brief, player_name, slim_players
 from .sleeper import SleeperClient
 
 
@@ -487,6 +487,32 @@ def build_outlook(ctx: dict, managers: dict, proj: dict, weeks: list[int], slots
             "names": names}
 
 
+# --- waiver targets (ranked by what they add to my team) ----------------------------
+def build_available(ctx: dict, proj: dict, weeks: list[int], slots: list[str], faab_data: dict) -> list[str]:
+    """Best available players per position with the points each would add to my team.
+    Stored as faab_data["available"]; returns their ids (they get player cards too)."""
+    players, rosters = ctx["players"], ctx["rosters"]
+    rostered = {pid for r in rosters for pid in (r.get("players") or [])}
+    ids = waivers.pool(proj, rostered)
+    valuer = trades.Valuer(proj, weeks, slots, roster_size=roster_limit(ctx["league"]),
+                           reserve={p for r in rosters for p in (r.get("reserve") or [])})
+    mine = list(ctx["my_roster"].get("players") or [])
+    ranks = cards.position_ranks(proj)
+    trending = {t.get("player_id"): t.get("count", 0) for t in ctx["trending"]["add"]}
+    out = []
+    for pid in ids:
+        pr = proj[pid]
+        g = waivers.my_gain(valuer, mine, pid, proj, len(weeks))
+        out.append({**player_brief(pid, players), "proj_rate": pr["rate"], "ros": pr["ros"],
+                    "proj_confidence": pr["confidence"], "pos_rank": ranks.get(pid, (None, None))[0],
+                    "gain": g["gain"], "gain_per_week": g["per_week"], "fit": g["fit"],
+                    "drop": [{"id": d, "name": player_name(players.get(d), d)} for d in g["drop"]],
+                    "trending": trending.get(pid)})
+    out.sort(key=lambda p: (-p["gain"], -p["ros"]))
+    faab_data["available"] = out
+    return ids
+
+
 # --- part 3: manager tendencies ----------------------------------------------------
 def build_tendencies(ctx: dict, faab_data: dict, proj: dict, outlook_data: dict, scan: dict) -> None:
     """Add manager bidding profiles and likely rivals to the FAAB (and scanner) data."""
@@ -519,6 +545,26 @@ def build_tendencies(ctx: dict, faab_data: dict, proj: dict, outlook_data: dict,
             attach(p, hot=False)
     for p in scan.get("free_agents", []):
         attach(p, hot=p.get("kind") == "backup")
+    min_bid = faab_data["min_bid"] or 0
+    for p in faab_data.get("available", []):
+        attach(p, hot=False)
+        likely = len((p.get("rivals") or {}).get("likely", []))
+        d = waivers.demand(likely)
+        who = (f"would start for {likely} rival{'s' if likely != 1 else ''}" if likely else "no rival clearly needs them")
+        args = (p["position"], faab_data["market"], faab_data["my_remaining"], d)
+        if p["fit"] == "upgrade":
+            sug = faab.bid_suggestion(*args, context=f"Upgrades your lineup by {p['gain_per_week']:+.1f} pts/wk and {who}")
+        elif p["fit"] == "depth":
+            contested = likely >= 2
+            sug = faab.bid_suggestion(*args, level="competitive_bid" if contested else "bargain_bid",
+                                      context=f"Useful depth for you (+{p['gain_per_week']:.1f} pts/wk, mostly bye and injury cover) and {who}"
+                                              + ("; a mid-range bid gives you a fair shot without overpaying" if contested
+                                                 else "; not worth a bidding war"))
+        else:
+            sug = {**faab.bid_suggestion(*args), "bid": min_bid, "level": None,
+                   "reason": "Wouldn't improve your lineup right now, so the minimum bid (or a free pickup after waivers clear)."
+                             + (f" Note: {who}." if likely else "")}
+        p["suggestion"] = sug
     faab_data["tendencies"] = {
         "week": week, "my_waiver_position": my_waiver,
         "min_bids_for_style": tendencies.MIN_BIDS_FOR_STYLE,
@@ -564,8 +610,10 @@ def build_lab(ctx: dict, managers: dict, proj: dict, weeks: list[int], slots: li
 
 
 # --- player cards ----------------------------------------------------------------
-def build_cards(ctx: dict, proj: dict, points: dict, weeks: list[int], nfl: dict, trade_data: dict) -> dict:
-    """player_id -> card (last 3 / next 3 weeks, log, usage, value) for every rostered player."""
+def build_cards(ctx: dict, proj: dict, points: dict, weeks: list[int], nfl: dict, trade_data: dict,
+                extra: list[str] | None = None) -> dict:
+    """player_id -> card (last 3 / next 3 weeks, log, usage, value) for every rostered player
+    plus `extra` (the waiver pool)."""
     sched = projections.schedule(nfl["games"], ctx["league"]["season"])
     ranks = cards.position_ranks(proj)
     flags = {r["id"]: "sell-high" for r in trade_data.get("sell_high", [])}
@@ -575,7 +623,7 @@ def build_cards(ctx: dict, proj: dict, points: dict, weeks: list[int], nfl: dict
     starters = starter_counts(league.get("total_rosters") or 10, lineups.lineup_slots(league["roster_positions"]))
     return {pid: cards.build_card(pid, proj.get(pid), points.get(pid, {}), ctx["completed_weeks"], sched,
                                   ranks, trade_data["replacement"], len(weeks), flags, starters)
-            for pid in rostered}
+            for pid in rostered | set(extra or [])}
 
 
 # --- main -------------------------------------------------------------------
@@ -614,7 +662,8 @@ def main() -> int:
     proj, proj_weeks, slots = build_projections(ctx, nfl)
     say("Looking for trade ideas...")
     trade_data = build_trades(ctx, managers, proj, proj_weeks, slots, scan, now)
-    dash["cards"] = build_cards(ctx, proj, points, proj_weeks, nfl, trade_data)
+    pool_ids = build_available(ctx, proj, proj_weeks, slots, faab_data)
+    dash["cards"] = build_cards(ctx, proj, points, proj_weeks, nfl, trade_data, pool_ids)
     say("Projecting matchups and simulating the season...")
     outlook_data = build_outlook(ctx, managers, proj, proj_weeks, slots, now)
     lab_data = build_lab(ctx, managers, proj, proj_weeks, slots, outlook_data, trade_data)

@@ -69,7 +69,7 @@
     const past = c.last3.map((w) => {
       if (w.bye) return `<span class="pill none"><b>bye</b><i>W${w.week}</i></span>`;
       if (!w.played && w.pts == null) return `<span class="pill none"><b>–</b><i>W${w.week} DNP</i></span>`;
-      const pts = w.pts == null ? "n/r" : one(w.pts) + (w.partial ? "*" : "");
+      const pts = (w.pts == null ? (w.calc != null ? "≈" + one(w.calc) : "n/r") : one(w.pts)) + (w.partial ? "*" : "");
       return `<span class="pill f-${tierOf(c, w.finish)}" title="Week ${w.week}${w.opp ? " vs " + esc(w.opp) : ""}"><b>${pts}</b><i>${
         w.finish ? ab + w.finish : "W" + w.week}</i></span>`;
     }).join("");
@@ -154,10 +154,10 @@
       c.log.slice().reverse().map((g) => g.bye
         ? `<tr class="partial"><td>${g.week}</td><td>bye</td><td colspan="${2 + cols.length}"></td></tr>`
         : `<tr${g.partial ? ' class="partial"' : ""}><td>${g.week}</td><td>${esc(g.opp || "–")}</td>
-          <td><b>${g.pts == null ? "n/r" : one(g.pts)}</b>${g.partial ? "*" : ""}</td>
+          <td><b>${g.pts == null ? (g.calc != null ? "≈" + one(g.calc) : "n/r") : one(g.pts)}</b>${g.partial ? "*" : ""}</td>
           <td>${g.finish ? `<span class="fin f-${tierOf(c, g.finish)}">${ab}${g.finish}</span>` : "–"}</td>
           ${cols.map(([, f]) => `<td>${cell(f(g))}</td>`).join("")}</tr>`).join("")}</tbody></table></div>
-      <div class="subtle">Newest first. * partial game (snap share well below normal, e.g. hurt early). n/r = not on a league roster that week.</div></div>`;
+      <div class="subtle">Newest first. * partial game (snap share well below normal, e.g. hurt early). ${c.log.some((g) => g.pts == null && g.calc != null) ? "≈ = not on a league roster that week, so calculated from NFL stats with your league's scoring." : "n/r = not on a league roster that week."}</div></div>`;
 
     // schedule ahead
     if (c.schedule && c.schedule.length) {
@@ -273,6 +273,51 @@
     </div>`;
   }
 
+  const FIT = { upgrade: ["Upgrade", "balanced"], depth: ["Depth", "ok-style"], none: ["Bench only", ""] };
+  function waiverCard(p) {
+    const s = p.suggestion || {}, L = s.levels || {}, c = CARDS[p.id];
+    const lvl = (k, label) => L[k] == null ? "" : `<span class="level ${k === s.level ? "on" : ""}">${label} ${money(L[k])}</span>`;
+    const r = p.rivals || {}, likely = (r.likely || []).length, ties = (r.likely || []).filter((x) => x.wins_ties).length;
+    const [fitLabel, fitCls] = FIT[p.fit] || FIT.none;
+    const impact = p.fit === "none"
+      ? `Wouldn't improve your lineup right now`
+      : `Adds <b>${p.gain_per_week >= 0 ? "+" : ""}${num(p.gain_per_week)}</b>/wk to you (${p.gain >= 0 ? "+" : ""}${num(p.gain, 0)} rest of season)`;
+    const cut = p.drop && p.drop.length ? ` · you'd cut ${p.drop.map((d) => esc(d.name)).join(", ")}` : "";
+    return `<details class="wv" data-pid="${esc(p.id)}"><summary class="wv-sum">
+        <div class="wv-head">
+          <div class="pname">${esc(p.name)}${injuryChip(p)} <span class="chip ${fitCls}">${fitLabel}</span>${p.trending ? ` <span class="chip warm" title="Sleeper-wide adds, last 48h">trending</span>` : ""}</div>
+          <div class="pmeta">${esc(p.position)} · ${esc(p.team)}${p.pos_rank ? ` · ${esc(p.position)}${p.pos_rank} rest of season` : ""} · ${num(p.proj_rate)}/wk proj · ${esc(p.proj_confidence)} conf</div>
+          <div class="wv-impact">${impact}${cut}</div>
+        </div>
+        <div class="bid-amt">${s.bid == null ? "–" : money(s.bid)}<small>bid</small></div>
+        ${c ? `<div class="wv-pills">${pills(c, p.position)}</div>` : ""}
+        <div class="wv-riv subtle">${likely ? `${likely} likely rival${likely === 1 ? "" : "s"}${ties ? ` · you win ties vs ${ties}` : ""}` : "No likely rivals"} <span class="chev">▸</span></div>
+      </summary>
+      <div class="pd">
+        <div class="pd-sec"><div class="pd-h">Bid</div>
+          <div class="levels">${lvl("bargain_bid", "Bargain")}${lvl("competitive_bid", "Competitive")}${lvl("safe_bid", "Safe")}</div>
+          <div class="subtle" style="margin-top:6px">${esc(s.reason || "")}</div>${rivalsBlock(p)}</div>
+      </div>
+      ${c ? detailPanel(p, c) : `<div class="pd"><div class="acts">${actionButtons(p.id)}</div></div>`}
+    </details>`;
+  }
+
+  function availableList(view) {
+    const all = F.available || [];
+    if (!all.length) return `<div class="card"><div class="empty">No waiver data yet. Run an update.</div></div>`;
+    let rows, note = "";
+    if (view === "best") {
+      rows = all.filter((p) => p.fit !== "none").slice(0, 12);
+      if (!rows.length) {
+        rows = all.slice(0, 5);
+        note = `<p class="subtle">No available player would improve your lineup right now. These come closest.</p>`;
+      }
+    } else {
+      rows = all.filter((p) => p.position === view).slice().sort((a, b) => b.ros - a.ros);
+    }
+    return note + `<div class="card">${rows.map(waiverCard).join("") || `<div class="empty">No available ${esc(view)}s with projections.</div>`}</div>`;
+  }
+
   function tendencyCard(t) {
     const styleCls = { "big spender": "hot", stingy: "ok-style", "middle of the pack": "conf" }[t.style] || "conf";
     const pos = Object.entries(t.positions).map(([k, v]) => `<span class="level">${esc(k)} ×${v}</span>`).join("");
@@ -297,16 +342,16 @@
       <div class="stat"><div class="v">${money(me.overpaid)}</div><div class="l">Overpaid</div></div>
     </div>`;
 
-    // bid ideas
-    const ideas = (F.targets || []).map(bidCard).join("");
+    // bid ideas: available players ranked by what they'd add to my team, by position
     html += `<h2>Bid ideas</h2>
-      <p class="lead-text">Suggestions, not advice. Each is the lowest bid likely to win given how much demand to expect.
-      <b>Bargain</b> = what past claims actually took · <b>Competitive</b> = beats half of rivals' bids · <b>Safe</b> = beats 75%.</p>`;
-    if (ideas) html += `<h2 style="margin-top:8px;font-size:.95rem">My targets</h2><div class="card">${ideas}</div>`;
-    html += `<h2 style="margin-top:8px;font-size:.95rem">Trending free agents <span class="muted" style="font-weight:400">(Sleeper-wide adds, last 48h)</span></h2>
-      <div class="card">${F.trending_adds.length ? F.trending_adds.map(bidCard).join("") : `<div class="empty">No trending free agents.</div>`}</div>`;
-    if (!ideas) html += `<p class="subtle">Tip: add players you're eyeing under <code>targets:</code> in config.yaml to get a bid for them here.</p>`;
-
+      <p class="lead-text">Available players ranked by what they'd add to <b>your</b> lineup for the rest of the season (same maths as the
+      Trade Lab, measured against your actual roster, cutting your weakest player if you're full). The bid comes from who else in
+      your league would start them and what those managers usually pay. <b>Bargain</b> = what past claims actually took ·
+      <b>Competitive</b> = beats half of rivals' bids · <b>Safe</b> = beats 75%. Suggestions, not advice.</p>
+      ${segHtml("faab-pos", [["best", "Best for you"], ["QB", "QB"], ["RB", "RB"], ["WR", "WR"], ["TE", "TE"], ["K", "K"], ["DEF", "DEF"]], store.get("faabPos", "best"))}
+      <div id="faab-list"></div>`;
+    const ideas = (F.targets || []).map(bidCard).join("");
+    if (ideas) html += `<h2>My targets</h2><div class="card">${ideas}</div>`;
     // manager tendencies
     if (F.tendencies) {
       html += `<h2>Manager tendencies</h2><p class="lead-text">Everyone's bidding habits this season. Counts, not percentages, because
@@ -376,6 +421,9 @@
         : `<div class="empty">None.</div>`}</div>`;
 
     $("tab-faab").innerHTML = html;
+    const drawList = (v) => { $("faab-list").innerHTML = availableList(v); };
+    wireSeg("faab-pos", "faabPos", drawList);
+    drawList(store.get("faabPos", "best"));
   }
 
   // ---------- News (scanner) ----------

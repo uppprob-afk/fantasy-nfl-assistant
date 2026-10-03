@@ -65,6 +65,7 @@ nfl_assistant/
   tendencies.py           manager FAAB habits + likely rivals / bid-to-win
   cards.py                player cards: last/next 3, finishes, consistency, opportunity, game log, schedule, value
   lab.py                  compact data for the in-browser Trade Lab / Planner (site/lab.js)
+  waivers.py              waiver targets: best available per position, points each adds to my team
   league.py               weekly scores vs median, all-play + luck, power rankings, odds history
   brief.py                Markdown brief for pasting into an AI assistant
   anonymize.py            shareable copy of the site with league names replaced
@@ -82,7 +83,9 @@ tests/                    pytest + tests/fixtures/ (neutral sample data)
   `/traded_picks`, `players/nfl`, `players/nfl/trending/add|drop`.
 - `players/nfl` (~15MB) at most once per run, cached 1h in `data/cache/`.
 - **Displayed fantasy points come only from matchups `players_points` / `starters_points`.**
-  Never use Sleeper's undocumented stats or projections endpoints.
+  Never use Sleeper's undocumented stats or projections endpoints. One labelled exception:
+  a week where the player wasn't on any league roster has no Sleeper points, so cards show
+  nflverse stats re-scored with league scoring as `calc`, always prefixed "≈" (free agents).
 - Projections are built from free nflverse data: weekly stats re-scored with the league's
   scoring (verified to match Sleeper), snap counts, and `nflverse/nfldata` games.csv
   (byes, Vegas lines). No paid services, no scraping.
@@ -195,6 +198,19 @@ team's last 4 weeks as score pills (score + that week's league rank; 1st = solid
 top 3 = light green, bottom 3 = red, W/L) and expands to scoring rank, points against per
 week (schedule luck), all-play + luck, consistency (SD vs the league median SD) and every
 game with "would have beaten N of M". The same `.pill` / `.f-*` tier classes as player cards.
+
+## Waiver targets (Waivers → Bids & FAAB)
+
+`run.build_available` → `faab.json` `available`: `waivers.pool` takes the best unrostered
+players per position by ROS (`POOL_SIZE`; long-term out excluded). `waivers.my_gain` adds each
+to my roster with a `trades.Valuer` **without** the free-agent floor (so it's measured
+against my real roster) and the roster limit (cuts the weakest; K/DEF replace my weakest at
+the position). Fit: upgrade >= 1.5 pts/wk, depth >= 0.5, else none. Bid
+(`build_tendencies`): rivals as before; demand from likely rivals (2+ hot, 1 warm, 0 quiet);
+upgrade = market level for that demand; depth = bargain (competitive if 2+ likely rivals);
+none = league minimum. Each pool player also gets a player card (pills + detail panel). The
+site has a position toggle (Best for you = fit != none by gain, max 12; positions by ROS),
+localStorage `faabPos`. Trending adds are still fetched but only shown as a tag.
 
 ## Trades tab strength views
 

@@ -37,13 +37,24 @@ def last_weeks(sleeper_pts: dict[int, float], log: list[dict], completed: list[i
         out.append({"week": w, "pts": sleeper_pts.get(w), "bye": w in byes,
                     "played": g is not None, "partial": bool(g and g.get("partial")),
                     "pct": g.get("pct") if g else None,
-                    "finish": g.get("finish") if g else None, "opp": g.get("opp") if g else None})
+                    "finish": g.get("finish") if g else None, "opp": g.get("opp") if g else None,
+                    "calc": _calc(sleeper_pts.get(w), g)})
     return out
 
 
+def _calc(sleeper: float | None, g: dict | None) -> float | None:
+    """nflverse points under league scoring, only when Sleeper has none (player wasn't on a
+    league roster that week). Shown with a "≈" so it's never mistaken for Sleeper's number."""
+    return round(g["pts"], 1) if sleeper is None and g and g.get("pts") is not None else None
+
+
+def shown_pts(w: dict) -> float | None:
+    return w["pts"] if w.get("pts") is not None else w.get("calc")
+
+
 def avg_played(weeks: list[dict]) -> float | None:
-    """Average over weeks the player actually played and has league-scored points for."""
-    vals = [w["pts"] for w in weeks if w["pts"] is not None and not w["bye"] and w["played"]]
+    """Average over weeks the player actually played (Sleeper points, else calculated)."""
+    vals = [shown_pts(w) for w in weeks if shown_pts(w) is not None and not w["bye"] and w["played"]]
     return round(mean(vals), 1) if vals else None
 
 
@@ -58,10 +69,10 @@ def consistency(log: list[dict], tiers: dict) -> dict:
 
     Uses weeks the player played with league-scored (Sleeper) points; finishes are positional
     ranks among every NFL player that week."""
-    played = [g for g in log if not g.get("bye") and g.get("pts") is not None and g.get("finish") is not None]
+    played = [g for g in log if not g.get("bye") and shown_pts(g) is not None and g.get("finish") is not None]
     if not played:
         return {"games": 0}
-    pts = [g["pts"] for g in played]
+    pts = [shown_pts(g) for g in played]
     fin = [g["finish"] for g in played]
     return {"games": len(played), "ppg": round(mean(pts), 1), "median": round(median(pts), 1),
             "floor": round(min(pts), 1), "ceiling": round(max(pts), 1),
@@ -162,7 +173,7 @@ def build_card(pid: str, p: dict | None, sleeper_pts: dict[int, float], complete
     card = {"last3": last, "last3_avg": avg_played(last)}
     season_pts = [sleeper_pts[w] for w in completed if w in sleeper_pts]
     by_week = {g["week"]: g for g in log}
-    card["log"] = [{"week": w, "pts": sleeper_pts.get(w), "bye": w in byes,
+    card["log"] = [{"week": w, "pts": sleeper_pts.get(w), "bye": w in byes, "calc": _calc(sleeper_pts.get(w), by_week.get(w)),
                     **({k: by_week[w].get(k) for k in STAT_KEYS} if w in by_week else {})}
                    for w in completed]
     pos = (p or {}).get("position")

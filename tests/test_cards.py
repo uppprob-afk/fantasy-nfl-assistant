@@ -120,3 +120,11 @@ def test_schedule_ahead_marks_playoff_weeks():
     assert [x["week"] for x in s] == [5, 6, 15]
     assert s[0]["matchup"] == "easy" and s[1]["bye"] and s[1]["matchup"] is None
     assert s[2]["playoff"] and s[2]["matchup"] == "tough"
+
+
+def test_calculated_points_only_when_sleeper_has_none():
+    log = [{"week": 1, "pts": 12.34, "finish": 20}, {"week": 2, "pts": 8.0, "finish": 40}]
+    last = cards.last_weeks({2: 9.5}, log, [1, 2], set())
+    assert last[0]["pts"] is None and last[0]["calc"] == 12.3
+    assert last[1]["pts"] == 9.5 and last[1]["calc"] is None
+    assert cards.avg_played(last) == round((12.3 + 9.5) / 2, 1)
