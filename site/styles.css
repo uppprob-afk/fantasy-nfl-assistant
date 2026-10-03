@@ -8,7 +8,6 @@
   --accent: #2f63e0; --accent-soft: #edf2fd; --on-accent: #ffffff;
   --good: #1f8a4c; --good-soft: #e9f6ee; --warn: #a86400; --warn-soft: #fdf4e4;
   --bad: #c2392b; --bad-soft: #fcecea;
-  --div-pos: #2f6fd0; --div-neg: #c8682c;
   --r-lg: 16px; --r-md: 12px; --r-sm: 8px;
   --nav-h: 64px;
   color-scheme: light;
@@ -20,7 +19,6 @@
     --accent: #7aa2ff; --accent-soft: #1a2338; --on-accent: #0c0d10;
     --good: #4cc38a; --good-soft: #13261c; --warn: #e3a644; --warn-soft: #2a2112;
     --bad: #f07167; --bad-soft: #2c1615;
-    --div-pos: #4f86ea; --div-neg: #d0743a;
     color-scheme: dark;
   }
 }
@@ -30,7 +28,6 @@
   --accent: #7aa2ff; --accent-soft: #1a2338; --on-accent: #0c0d10;
   --good: #4cc38a; --good-soft: #13261c; --warn: #e3a644; --warn-soft: #2a2112;
   --bad: #f07167; --bad-soft: #2c1615;
-  --div-pos: #4f86ea; --div-neg: #d0743a;
   color-scheme: dark;
 }
 
@@ -432,23 +429,26 @@ details.bs-d[open] > .xp-body { margin-top: 12px; border-top: 1px solid var(--bo
 .fa-drop { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 0 16px 14px; }
 .fa-drop select { margin: 0; padding: 7px 10px; font-size: 14px; }
 
-/* ---------- league: weekly scores chart ---------- */
-.wk-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: end; padding: 10px 16px; border-top: 1px solid var(--border); }
-.wk-row:first-child { border-top: 0; }
-.wk-team .t { font-weight: 600; font-size: 14px; }
-.wk-team .m { font-size: 12px; color: var(--muted); }
-.wk-bars { display: flex; gap: 6px; }
-.wk { display: flex; flex-direction: column; align-items: center; width: 22px; outline: none; }
-.wk-track { position: relative; height: 36px; width: 14px; }
-.wk-track::after { content: ""; position: absolute; left: -4px; right: -4px; top: 50%; height: 1px; background: var(--muted); opacity: .5; }
-.wk-bar { position: absolute; left: 0; right: 0; display: block; }
-.wk-bar.pos { bottom: 50%; background: var(--div-pos); border-radius: 4px 4px 0 0; }
-.wk-bar.neg { top: 50%; background: var(--div-neg); border-radius: 0 0 4px 4px; }
-.wk:focus .wk-bar, .wk:hover .wk-bar { filter: brightness(1.15); }
-.wk-r { font-size: 10.5px; color: var(--muted); font-weight: 650; margin-top: 3px; }
-.wk-legend { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 6px 0 12px; }
-.wk-key { display: inline-block; width: 10px; height: 10px; border-radius: 3px; }
-.wk-key.pos { background: var(--div-pos); } .wk-key.neg { background: var(--div-neg); margin-left: 6px; }
+/* ---------- league: weekly scores ---------- */
+.ws-card { padding-top: 4px; }
+.ws-weeks { display: grid; gap: 6px; padding: 8px 16px 0; font-size: 10px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); font-weight: 650; text-align: center; max-width: 480px; box-sizing: border-box; }
+details.ws { border-top: 1px solid var(--border); }
+details.ws:first-of-type { border-top: 0; }
+details.ws > summary { list-style: none; cursor: pointer; }
+details.ws > summary::-webkit-details-marker { display: none; }
+details.ws[open] > summary { background: var(--surface-2); }
+details.ws[open] .chev { transform: rotate(90deg); display: inline-block; }
+.ws-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "head avg" "pills pills"; gap: 8px 10px; padding: 12px 16px; }
+.ws-head { grid-area: head; min-width: 0; }
+.ws-head .t { font-weight: 600; font-size: 14.5px; }
+.ws-head .m { font-size: 12px; color: var(--muted); }
+.ws-avg { grid-area: avg; text-align: right; line-height: 1.15; }
+.ws-avg b { font-size: 17px; font-weight: 650; }
+.ws-avg small { display: block; font-size: 11px; color: var(--muted); }
+.ws-pills { grid-area: pills; display: grid; gap: 6px; max-width: 448px; }
+.ws-game { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 8px 0; border-top: 1px solid var(--border); }
+.ws-game:first-of-type { border-top: 0; }
+.ws-game .sc { font-weight: 600; white-space: nowrap; }
 
 /* ---------- brief / settings ---------- */
 .brief-bar { display: flex; gap: 8px; align-items: center; margin: 12px 0; flex-wrap: wrap; }
