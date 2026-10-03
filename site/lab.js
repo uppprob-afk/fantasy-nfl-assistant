@@ -49,6 +49,7 @@
 
     const absence = L.absence_rate;
     const reserveAll = new Set(L.reserve_all || []);
+    let holds = new Set();   // players the user is stashing: never auto-cut, never offered
     const floor = L.floor || {};
     const byPid = (x, y) => (x < y ? -1 : x > y ? 1 : 0);
 
@@ -87,7 +88,7 @@
       const active = (ps) => ps.filter((p) => !reserveAll.has(p));
       if (L.roster_size) {
         while (active(pids).length > L.roster_size) {
-          let cands = active(pids).filter((p) => !P[p] || skill.has(P[p].p))
+          let cands = active(pids).filter((p) => (!P[p] || skill.has(P[p].p)) && !holds.has(p))
             .sort((x, y) => ((P[x] ? P[x].ros : 0) - (P[y] ? P[y].ros : 0)) || byPid(x, y)).slice(0, L.drop_candidates);
           if (!cands.length) cands = active(pids).slice(-1);
           let best = null, bestScore = -Infinity;
@@ -196,6 +197,71 @@
       return out;
     }
 
+    function balanceOf(gainMe, gainThem) {
+      if (gainMe <= 0 && gainThem <= 0) return "bad for both";
+      if (gainMe <= 0) return "favours them";
+      if (gainThem <= 0) return "they'd likely decline";
+      if (gainThem / gainMe >= 0.6) return "balanced";
+      return gainThem < 0.25 * gainMe ? "lopsided (tough sell)" : "favours you";
+    }
+
+    /* Find packages both teams would accept.
+       Buy mode (get set, partner = their owner): what to give, 1 or 2 of my players.
+       Shop mode (give set): what to ask for, 1 or 2 players, from one partner or every team.
+       Ranked by my gain; held players are never offered. */
+    function suggestOffers(o) {
+      const me = String(L.my_roster_id);
+      const get = o.get || [], give = o.give || [];
+      const poolSize = o.poolSize || 9;
+      const byRos = (a, b) => P[b].ros - P[a].ros;
+      const mineAll = rosterAll(me);
+      const myPool = rosterOf(me).filter((p) => tradeableRec(P[p]) && !holds.has(p) && !give.includes(p)).sort(byRos);
+      const partners = o.partner ? [String(o.partner)] : Object.keys(L.rosters).filter((t) => t !== me);
+      const base = {};
+      const valueOf = (pids) => value(pids).score;
+      const out = [];
+      for (const t of partners) {
+        const theirsAll = rosterAll(t);
+        const theirPool = rosterOf(t).filter((p) => tradeableRec(P[p]) && !get.includes(p)).sort(byRos);
+        base[me] = base[me] ?? valueOf(mineAll);
+        base[t] = valueOf(theirsAll);
+        const shapes = [];
+        if (get.length && !give.length) {
+          myPool.forEach((a) => shapes.push([[a], get]));
+          const top = myPool.slice(0, poolSize);
+          for (let i = 0; i < top.length; i++) for (let j = i + 1; j < top.length; j++) shapes.push([[top[i], top[j]], get]);
+        } else if (give.length && !get.length) {
+          theirPool.forEach((b) => shapes.push([give, [b]]));
+          const top = theirPool.slice(0, poolSize);
+          for (let i = 0; i < top.length; i++) for (let j = i + 1; j < top.length; j++) shapes.push([give, [top[i], top[j]]]);
+        } else if (give.length && get.length) {
+          shapes.push([give, get]);
+        }
+        for (const [g, r] of shapes) {
+          const mine1 = mineAll.filter((p) => !g.includes(p)).concat(r);
+          const theirs1 = theirsAll.filter((p) => !r.includes(p)).concat(g);
+          const gainMe = round(valueOf(mine1) - base[me], 1);
+          const gainThem = round(valueOf(theirs1) - base[t], 1);
+          out.push({ partner: t, give: g, get: r, gainMe, gainThem, balance: balanceOf(gainMe, gainThem) });
+        }
+      }
+      const acceptable = out.filter((x) => x.gainThem > 0);
+      const pool = acceptable.length ? acceptable : out;
+      pool.sort((a, b) => (b.gainMe > 0) - (a.gainMe > 0) || ((b.gainThem >= 0.25 * b.gainMe) - (a.gainThem >= 0.25 * a.gainMe))
+        || b.gainMe - a.gainMe || b.gainThem - a.gainThem);
+      // Skip 2-player versions that only add a throw-in (same partner, contains a kept
+      // offer, gains within 0.5 of it) - they say the same thing twice.
+      const kept = [];
+      const sub = (a, b) => a.every((p) => b.includes(p));
+      for (const x of pool) {
+        if (kept.length >= (o.limit || 5)) break;
+        const dup = kept.some((k) => k.partner === x.partner && sub(k.give, x.give) && sub(k.get, x.get)
+          && Math.abs(k.gainMe - x.gainMe) <= 0.5 && Math.abs(k.gainThem - x.gainThem) <= 0.5);
+        if (!dup) kept.push(x);
+      }
+      return { offers: kept, anyAcceptable: acceptable.length > 0, searched: out.length };
+    }
+
     function tradeableRec(r) {
       return skill.has(r.p) && !ltOut.has(r.s) && (r.gt > 0 || r.gp >= 4);
     }
@@ -251,13 +317,7 @@
       const sims = (opts && opts.sims) || 4000;
       const odds0 = simulate({}, { n: sims, mode: "value" });
       const odds1 = simulate({ [me]: mine1, [them]: theirs1 }, { n: sims, mode: "value" });
-      const ratio = gainMe ? gainThem / gainMe : 1;
-      const lopsided = gainThem < 0.25 * gainMe;
-      let balance;
-      if (gainMe <= 0 && gainThem <= 0) balance = "bad for both";
-      else if (gainMe <= 0) balance = "favours them";
-      else if (gainThem <= 0) balance = "they'd likely decline";
-      else balance = ratio >= 0.6 ? "balanced" : lopsided ? "lopsided (tough sell)" : "favours you";
+      const balance = balanceOf(gainMe, gainThem);
       const conf = ["low", "medium", "high"];
       const confidence = give.concat(get).map((p) => P[p].c).sort((a, b) => conf.indexOf(a) - conf.indexOf(b))[0] || "low";
       const sizeAfter = (pids, rid) => pids.filter((p) => !(L.rosters[rid].reserve || []).includes(p)).length;
@@ -293,7 +353,8 @@
       return { ok: diffs.every((d) => d < 0.5), maxDiff: Math.max(...diffs) };
     }
 
-    return { lineup, value, rawValue, profile, simulate, evaluateTrade, leagueProfiles, rosterOf, rosterAll, tradeable: tradeableRec,
+    return { lineup, value, rawValue, profile, simulate, evaluateTrade, suggestOffers, leagueProfiles, rosterOf, rosterAll, tradeable: tradeableRec,
+      setHolds: (ids) => { holds = new Set(ids || []); }, holds: () => holds,
       vor, selfCheck, weekIndex: wi, players: P };
   }
 

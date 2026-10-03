@@ -211,6 +211,22 @@ lineup with finished games locked (`a` = actual points), future weeks from the o
 lineup; planned waiver moves apply from `current_week + 1`; lineup edits are stored per week
 and fed to `simulate` as `weekOverrides`. Plans live in localStorage (`plannerState`).
 
+**Suggested offers and quick actions.** `suggestOffers({get | give, partner})` in lab.js
+searches 1- and 2-player offers (buy: my tradeable players for `get`; shop: their players
+for `give`, one partner or all teams), scores both sides with `value`, prefers offers that
+help both, and drops throw-in duplicates. app.js has one delegated click handler for
+`[data-act]` buttons: `trade-for` / `shop` / `pitch` open the Lab with offers already
+searched (`openInLab(..., {suggest, shopAll})`), `plan-add` adds a pickup to the Planner
+(`planPickup`, default drop = weakest non-held player when the roster is full), and `hold`
+toggles a stash. `actionButtons(pid)` picks the buttons from the owner in `DATA.lab`
+(mine / another team / free agent) and is used in player detail panels, FAAB cards and News.
+
+**Holds (stashes).** localStorage `holds` (per device). Held players are passed to the
+engine (`setHolds`) so they're never offered or cut in Lab maths; trade ideas that give or
+drop one are hidden (with a count), they're left out of sell-high and "players you could
+pitch", the sell-high flag is replaced by a "held" tag, and the Planner never picks them as
+the default drop. Python output is unaffected (parity runs with no holds).
+
 ## Automation
 
 `.github/workflows/update.yml`: tests on every push/PR. The pipeline + GitHub Pages deploy
