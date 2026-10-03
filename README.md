@@ -10,8 +10,8 @@ AI assistant.
 
 Free to run: public APIs only, no keys, no paid services.
 
-![Dark mode: matchups, playoff odds, trade ideas](docs/screenshots/overview-dark.png)
-![Light mode: my team, FAAB bid ideas, news](docs/screenshots/overview-light.png)
+![Dark mode: home, league, trades](docs/screenshots/overview-dark.png)
+![Light mode: playoff race, trade lab, FAAB](docs/screenshots/overview-light.png)
 
 *Screenshots use an anonymised demo league (`python -m nfl_assistant.anonymize`).*
 
@@ -19,16 +19,13 @@ Free to run: public APIs only, no keys, no paid services.
 
 | Tab | What you get |
 |---|---|
-| **My Team** | Each player shows **last 3 weeks vs next 3 weeks** (actual vs projected) with a six-week bar strip: partial games, byes and easy/tough matchups marked. Tap for the game log (snaps, targets, carries), next 3 matchups with ranges, usage vs expected points, and value (position rank, rest of season, vs replacement). Injury status, IR eligibility and ✓ verified points included. |
+| **Home** | Everything about you: this week's matchup with projected scores and win chance, playoff odds with a trend line, if-you-win / if-you-lose odds, alerts, then a toggle for **Roster** (last 3 vs next 3 weeks per player, tap for details), **Start/sit** and **Weekly lineups** (byes included), plus your key games. |
+| **League** | A toggle for **Standings** (with all-play record and luck; tap a team to see its roster), **Playoff race** (odds from 10,000 simulated seasons, trend, other games to watch) and **Power** rankings; a weekly scores chart (each week vs the league median); and all of this week's matchups. |
 | **News** | Only what changed since the last run: injuries, depth chart promotions, team changes and fresh drops, split into *my players*, *other teams' starters* (trade openings) and *free agents worth a look* (with bid ideas and likely rival bidders). |
-| **Standings** | W–L, points for/against and waiver priority, with optional manager nicknames. |
-| **Matchups** | Projected scores and win chances for every game, start/sit calls, and optimal lineups for every remaining week, byes included. |
-| **Playoffs** | Playoff odds for every team from 10,000 simulated seasons, odds if you win or lose this week, and the games that matter most. |
 | **FAAB** | Bid ideas at three levels (bargain / competitive / safe), likely rivals with a bid-to-win range, manager tendencies (style, positions chased, overpaying, budget), a full waiver log with runner-up bids, and market prices. |
 | **Trades** | Rest-of-season player values with range and confidence, value over replacement, mutual-benefit trade ideas with reasoning, buy-low / sell-high, and team strength vs the league median with a toggle: season so far (actual started lineups and lineup efficiency), projected, and a trade-partner snapshot (needs, playoff odds, trades made). Trade deadline countdown. Tap any player for the same details as the roster cards. |
 | **Trade Lab** | Build any trade with any team and get a full breakdown: rest-of-season gain for both sides, playoff odds before → after, week-by-week impact (byes included), lineup changes, positional strength, and the players' details. Runs in the browser, instantly. |
 | **Planner** | Forecast any remaining week: swap bench players in, see your projected score vs the best possible and your win chance, and plan waiver pickups (with drops) to see the week-by-week, rest-of-season and playoff-odds impact. Saved on your device. |
-| **Rosters** | Every manager's roster with the same player cards. |
 | **Brief** | `claude_brief.md`: a compact verified summary with a one-tap Copy button. |
 
 ## Use it with your league

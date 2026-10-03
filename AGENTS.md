@@ -65,11 +65,12 @@ nfl_assistant/
   tendencies.py           manager FAAB habits + likely rivals / bid-to-win
   cards.py                player cards: last 3 (Sleeper actual) vs next 3 (projected), log, usage, value
   lab.py                  compact data for the in-browser Trade Lab / Planner (site/lab.js)
+  league.py               weekly scores vs median, all-play + luck, power rankings, odds history
   brief.py                Markdown brief for pasting into an AI assistant
   anonymize.py            shareable copy of the site with league names replaced
   output.py               site data + snapshot writers
 site/                     static site (index.html, styles.css, app.js, data/ git-ignored)
-data/                     git-ignored: snapshots/, news_log.json, cache/
+data/                     git-ignored: snapshots/, news_log.json, odds_history.json, cache/
 tests/                    pytest + tests/fixtures/ (neutral sample data)
 .github/workflows/update.yml   tests always; pipeline + Pages only if LEAGUE_ID var set
 ```
@@ -157,6 +158,18 @@ On the Trades tab, `playerExpand()` renders the same details: trade-idea and buy
 (`.tp` inside `.has-detail`) open a full-width `.trade-detail` panel under the card;
 sell-high / buy-low rows are `<details>`; value-table rows (`.tp-row`) insert a
 `tr.detail-row`. Handled by one delegated listener (`wireTradeDetails`).
+
+## Home and League tabs
+
+Tabs: Home · League · News · FAAB · Trades · Trade Lab · Planner · Brief (old #team /
+#matchups map to Home; #standings / #playoffs / #rosters to League). `league.py` →
+`site/data/league.*`: weekly scores + per-week league median (Sleeper matchup points),
+all-play record, luck = actual wins − all-play expected wins, power rankings
+(z-scores: results so far weight 0.9·n/(n+5), projection 0.9 − that, efficiency 0.1), and
+`data/odds_history.json` (one entry per run day, last 60) for the odds trend sparkline.
+Toggles remember their view in localStorage (`homeView`, `leagueView`). The weekly chart
+draws bars up/down from the median with two validated diverging hues (`--div-pos` /
+`--div-neg`, checked with the dataviz validator in light and dark).
 
 ## Trades tab strength views
 
