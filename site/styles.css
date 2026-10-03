@@ -319,6 +319,16 @@ ul.tight { margin: 0; padding-left: 18px; }
 td.up { color: var(--good); } td.down { color: var(--bad); }
 span.up { color: var(--good); } span.down { color: var(--bad); }
 
+/* Planner */
+.pl-row select { width: 100%; margin: 0; padding: 6px 8px; font-size: .9rem; }
+.pl-search input { width: 100%; font: inherit; padding: 10px 12px; border-radius: var(--radius); border: 1px solid var(--border);
+  background: var(--surface); color: var(--text); margin: 4px 0 10px; }
+.fa-row { border-top: 1px solid var(--border); }
+.fa-row:first-child { border-top: 0; }
+.fa-row .prow { border-top: 0; }
+.fa-drop { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 0 14px 12px; }
+.fa-drop select { margin: 0; padding: 6px 8px; font-size: .85rem; }
+
 @media (max-width: 420px) {
   .pd { padding-left: 14px; }
   .stat .v { font-size: 1.1rem; }

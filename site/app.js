@@ -964,6 +964,273 @@
     window.scrollTo(0, 0);
   }
 
+  // ---------- Planner ----------
+  const FLEXP = { FLEX: ["RB", "WR", "TE"], WRRB_FLEX: ["RB", "WR"], REC_FLEX: ["WR", "TE"], SUPER_FLEX: ["QB", "RB", "WR", "TE"] };
+  let plan = store.get("plannerState", null);
+
+  function planDefaults() {
+    const L = DATA.lab;
+    return { week: L.weeks.includes(L.current_week + 1) ? L.current_week + 1 : L.weeks[0], moves: [], lineups: {} };
+  }
+
+  function phiJs(z) {   // standard normal CDF
+    const t = 1 / (1 + 0.2316419 * Math.abs(z));
+    const d = 0.3989423 * Math.exp(-z * z / 2);
+    const p = d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274))));
+    return z > 0 ? 1 - p : p;
+  }
+
+  function planRoster(week) {
+    const L = DATA.lab, E = engine();
+    let pids = E.rosterOf(L.my_roster_id);
+    if (week > L.current_week) {
+      plan.moves.forEach((m) => { pids = pids.filter((p) => p !== m.drop); if (!pids.includes(m.add)) pids.push(m.add); });
+    }
+    return pids;
+  }
+
+  function eligible(slot, pid) {
+    const pos = DATA.lab.players[pid] && DATA.lab.players[pid].p;
+    return (FLEXP[slot] || [slot]).includes(pos);
+  }
+
+  /* The lineup shown for a week: saved edits if still valid, else Sleeper's set lineup
+     (this week) or the best projected lineup (future weeks). Returns pids aligned with slots. */
+  function planLineup(week) {
+    const L = DATA.lab, E = engine();
+    const pids = planRoster(week);
+    const w = L.weeks.indexOf(week);
+    const saved = plan.lineups[String(week)];
+    if (saved && saved.length === L.slots.length
+        && saved.every((pid, i) => !pid || (pids.includes(pid) && eligible(L.slots[i], pid)))
+        && new Set(saved.filter(Boolean)).size === saved.filter(Boolean).length) return saved.slice();
+    if (week === L.current_week && L.this_week[String(L.my_roster_id)]) {
+      const set = L.this_week[String(L.my_roster_id)].starters.map((p) => (p && p !== "0" && pids.includes(p) ? p : null));
+      if (set.length === L.slots.length) return set;
+    }
+    const best = E.lineup(pids, w).lineup;
+    const out = L.slots.map(() => null);
+    const used = new Set();
+    best.forEach(([slot, pid]) => {
+      const i = L.slots.findIndex((s, j) => s === slot && !out[j]);
+      if (i >= 0) { out[i] = pid; used.add(pid); }
+    });
+    return out;
+  }
+
+  function weekPts(pid, week) {
+    const L = DATA.lab, r = L.players[pid], w = L.weeks.indexOf(week);
+    if (!r) return { pts: 0, v: 0, locked: false };
+    if (week === L.current_week && r.a != null) return { pts: r.a, v: 0, locked: true };
+    return { pts: r.w[w], v: r.v[w], locked: false };
+  }
+
+  function lineupStats(lineup, week) {
+    let mean = 0, v = 0;
+    lineup.forEach((pid) => { if (pid) { const x = weekPts(pid, week); mean += x.pts; v += x.v; } });
+    return { mean, sd: Math.sqrt(v) };
+  }
+
+  /* Best lineup for the week, keeping players whose games are already over in place. */
+  function bestLineup(week) {
+    const L = DATA.lab;
+    const pids = planRoster(week);
+    const current = planLineup(week);
+    const out = L.slots.map((s, i) => (current[i] && weekPts(current[i], week).locked ? current[i] : null));
+    const used = new Set(out.filter(Boolean));
+    const pool = pids.filter((p) => !used.has(p) && !weekPts(p, week).locked)
+      .sort((a, b) => weekPts(b, week).pts - weekPts(a, week).pts);
+    const order = L.slots.map((s, i) => [s, i]).sort((a, b) => ((a[0] in FLEXP) - (b[0] in FLEXP)) || a[1] - b[1]);
+    order.forEach(([slot, i]) => {
+      if (out[i]) return;
+      const pick = pool.find((p) => !used.has(p) && eligible(slot, p));
+      if (pick) { out[i] = pick; used.add(pick); }
+    });
+    return out;
+  }
+
+  function opponentFor(week) {
+    const L = DATA.lab, me = L.my_roster_id;
+    const g = (L.schedule[String(week)] || []).find(([a, b]) => a === me || b === me);
+    return g ? String(g[0] === me ? g[1] : g[0]) : null;
+  }
+
+  function renderPlanner() {
+    const host = $("tab-planner");
+    const L = DATA.lab, E = engine();
+    if (!L || !E) { host.innerHTML = `<div class="empty">Planner needs the latest data. Run an update.</div>`; return; }
+    if (!plan || !L.weeks.includes(plan.week)) plan = Object.assign(planDefaults(), plan && { moves: plan.moves || [], lineups: {} });
+    const P = L.players, me = String(L.my_roster_id), conf = L.confidence;
+    // drop moves that no longer make sense (player gone from free agency or my roster)
+    const base = E.rosterOf(me);
+    plan.moves = plan.moves.filter((m) => P[m.add] && P[m.add].o == null && (!m.drop || base.includes(m.drop)));
+    store.set("plannerState", plan);
+
+    const week = plan.week, w = L.weeks.indexOf(week);
+    const lineup = planLineup(week);
+    const roster = planRoster(week);
+    const stats = lineupStats(lineup, week);
+    const best = lineupStats(bestLineup(week), week);
+    const opp = opponentFor(week);
+    let oppStats = null;
+    if (opp) {
+      oppStats = week === L.current_week && L.this_week[opp] ? { mean: L.this_week[opp].mean, sd: L.this_week[opp].sd }
+        : (() => { const lu = E.lineup(E.rosterOf(opp), w); return { mean: lu.total, sd: lu.sd }; })();
+    }
+    const winP = oppStats ? phiJs((stats.mean - oppStats.mean) / Math.sqrt(stats.sd ** 2 + oppStats.sd ** 2 || 1)) : null;
+    const left = best.mean - stats.mean;
+
+    const chips = L.weeks.map((wk) => `<button type="button" data-w="${wk}" aria-pressed="${wk === week}">${wk === L.current_week ? "This wk" : `Wk ${wk}`}</button>`).join("");
+    let html = `<p class="lead-text" style="margin-top:12px">Forecast your lineup for any week: swap bench players in, or plan waiver
+      pickups and see the effect on the week, the season and your playoff odds. Your plan is saved on this device.</p>
+      <div class="weekchips" id="pl-weeks">${chips}</div>`;
+
+    html += `<div class="card card-pad">
+      <div class="trade-head"><div class="pname">Week ${week}${opp ? ` vs ${esc(L.rosters[opp].team_name)}` : ""}</div>${winP != null ? `<span class="chip ${winP >= 0.5 ? "balanced" : "lopsided"}">${pctText(winP, conf)} to win</span>` : ""}</div>
+      <div class="stats" style="margin:8px 0 4px">
+        <div class="stat"><div class="v">${num(stats.mean)}</div><div class="l">Your lineup</div></div>
+        <div class="stat"><div class="v">${num(best.mean)}</div><div class="l">Best possible</div></div>
+        <div class="stat"><div class="v">${oppStats ? num(oppStats.mean) : "–"}</div><div class="l">Opponent</div></div>
+      </div>
+      <div class="subtle">Likely ${num(Math.max(stats.mean - stats.sd, 0), 0)}–${num(stats.mean + stats.sd, 0)}.
+        ${left > 0.5 ? `<b style="color:var(--warn)">${num(left)} pts left on the bench.</b> <button type="button" class="btn secondary" id="pl-best" style="padding:4px 10px;font-size:.8rem">Use best lineup</button>`
+          : "This is your best projected lineup."}
+        ${week === L.current_week ? " Players whose games are over are locked." : ""}</div></div>`;
+
+    // lineup slots
+    const inLineup = new Set(lineup.filter(Boolean));
+    html += `<h2>Lineup</h2><div class="card">${L.slots.map((slot, i) => {
+      const pid = lineup[i];
+      const x = pid ? weekPts(pid, week) : null;
+      const options = roster.filter((p) => eligible(slot, p) && !weekPts(p, week).locked)
+        .sort((a, b) => weekPts(b, week).pts - weekPts(a, week).pts)
+        .map((p) => `<option value="${esc(p)}" ${p === pid ? "selected" : ""}>${esc(P[p].n)} · ${num(weekPts(p, week).pts)}${P[p].op[w] === "BYE" ? " (bye)" : ""}</option>`).join("");
+      const opTxt = pid ? (P[pid].op[w] || "") : "";
+      return `<div class="prow pl-row"><span class="slot ${esc(slot)}">${esc(slot)}</span>
+        <div>${x && x.locked ? `<div class="pname">${esc(P[pid].n)} <span class="subtle">final</span></div>`
+          : `<select class="pl-slot" data-i="${i}" aria-label="${esc(slot)} slot">${pid ? "" : `<option value="">Empty</option>`}${options}</select>`}
+          <div class="pmeta">${pid ? `${esc(P[pid].p)} · ${esc(P[pid].t)}${opTxt ? ` · ${opTxt === "BYE" ? "<b style='color:var(--bad)'>BYE</b>" : esc(opTxt)}` : ""}${P[pid].s ? ` · <span style="color:var(--warn)">${esc(P[pid].s)}</span>` : ""}` : "No eligible player"}</div></div>
+        <div class="pnums"><div class="big">${x ? num(x.pts) : "–"}</div></div></div>`;
+    }).join("")}</div>`;
+
+    const bench = roster.filter((p) => !inLineup.has(p)).sort((a, b) => weekPts(b, week).pts - weekPts(a, week).pts);
+    html += `<h2>Bench</h2><div class="card">${bench.map((p) => {
+      const x = weekPts(p, week), added = plan.moves.some((m) => m.add === p) && week > L.current_week;
+      return `<div class="prow"><span class="slot BN">BN</span><div><div class="pname">${esc(P[p].n)}${added ? ` <span class="chip ok-style">planned add</span>` : ""}</div>
+        <div class="pmeta">${esc(P[p].p)} · ${esc(P[p].t)}${P[p].op[w] ? ` · ${esc(P[p].op[w])}` : ""}${P[p].s ? ` · ${esc(P[p].s)}` : ""}</div></div>
+        <div class="pnums"><div class="big">${x.locked ? num(x.pts) : num(x.pts)}</div><div class="small">${x.locked ? "final" : "proj"}</div></div></div>`;
+    }).join("") || `<div class="empty">No bench players.</div>`}</div>`;
+
+    // waiver planning
+    const size = base.filter((p) => !(L.rosters[me].reserve || []).includes(p)).length + plan.moves.filter((m) => !m.drop).length;
+    html += `<h2>Plan waiver pickups</h2>
+      <p class="lead-text">Moves apply from week ${L.current_week + 1}, after waivers process. ${size < L.roster_size ? `You have ${L.roster_size - size} open roster spot(s).` : "Your roster is full, so each add needs a drop."}</p>`;
+    if (plan.moves.length) {
+      html += `<div class="card">${plan.moves.map((m, i) => `<div class="prow" style="grid-template-columns:minmax(0,1fr) auto">
+        <div><span style="color:var(--good)">+ ${esc(P[m.add].n)}</span> <span class="pmeta">${esc(P[m.add].p)} · ${num(P[m.add].r)}/wk</span>
+          ${m.drop ? `<br><span class="muted">− ${esc(P[m.drop].n)}</span> <span class="pmeta">${num(P[m.drop].r)}/wk</span>` : ""}</div>
+        <button type="button" class="btn secondary pl-undo" data-i="${i}" style="padding:4px 10px;font-size:.8rem">Remove</button></div>`).join("")}</div>`;
+    }
+    const fas = Object.keys(P).filter((p) => P[p].o == null && !plan.moves.some((m) => m.add === p));
+    html += `<div class="pl-search"><input type="search" id="pl-q" placeholder="Search free agents" aria-label="Search free agents">
+      <div class="weekchips" id="pl-pos">${["All", "QB", "RB", "WR", "TE", "K", "DEF"].map((x) => `<button type="button" data-pos="${x}" aria-pressed="${x === "All"}">${x}</button>`).join("")}</div></div>
+      <div class="card" id="pl-fas"></div>`;
+
+    // season impact
+    const moved = plan.moves.length > 0;
+    const edited = Object.keys(plan.lineups).length > 0;
+    if (moved || edited) {
+      const rows = [];
+      let total = 0;
+      L.weeks.forEach((wk, j) => {
+        const b0 = E.lineup(E.rosterOf(me), j).total;
+        const p1 = wk > L.current_week ? E.lineup(planRoster(wk), j).total : b0;
+        total += p1 - b0;
+        rows.push({ wk, b0, p1, d: p1 - b0 });
+      });
+      const odds0 = E.simulate({}, { n: 3000 });
+      const over = {};
+      Object.keys(plan.lineups).forEach((wk) => {
+        const s = lineupStats(planLineup(Number(wk)), Number(wk));
+        if (Number(wk) !== L.current_week) over[`${me}|${wk}`] = s;
+      });
+      const odds1 = E.simulate({ [me]: planRoster(L.current_week + 1) }, { n: 3000, weekOverrides: over });
+      const d = Math.round(100 * (odds1[me].odds - odds0[me].odds));
+      html += `<h2>Season impact</h2><div class="card card-pad">
+        <div class="odds-row"><span>Rest of season</span><span class="${total > 0 ? "up" : total < 0 ? "down" : ""}"><b>${total > 0 ? "+" : ""}${num(total)}</b> pts (best lineups)</span></div>
+        <div class="odds-row"><span>Playoff odds</span><span><b>${pctText(odds0[me].odds, conf)}</b> → <b>${pctText(odds1[me].odds, conf)}</b>
+          <span class="${d > 0 ? "up" : d < 0 ? "down" : "muted"}">(${d > 0 ? "+" : ""}${d})</span></span></div>
+        <div class="subtle">Your saved lineup edits are included in the odds. Bracketed number = change in percentage points.</div></div>
+        <div class="card table-wrap"><table class="named"><thead><tr><th>Week</th><th>Now</th><th>Plan</th><th>Δ</th></tr></thead><tbody>${
+        rows.map((r) => `<tr><td>Wk ${r.wk}</td><td>${num(r.b0)}</td><td>${num(r.p1)}</td>${deltaCell(r.d)}</tr>`).join("")}</tbody></table></div>`;
+    }
+    html += `<div class="lab-actions"><button type="button" class="btn secondary" id="pl-reset">Reset plan</button>
+      <span class="subtle">Clears planned pickups and lineup edits.</span></div>
+      <details class="recent"><summary>How the Planner works</summary><div class="card card-pad subtle">
+      <p>Projections are the same as everywhere else in the dashboard (byes and injury designations included). This week starts
+      from your actual Sleeper lineup; future weeks start from your best projected lineup.</p>
+      <p>Win chance compares your lineup's projected score and spread with your opponent's (their actual lineup this week,
+      their best projected lineup in later weeks). Planned pickups count from next week. Nothing here changes your real
+      Sleeper team.</p></div></details>`;
+    host.innerHTML = html;
+
+    // wiring
+    host.querySelectorAll("#pl-weeks button").forEach((b) => b.addEventListener("click", () => { plan.week = Number(b.dataset.w); renderPlanner(); }));
+    host.querySelectorAll(".pl-slot").forEach((sel) => sel.addEventListener("change", () => {
+      const i = Number(sel.dataset.i), pid = sel.value;
+      const cur = planLineup(week);
+      const j = cur.indexOf(pid);
+      const prev = cur[i];
+      cur[i] = pid || null;
+      if (j >= 0 && j !== i) cur[j] = prev && eligible(L.slots[j], prev) ? prev : null;
+      plan.lineups[String(week)] = cur;
+      store.set("plannerState", plan);
+      renderPlanner();
+    }));
+    const bestBtn = $("pl-best");
+    if (bestBtn) bestBtn.addEventListener("click", () => { plan.lineups[String(week)] = bestLineup(week); store.set("plannerState", plan); renderPlanner(); });
+    host.querySelectorAll(".pl-undo").forEach((b) => b.addEventListener("click", () => { plan.moves.splice(Number(b.dataset.i), 1); renderPlanner(); }));
+    $("pl-reset").addEventListener("click", () => { plan = planDefaults(); plan.week = week; store.set("plannerState", plan); renderPlanner(); });
+
+    let posFilter = "All";
+    const drawFAs = () => {
+      const q = ($("pl-q").value || "").toLowerCase();
+      const list = fas.filter((p) => (posFilter === "All" || P[p].p === posFilter) && (!q || P[p].n.toLowerCase().includes(q)))
+        .sort((a, b) => P[b].r - P[a].r).slice(0, 15);
+      // weakest skill players first (so the default drop is the least valuable); K/DEF last
+      const isKD = (p) => (P[p].p === "K" || P[p].p === "DEF" ? 1 : 0);
+      const dropOpts = planRoster(L.current_week + 1).slice().sort((a, b) => (isKD(a) - isKD(b)) || (E.vor(a) - E.vor(b)))
+        .map((p) => `<option value="${esc(p)}">${esc(P[p].n)} (${esc(P[p].p)} · ${num(P[p].r)}/wk)</option>`).join("");
+      $("pl-fas").innerHTML = list.map((p) => `<div class="fa-row"><div class="prow" style="grid-template-columns:44px minmax(0,1fr) auto">
+        <span class="slot ${esc(P[p].p)}">${esc(P[p].p)}</span>
+        <div><div class="pname">${esc(P[p].n)}${P[p].s ? ` <span class="chip ${P[p].s === "Questionable" ? "q" : "inj"}">${esc(P[p].s)}</span>` : ""}</div>
+          <div class="pmeta">${esc(P[p].t)} · <b>${num(P[p].r)}</b>/wk · ROS ${num(P[p].ros, 0)} · ${esc(P[p].c)} conf${P[p].b.length ? ` · bye ${P[p].b.join(", ")}` : ""}</div>
+          <div class="pmeta">Next: ${L.weeks.slice(Math.max(w, L.weeks.indexOf(L.current_week + 1)), Math.max(w, L.weeks.indexOf(L.current_week + 1)) + 3)
+            .map((wk) => { const k = L.weeks.indexOf(wk); return `wk ${wk} ${P[p].op[k] === "BYE" ? "bye" : num(P[p].w[k])}`; }).join(" · ")}</div></div>
+        <button type="button" class="btn secondary fa-add" data-pid="${esc(p)}" style="padding:4px 10px;font-size:.8rem">Add</button></div>
+        <div class="fa-drop" hidden><label class="subtle">Drop</label><select class="fa-drop-sel">${size < L.roster_size ? `<option value="">Nobody (open spot)</option>` : ""}${dropOpts}</select>
+          <button type="button" class="btn fa-confirm" data-pid="${esc(p)}" style="padding:6px 12px;font-size:.82rem">Plan it</button></div></div>`).join("")
+        || `<div class="empty">No free agents match.</div>`;
+      $("pl-fas").querySelectorAll(".fa-add").forEach((b) => b.addEventListener("click", () => {
+        const box = b.closest(".fa-row").querySelector(".fa-drop"); box.hidden = !box.hidden;
+      }));
+      $("pl-fas").querySelectorAll(".fa-confirm").forEach((b) => b.addEventListener("click", () => {
+        const drop = b.parentElement.querySelector(".fa-drop-sel").value || null;
+        plan.moves.push({ add: b.dataset.pid, drop });
+        plan.lineups = {};          // lineups change with the roster; start from best again
+        store.set("plannerState", plan);
+        renderPlanner();
+      }));
+    };
+    $("pl-q").addEventListener("input", drawFAs);
+    host.querySelectorAll("#pl-pos button").forEach((b) => b.addEventListener("click", () => {
+      posFilter = b.dataset.pos;
+      host.querySelectorAll("#pl-pos button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+      drawFAs();
+    }));
+    drawFAs();
+  }
+
   // ---------- Brief ----------
   const B = DATA.brief;
 
@@ -1077,7 +1344,7 @@
   }
   showStatus(D.generated_at);
   $("footer").textContent = `Updated ${new Date(D.generated_at).toLocaleString()} · Data: Sleeper API, nflverse`;
-  renderTeam(); renderNews(); renderStandings(); renderMatchups(); renderFaab(); renderTrades(); renderTradeLab(); renderPlayoffs(); renderRosters(); renderBrief();
+  renderTeam(); renderNews(); renderStandings(); renderMatchups(); renderFaab(); renderTrades(); renderTradeLab(); renderPlanner(); renderPlayoffs(); renderRosters(); renderBrief();
   document.querySelectorAll("#tabs button").forEach((b) => b.addEventListener("click", () => selectTab(b.dataset.tab)));
   const initial = location.hash.slice(1);
   selectTab(document.querySelector(`#tabs button[data-tab="${initial}"]`) ? initial : "team");
