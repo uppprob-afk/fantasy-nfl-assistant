@@ -283,6 +283,24 @@ table.log tr.partial td { color: var(--muted); }
 .chip.mu-easy { background: transparent; color: var(--good); border: 1px solid var(--good); }
 .chip.mu-tough { background: transparent; color: var(--bad); border: 1px solid var(--bad); }
 
+/* Trades: expandable players */
+.tp { cursor: pointer; border-radius: 8px; padding: 2px 4px; margin: 0 -4px 4px; }
+.tp:hover, .tp.open, .tp-row:hover, .tp-row.open { background: var(--surface-2); }
+.tp.no-card { cursor: default; }
+.chev { color: var(--accent); font-size: .75rem; display: inline-block; transition: transform .15s; }
+.tp.open .chev, .tp-row.open .chev, details[open] > summary .chev { transform: rotate(90deg); }
+.tp-chip { font: inherit; font-size: .82rem; border: 1px solid var(--border); background: var(--surface); color: var(--text);
+  border-radius: 999px; padding: 3px 10px; margin: 4px 4px 0 0; }
+.trade-detail { margin-top: 10px; border-top: 1px dashed var(--border); padding-top: 10px; }
+.trade-detail .pd, .xp-body .pd { padding: 8px 0 0; }
+.xp-head { display: flex; justify-content: space-between; gap: 10px; align-items: start; margin-bottom: 4px; }
+.xp-body { padding: 4px 0 6px; }
+details.bs-d > summary { list-style: none; cursor: pointer; }
+details.bs-d > summary::-webkit-details-marker { display: none; }
+details.bs-d[open] > .xp-body { margin-top: 10px; border-top: 1px dashed var(--border); padding-top: 10px; }
+tr.tp-row { cursor: pointer; }
+tr.detail-row td { text-align: left; white-space: normal; background: var(--surface); padding: 6px 12px 12px; }
+
 @media (max-width: 420px) {
   .pd { padding-left: 14px; }
   .stat .v { font-size: 1.1rem; }

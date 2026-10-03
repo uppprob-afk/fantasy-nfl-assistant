@@ -437,16 +437,29 @@
     return `${esc(p.position)} · ${esc(p.team)} · <b>${num(p.rate)}</b>/wk proj${range}`;
   }
 
+  // Full-width player details (same content as the roster cards) for the Trades tab.
+  function playerExpand(p) {
+    const c = CARDS[p.id];
+    if (!c) return `<div class="empty">No details for this player yet.</div>`;
+    const arrow = { up: `<span class="trend up">▲</span>`, down: `<span class="trend down">▼</span>` }[c.trend] || "";
+    return `<div class="xp-head"><div><span class="pname">${esc(p.name)}</span>${injuryChip(p)}
+        <div class="pmeta">${esc(p.position)} · ${esc(p.team)}${p.manager ? ` · ${esc(p.manager)}` : ""}</div></div>
+      <div class="l3n3"><div><div class="k">Last 3</div><div class="big">${one(c.last3_avg)}</div></div>
+        <div><div class="k">Next 3</div><div class="big">${arrow}${one(c.next3_avg)}</div></div></div></div>
+      ${strip(c)}${detailPanel(p, c)}`;
+  }
+
   function tradePlayers(list) {
-    return list.map((p) => `<div class="pl">${esc(p.name)}${injuryChip(p)}</div>
+    return list.map((p) => `<div class="tp${CARDS[p.id] ? "" : " no-card"}" data-pid="${esc(p.id)}" role="button" tabindex="0"
+      aria-label="Show details for ${esc(p.name)}"><div class="pl">${esc(p.name)}${injuryChip(p)}${CARDS[p.id] ? ` <span class="chev">▸</span>` : ""}</div>
       <div class="pmeta">${projMeta(p)}</div>
-      <div class="pmeta">ROS ${num(p.ros, 0)} pts · ${p.vor >= 0 ? "+" : ""}${num(p.vor, 0)} vs replacement ${confChip(p.confidence)}</div>`).join("");
+      <div class="pmeta">ROS ${num(p.ros, 0)} pts · ${p.vor >= 0 ? "+" : ""}${num(p.vor, 0)} vs replacement ${confChip(p.confidence)}</div></div>`).join("");
   }
 
   function tradeCard(t) {
     const cls = t.balance.startsWith("balanced") ? "balanced" : t.balance.startsWith("favours") ? "favours" : "lopsided";
     const n = T.weeks.length || 1;
-    return `<div class="trade">
+    return `<div class="trade has-detail">
       <div class="trade-head">
         <div><span class="pname">${esc(t.team_name)}</span> <span class="pmeta">${esc(t.manager)}</span></div>
         <span><span class="chip ${cls}">${esc(t.balance)}</span> ${confChip(t.confidence)}</span>
@@ -458,23 +471,26 @@
       </div>
       <div class="gains"><span class="gain me">You ${signed(t.my_gain)} pts ROS (~${num(t.my_gain / n)}/wk)</span>
         <span class="gain">Them ${signed(t.their_gain)} pts</span></div>
+      <div class="trade-detail" hidden></div>
       <details><summary>Why this trade?</summary><ul>${t.reasons.map((r) => `<li>${esc(r)}</li>`).join("")}</ul></details>
     </div>`;
   }
 
   function buySellRow(r, verb) {
-    return `<div class="trade">
-      <div class="trade-head"><div><span class="pname">${esc(r.name)}</span> <span class="pmeta">${esc(r.position)} · ${esc(r.team)} · ${esc(r.manager)}</span></div>${confChip(r.confidence)}</div>
+    const body = CARDS[r.id] ? `<div class="xp-body">${playerExpand(r)}</div>` : "";
+    return `<details class="trade bs-d"${body ? "" : " data-empty"}><summary>
+      <div class="trade-head"><div><span class="pname">${esc(r.name)}</span> <span class="pmeta">${esc(r.position)} · ${esc(r.team)} · ${esc(r.manager)}</span>${body ? ` <span class="chev">▸</span>` : ""}</div>${confChip(r.confidence)}</div>
       <div class="subtle" style="margin-top:4px">Scoring <b>${num(r.actual_ppg)}</b>/g in ${r.games_this} full game(s); projection <b>${num(r.rate)}</b>/wk.
         Usage alone suggests ${r.expected_ppg != null ? num(r.expected_ppg) : "–"}/g${r.prior_ppg != null ? `, last season ${num(r.prior_ppg)}/g` : ""}.
-        ${verb}</div></div>`;
+        ${verb}</div></summary>${body}</details>`;
   }
 
   function valuesTable(rows) {
     return `<div class="card table-wrap"><table class="named">
       <thead><tr><th>Player</th><th>Proj/wk</th><th>ROS</th><th title="Rest-of-season points above a free-agent replacement">vs repl.</th><th class="hide-sm">Conf.</th></tr></thead>
-      <tbody>${rows.map((v) => `<tr class="${v.roster_id === T.my_roster_id ? "mine" : ""}">
-        <td class="team-cell"><div class="t">${esc(v.name)}${injuryChip(v)}</div>
+      <tbody>${rows.map((v) => `<tr class="${v.roster_id === T.my_roster_id ? "mine" : ""}${CARDS[v.id] ? " tp-row" : ""}" data-pid="${esc(v.id)}"
+          ${CARDS[v.id] ? 'tabindex="0" role="button"' : ""}>
+        <td class="team-cell"><div class="t">${esc(v.name)}${injuryChip(v)}${CARDS[v.id] ? ` <span class="chev">▸</span>` : ""}</div>
           <div class="m">${esc(v.position)} · ${esc(v.team)} · ${esc(v.manager)}${v.byes && v.byes.length ? ` · bye wk ${v.byes.join(", ")}` : ""}</div></td>
         <td>${num(v.rate)}</td><td>${num(v.ros, 0)}</td>
         <td class="${v.vor > 0 ? "up" : "down"}">${v.vor >= 0 ? "+" : ""}${num(v.vor, 0)}</td>
@@ -504,11 +520,12 @@
 
     html += `<h2>Motivated buyers</h2>`;
     if (T.buyers.length) {
-      html += `<div class="card">${T.buyers.map((b) => `<div class="trade">
+      html += `<div class="card">${T.buyers.map((b) => `<div class="trade has-detail">
         <div><span class="pname">${esc(b.manager)}</span> <span class="pmeta">just lost ${esc(b.position)} ${esc(b.player)} (${esc(b.status)})</span></div>
         <div class="subtle" style="margin-top:4px">${b.my_options.length
-          ? `Players you could pitch: ${b.my_options.map((p) => `<b>${esc(p.name)}</b> (${num(p.rate)}/wk proj)`).join(", ")}`
-          : `You have no bench ${esc(b.position)} to offer.`}</div></div>`).join("")}</div>`;
+          ? `Players you could pitch: ${b.my_options.map((p) => `<button type="button" class="tp tp-chip" data-pid="${esc(p.id)}">${esc(p.name)}
+              <span class="subtle">${num(p.rate)}/wk</span> <span class="chev">▸</span></button>`).join(" ")}`
+          : `You have no bench ${esc(b.position)} to offer.`}</div><div class="trade-detail" hidden></div></div>`).join("")}</div>`;
     } else {
       html += `<div class="card"><div class="empty">No team has lost a starter to injury since recent runs. Check back after the next scan.</div></div>`;
     }
@@ -550,6 +567,52 @@
       (rookies, little data). Sources: nflverse stats re-scored with league scoring (they match Sleeper exactly for checked
       players), nflverse snap counts and schedule.</p></div></details>`;
     $("tab-trades").innerHTML = html;
+    wireTradeDetails();
+  }
+
+  function tradePlayerLookup() {
+    const byId = {};
+    const add = (p, extra) => { if (p && p.id && !byId[p.id]) byId[p.id] = Object.assign({}, p, extra || {}); };
+    T.values.forEach((v) => add(v));
+    T.ideas.forEach((t) => t.give.concat(t.get).forEach((p) => add(p)));
+    T.buyers.forEach((b) => b.my_options.forEach((p) => add(p)));
+    return byId;
+  }
+
+  function wireTradeDetails() {
+    const root = $("tab-trades");
+    const lookup = tradePlayerLookup();
+    const toggle = (el) => {
+      const pid = el.dataset.pid;
+      const p = lookup[pid];
+      if (!p || !CARDS[pid]) return;
+      if (el.classList.contains("tp-row")) {           // values table: detail row underneath
+        const next = el.nextElementSibling;
+        if (next && next.classList.contains("detail-row")) { next.remove(); el.classList.remove("open"); return; }
+        el.insertAdjacentHTML("afterend", `<tr class="detail-row"><td colspan="5"><div class="xp-body">${playerExpand(p)}</div></td></tr>`);
+        el.classList.add("open");
+        return;
+      }
+      const box = el.closest(".has-detail");            // trade idea / buyer: full-width panel
+      const panel = box && box.querySelector(".trade-detail");
+      if (!panel) return;
+      const same = !panel.hidden && panel.dataset.pid === pid;
+      box.querySelectorAll(".tp.open").forEach((x) => x.classList.remove("open"));
+      if (same) { panel.hidden = true; panel.innerHTML = ""; panel.dataset.pid = ""; return; }
+      panel.innerHTML = playerExpand(p);
+      panel.dataset.pid = pid;
+      panel.hidden = false;
+      el.classList.add("open");
+    };
+    root.addEventListener("click", (e) => {
+      const el = e.target.closest(".tp, .tp-row");
+      if (el && root.contains(el)) toggle(el);
+    });
+    root.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      const el = e.target.closest(".tp, .tp-row");
+      if (el && !el.matches("button")) { e.preventDefault(); toggle(el); }
+    });
   }
 
   // ---------- Matchups (projections) ----------
