@@ -206,15 +206,21 @@ or simulation must be mirrored in lab.js.** Verify with
 within 0.2, odds within 3 percentage points). The site shows a warning if `selfCheck()` fails. Trade Lab odds use
 `simulate(..., {mode: "value"})` (weekly means = the trade value's expected points) so odds and
 gains agree; the default `mode: "lineup"` matches the Playoffs tab and is what parity checks.
+Sub-tabs that share their section's name (`trades` = Ideas, `more` = Settings) are
+selected with `selectTab(name, true)` so they don't jump back to the last sub-tab.
 The Planner (app.js `renderPlanner`) uses the same engine: this week starts from Sleeper's set
 lineup with finished games locked (`a` = actual points), future weeks from the optimal
 lineup; planned waiver moves apply from `current_week + 1`; lineup edits are stored per week
 and fed to `simulate` as `weekOverrides`. Plans live in localStorage (`plannerState`).
 
 **Suggested offers and quick actions.** `suggestOffers({get | give, partner})` in lab.js
-searches 1- and 2-player offers (buy: my tradeable players for `get`; shop: their players
-for `give`, one partner or all teams), scores both sides with `value`, prefers offers that
-help both, and drops throw-in duplicates. app.js has one delegated click handler for
+searches 1-for-1, 2-for-1, 1-for-2 and 2-for-2 deals around the fixed player (buy: my
+tradeable players, plus one of theirs alongside the target; shop: their players, plus one of
+mine as a second piece; one partner or all teams). Only like-for-like packages are scored
+(total `ros` within 0.67-1.5x). It never suggests a deal that lowers my value; it keeps deals
+where they gain, ranked by min(my gain, their gain), boosted when it fills a lineup gap
+(`leagueProfiles` needs). If none exist it shows up to 3 near-misses (they'd lose < 3 pts),
+labelled as needing a sweetener. Max 2 per team, throw-in duplicates dropped. app.js has one delegated click handler for
 `[data-act]` buttons: `trade-for` / `shop` / `pitch` open the Lab with offers already
 searched (`openInLab(..., {suggest, shopAll})`), `plan-add` adds a pickup to the Planner
 (`planPickup`, default drop = weakest non-held player when the roster is full), and `hold`
