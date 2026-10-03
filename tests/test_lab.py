@@ -9,7 +9,8 @@ def P(pos, rate, status=None, bye=(), played=(), conf="medium", gt=3, gp=10):
     for w in WEEKS:
         if w in played:
             continue                                   # game already played: not in weekly
-        weekly[w] = {"pts": 0.0, "bye": True} if w in bye else {"pts": float(rate), "bye": False, "avail": 1.0}
+        weekly[w] = {"pts": 0.0, "bye": True} if w in bye else {"pts": float(rate), "bye": False, "avail": 1.0,
+                                                                 "opp": "BUF", "home": w % 2 == 0}
     return {"position": pos, "team": "KC", "status": status, "rate": rate, "sd": 5.0, "se": 1.5,
             "confidence": conf, "weekly": weekly, "byes": list(bye), "games_this": gt, "games_prior": gp,
             "ros": sum(x["pts"] for x in weekly.values()), "actual_ppg": None, "expected_ppg": None}
@@ -22,6 +23,7 @@ def test_lab_players_align_weeks_and_zero_byes_and_played():
     assert out["b"]["w"] == [0.0, 8.0] and out["b"]["a"] == 21.5
     assert out["a"]["n"] == "Al" and out["b"]["n"] == "b" and out["a"]["o"] == 1 and out["b"]["o"] is None
     assert out["a"]["ros"] == 10.0
+    assert out["a"]["op"] == ["BUF", "BYE"] and out["b"]["op"] == ["", "@BUF"]
 
 
 def test_tradeable_matches_trades_rule():

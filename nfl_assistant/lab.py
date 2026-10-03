@@ -15,16 +15,18 @@ def lab_players(proj: dict, weeks: list[int], names: dict[str, dict], owners: di
     `weeks`; a bye or an already-played game is 0)."""
     out = {}
     for pid, p in proj.items():
-        w, v = [], []
+        w, v, op = [], [], []
         for wk in weeks:
             m, var, todo = player_week(p, wk)
             w.append(round(m, 2) if todo else 0.0)
             v.append(round(var, 2) if todo else 0.0)
+            g = p["weekly"].get(wk) or {}
+            op.append("BYE" if g.get("bye") else (("" if g.get("home") else "@") + g["opp"]) if g.get("opp") else "")
         info = names.get(pid, {})
         out[pid] = {
             "n": info.get("name", pid), "p": p["position"], "t": p["team"], "s": p.get("status"),
             "r": p["rate"], "sd": p["sd"], "se": p.get("se", 0.0), "c": p["confidence"], "ros": p["ros"],
-            "w": w, "v": v, "b": p.get("byes", []), "o": owners.get(pid),
+            "w": w, "v": v, "op": op, "b": p.get("byes", []), "o": owners.get(pid),
             "gt": p.get("games_this", 0), "gp": p.get("games_prior", 0),
             "ap": p.get("actual_ppg"), "ep": p.get("expected_ppg"),
             "a": actual_now.get(pid),   # points already scored this week (game played)
