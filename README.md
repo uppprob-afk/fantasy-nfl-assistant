@@ -26,6 +26,7 @@ Free to run: public APIs only, no keys, no paid services.
 | **Playoffs** | Playoff odds for every team from 10,000 simulated seasons, odds if you win or lose this week, and the games that matter most. |
 | **FAAB** | Bid ideas at three levels (bargain / competitive / safe), likely rivals with a bid-to-win range, manager tendencies (style, positions chased, overpaying, budget), a full waiver log with runner-up bids, and market prices. |
 | **Trades** | Rest-of-season player values with range and confidence, value over replacement, mutual-benefit trade ideas with reasoning, buy-low / sell-high, and projected positional strength. Tap any player for the same details as the roster cards. |
+| **Trade Lab** | Build any trade with any team and get a full breakdown: rest-of-season gain for both sides, playoff odds before → after, week-by-week impact (byes included), lineup changes, positional strength, and the players' details. Runs in the browser, instantly. |
 | **Rosters** | Every manager's roster with the same player cards. |
 | **Brief** | `claude_brief.md`: a compact verified summary with a one-tap Copy button. |
 
