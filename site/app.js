@@ -34,6 +34,23 @@
 
   // ---------- player row: last 3 vs next 3, tap for details ----------
   const CARDS = (D && D.cards) || {};
+
+  // ---------- holds (stashed players) and quick actions ----------
+  let HOLDS = new Set((() => { try { return JSON.parse(localStorage.getItem("holds") || "[]"); } catch (e) { return []; } })());
+  const isHeld = (pid) => HOLDS.has(pid);
+  const ownerOf = (pid) => (DATA.lab && DATA.lab.players[pid] ? DATA.lab.players[pid].o : undefined);
+  const myRid = () => (DATA.lab ? DATA.lab.my_roster_id : D && D.me.roster_id);
+  function actionButtons(pid) {
+    const o = ownerOf(pid);
+    if (o === undefined) return "";
+    if (o === myRid()) {
+      return `<button type="button" class="mini" data-act="shop" data-pid="${esc(pid)}">Shop in Trade Lab</button>
+        <button type="button" class="mini ${isHeld(pid) ? "on" : ""}" data-act="hold" data-pid="${esc(pid)}"
+          title="Held players are never suggested for trades, cuts or drops">${isHeld(pid) ? "Held ✓" : "Hold (stash)"}</button>`;
+    }
+    if (o === null) return `<button type="button" class="mini" data-act="plan-add" data-pid="${esc(pid)}">Plan pickup</button>`;
+    return `<button type="button" class="mini" data-act="trade-for" data-pid="${esc(pid)}">Trade for in Lab</button>`;
+  }
   const one = (n) => (n == null ? "–" : Number(n).toFixed(1));
   const POS_ABBR = { QB: "QB", RB: "RB", WR: "WR", TE: "TE", K: "K", DEF: "DEF" };
 
@@ -105,6 +122,8 @@
           ${v.vor >= 0 ? "+" : ""}${Math.round(v.vor)} vs a free-agent replacement</div>
         <div class="subtle">${v.byes.length ? `Bye: week ${v.byes.join(", ")}. ` : ""}${v.prior_ppg != null ? `Last season ${one(v.prior_ppg)}/g. ` : ""}See Trades → How values work.</div></div>`;
     }
+    const acts = actionButtons(p.id);
+    if (acts) html += `<div class="acts">${acts}</div>`;
     return html + `</div>`;
   }
 
@@ -128,11 +147,11 @@
     const v = c.value;
     const rank = v && v.rank ? ` · ${POS_ABBR[p.position] || p.position}${v.rank}` : "";
     const arrow = { up: `<span class="trend up">▲</span>`, down: `<span class="trend down">▼</span>`, flat: "" }[c.trend] || "";
-    return `<details class="prow-d"><summary class="prow prow-card">
+    return `<details class="prow-d" data-pid="${esc(p.id)}"><summary class="prow prow-card">
       <span class="slot ${esc(cls)}">${esc(label)}</span>
       <div class="pmain">
         <div class="pname">${esc(p.name)}${injuryChip(p)}${irNote}${checkChip(p)}</div>
-        <div class="pmeta">${esc(p.team)}${rank}${v ? ` · ${esc(v.confidence)} conf` : ""}${v && v.flag ? ` · <span class="flag">${esc(v.flag)}</span>` : ""}</div>
+        <div class="pmeta">${esc(p.team)}${rank}${v ? ` · ${esc(v.confidence)} conf` : ""}${v && v.flag && !isHeld(p.id) ? ` · <span class="flag">${esc(v.flag)}</span>` : ""}${isHeld(p.id) ? ` · <span class="held">held</span>` : ""}</div>
         ${reason}
       </div>
       <div class="pnums l3n3">
@@ -198,7 +217,7 @@
         <div class="bid-amt">${s.bid == null ? "–" : money(s.bid)}</div>
       </div>
       <div class="levels">${lvl("bargain_bid", "Bargain")}${lvl("competitive_bid", "Competitive")}${lvl("safe_bid", "Safe")}</div>
-      ${owner}
+      ${owner}<div class="acts">${actionButtons(p.id)}</div>
       <details class="why"><summary>Why ${s.bid == null ? "this bid" : money(s.bid)}?</summary>
         <div class="subtle" style="margin-top:6px">${esc(s.reason || "")}</div>${comps}${rivalsBlock(p)}</details>
     </div>`;
@@ -327,6 +346,7 @@
       <div class="tag ${esc(tagCls)}">${esc(tag)}${sect}</div>
       <div><span class="pname">${esc(n.name)}</span>${injuryChip(n)} <span class="pmeta">${esc(n.position)} · ${esc(n.team)}${who}${stats}</span></div>
       <div class="txt">${esc(n.text)}</div>${action}${bid}${n.rivals && F && F.tendencies ? rivalsBlock(n) : ""}
+      ${n.id && actionButtons(n.id) ? `<div class="acts">${actionButtons(n.id)}</div>` : ""}
     </div>`;
   }
 
@@ -417,7 +437,8 @@
   function buySellRow(r, verb) {
     const body = CARDS[r.id] ? `<div class="xp-body">${playerExpand(r)}</div>` : "";
     return `<details class="trade bs-d"${body ? "" : " data-empty"}><summary>
-      <div class="trade-head"><div><span class="pname">${esc(r.name)}</span> <span class="pmeta">${esc(r.position)} · ${esc(r.team)} · ${esc(r.manager)}</span>${body ? ` <span class="chev">▸</span>` : ""}</div>${confChip(r.confidence)}</div>
+      <div class="trade-head"><div><span class="pname">${esc(r.name)}</span> <span class="pmeta">${esc(r.position)} · ${esc(r.team)} · ${esc(r.manager)}</span>${body ? ` <span class="chev">▸</span>` : ""}</div>
+        <span>${confChip(r.confidence)} <button type="button" class="mini" data-act="${r.roster_id === T.my_roster_id ? "shop" : "trade-for"}" data-pid="${esc(r.id)}">${r.roster_id === T.my_roster_id ? "Shop" : "Trade for"}</button></span></div>
       <div class="subtle" style="margin-top:4px">Scoring <b>${num(r.actual_ppg)}</b>/g in ${r.games_this} full game(s); projection <b>${num(r.rate)}</b>/wk.
         Usage alone suggests ${r.expected_ppg != null ? num(r.expected_ppg) : "–"}/g${r.prior_ppg != null ? `, last season ${num(r.prior_ppg)}/g` : ""}.
         ${verb}</div></summary>${body}</details>`;
@@ -451,10 +472,14 @@
     html += `<h2>Trade ideas</h2><p class="lead-text">Each idea improves <b>both</b> teams' projected optimal lineups for every remaining week
       (byes included), counting only points above free-agent level, with injury cover and roster limits (the side receiving
       two players must cut someone). Ranked by benefit to you; lopsided ones last.</p>`;
-    html += `<div class="card">${T.ideas.length ? T.ideas.map(tradeCard).join("") : `<div class="empty">No mutually beneficial trades found right now.</div>`}</div>`;
+    const heldIn = (t) => t.give.some((p) => isHeld(p.id)) || ((t.my_moves || {}).drop || []).some(isHeld);
+    const ideas = T.ideas.filter((t) => !heldIn(t));
+    const hiddenIdeas = T.ideas.length - ideas.length;
+    html += `<div class="card">${ideas.length ? ideas.map(tradeCard).join("") : `<div class="empty">No mutually beneficial trades found right now.</div>`}</div>`;
+    if (hiddenIdeas) html += `<p class="subtle">${hiddenIdeas} idea${hiddenIdeas === 1 ? "" : "s"} hidden because they'd offer or cut a player you're holding.</p>`;
 
     html += `<h2>Sell high</h2><p class="lead-text">Your players scoring well above what their usage and track record support.</p>
-      <div class="card">${T.sell_high.length ? T.sell_high.map((r) => buySellRow(r, "Worth shopping while the numbers look great.")).join("")
+      <div class="card">${T.sell_high.filter((r) => !isHeld(r.id)).length ? T.sell_high.filter((r) => !isHeld(r.id)).map((r) => buySellRow(r, "Worth shopping while the numbers look great.")).join("")
         : `<div class="empty">None of your players are clearly overperforming.</div>`}</div>`;
     html += `<h2>Buy low</h2><p class="lead-text">Other teams' players scoring well below their projection. Their managers may undervalue them.</p>
       <div class="card">${T.buy_low.length ? T.buy_low.map((r) => buySellRow(r, "Could be cheaper now than they're worth.")).join("")
@@ -465,8 +490,9 @@
       html += `<div class="card">${T.buyers.map((b) => `<div class="trade has-detail">
         <div><span class="pname">${esc(b.manager)}</span> <span class="pmeta">just lost ${esc(b.position)} ${esc(b.player)} (${esc(b.status)})</span></div>
         <div class="subtle" style="margin-top:4px">${b.my_options.length
-          ? `Players you could pitch: ${b.my_options.map((p) => `<button type="button" class="tp tp-chip" data-pid="${esc(p.id)}">${esc(p.name)}
-              <span class="subtle">${num(p.rate)}/wk</span> <span class="chev">▸</span></button>`).join(" ")}`
+          ? `Players you could pitch: ${b.my_options.filter((p) => !isHeld(p.id)).map((p) => `<button type="button" class="tp tp-chip" data-pid="${esc(p.id)}">${esc(p.name)}
+              <span class="subtle">${num(p.rate)}/wk</span> <span class="chev">▸</span></button>
+              <button type="button" class="mini" data-act="pitch" data-pid="${esc(p.id)}" data-partner="${b.roster_id}">Pitch</button>`).join(" ")}`
           : `You have no bench ${esc(b.position)} to offer.`}</div><div class="trade-detail" hidden></div></div>`).join("")}</div>`;
     } else {
       html += `<div class="card"><div class="empty">No team has lost a starter to injury since recent runs. Check back after the next scan.</div></div>`;
@@ -951,7 +977,10 @@
 
   // ---------- Trade Lab ----------
   let ENGINE = null;
-  const engine = () => (ENGINE = ENGINE || (DATA.lab && window.NFLLab ? window.NFLLab.create(DATA.lab) : null));
+  const engine = () => {
+    if (!ENGINE && DATA.lab && window.NFLLab) { ENGINE = window.NFLLab.create(DATA.lab); ENGINE.setHolds([...HOLDS]); }
+    return ENGINE;
+  };
   const POS_ORDER = ["QB", "RB", "WR", "TE", "K", "DEF"];
   const store = {
     get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
@@ -1099,8 +1128,10 @@
         <div><div class="col-label">You give (${labState.give.length})</div><div class="picks">${pickChips(mine, labState.give, "give")}</div></div>
         <div><div class="col-label">You get (${labState.get.length})</div><div class="picks">${pickChips(theirs, labState.get, "get")}</div></div>
       </div>
-      <div class="lab-actions"><button type="button" class="btn secondary" id="lab-clear">Clear</button>
-        <span class="subtle">Numbers on the right are projected pts/week.</span></div>
+      <div class="lab-actions"><button type="button" class="btn" id="lab-suggest" ${(labState.give.length > 0) !== (labState.get.length > 0) ? "" : "disabled"}>Suggest offers</button>
+        <button type="button" class="btn secondary" id="lab-clear">Clear</button></div>
+      <p class="subtle">Pick only who you want (or only who you're shopping) and tap <b>Suggest offers</b>. Numbers on the right are projected pts/week.</p>
+      <div id="lab-offers">${labState.offers ? offersHtml(labState.offers) : ""}</div>
       <div id="lab-result">${labState.give.length && labState.get.length ? `<div class="empty">Calculating…</div>`
         : `<div class="empty">Pick at least one player on each side.</div>`}</div>
       <details class="recent"><summary>How the Trade Lab works</summary><div class="card card-pad subtle">
@@ -1122,6 +1153,9 @@
 
     $("lab-partner").addEventListener("change", (e) => { labState = { partner: e.target.value, give: labState.give, get: [] }; renderTradeLab(); });
     $("lab-clear").addEventListener("click", () => { labState = { partner: labState.partner, give: [], get: [] }; renderTradeLab(); });
+    $("lab-suggest").addEventListener("click", () => runSuggestions());
+    wireOffers();
+    if (labState.autoSuggest) { labState.autoSuggest = false; runSuggestions(); }
     host.querySelectorAll(".pick").forEach((b) => b.addEventListener("click", () => {
       const list = labState[b.dataset.side];
       const i = list.indexOf(b.dataset.pid);
@@ -1137,12 +1171,89 @@
     }
   }
 
-  function openInLab(partner, give, get) {
-    labState = { partner: String(partner), give: give.slice(), get: get.slice() };
+  function offersHtml(o) {
+    const P = DATA.lab.players, R = DATA.lab.rosters;
+    if (!o.offers.length) return `<div class="card"><div class="empty">No offers found.</div></div>`;
+    const names = (ids) => ids.map((p) => esc(P[p].n)).join(" + ");
+    return `<h2>Suggested offers</h2>
+      ${o.anyAcceptable ? "" : `<p class="subtle">Nothing found that clearly helps both teams; these come closest.</p>`}
+      <div class="card">${o.offers.map((x, i) => {
+        const cls = x.balance.startsWith("balanced") ? "balanced" : x.balance.startsWith("favours you") ? "favours" : "lopsided";
+        return `<div class="trade offer"><div class="trade-head"><div class="pname">${esc(R[x.partner].team_name)}</div><span class="chip ${cls}">${esc(x.balance)}</span></div>
+          <div class="subtle" style="margin:4px 0 8px">Give <b>${names(x.give)}</b> · get <b>${names(x.get)}</b></div>
+          <div class="gains"><span class="gain me">You ${signed(x.gainMe)}</span><span class="gain">Them ${signed(x.gainThem)}</span>
+            <button type="button" class="mini" data-offer="${i}">Load</button></div></div>`;
+      }).join("")}</div>`;
+  }
+
+  function wireOffers() {
+    const box = $("lab-offers");
+    if (!box) return;
+    box.querySelectorAll("[data-offer]").forEach((b) => b.addEventListener("click", () => {
+      const x = labState.offers.offers[Number(b.dataset.offer)];
+      labState = Object.assign({}, labState, { partner: x.partner, give: x.give.slice(), get: x.get.slice() });
+      store.set("labState", labState);
+      renderTradeLab();
+      const r = $("lab-result");
+      if (r) setTimeout(() => r.scrollIntoView({ block: "start", behavior: "smooth" }), 60);
+    }));
+  }
+
+  function runSuggestions() {
+    const E = engine();
+    $("lab-offers").innerHTML = `<div class="card"><div class="empty">Searching trades…</div></div>`;
+    setTimeout(() => {
+      const res = labState.get.length
+        ? E.suggestOffers({ get: labState.get, partner: labState.partner })
+        : E.suggestOffers({ give: labState.give, partner: labState.shopAll ? null : labState.partner });
+      labState.offers = res;
+      store.set("labState", labState);
+      $("lab-offers").innerHTML = offersHtml(res);
+      wireOffers();
+    }, 30);
+  }
+
+  function openInLab(partner, give, get, opts) {
+    labState = { partner: String(partner), give: give.slice(), get: get.slice(),
+      autoSuggest: !!(opts && opts.suggest), shopAll: !!(opts && opts.shopAll), offers: null };
     store.set("labState", labState);
     selectTab("lab");
     renderTradeLab();
     window.scrollTo(0, 0);
+  }
+
+  function defaultDrop(pids) {
+    const L = DATA.lab, E = engine(), P = L.players;
+    const size = pids.filter((p) => !(L.rosters[String(L.my_roster_id)].reserve || []).includes(p)).length;
+    if (size < L.roster_size) return null;
+    const isKD = (p) => (P[p].p === "K" || P[p].p === "DEF" ? 1 : 0);
+    const cands = pids.filter((p) => P[p] && !isHeld(p)).sort((a, b) => (isKD(a) - isKD(b)) || (E.vor(a) - E.vor(b)));
+    return cands[0] || null;
+  }
+
+  function planPickup(pid) {
+    const L = DATA.lab;
+    if (!plan || !L.weeks.includes(plan.week)) plan = planDefaults();
+    if (!plan.moves.some((m) => m.add === pid)) {
+      plan.moves.push({ add: pid, drop: defaultDrop(planRoster(L.current_week + 1)) });
+      plan.lineups = {};
+    }
+    plan.week = L.weeks.includes(L.current_week + 1) ? L.current_week + 1 : plan.week;
+    store.set("plannerState", plan);
+    selectTab("planner");
+    renderPlanner();
+  }
+
+  function toggleHold(pid) {
+    if (HOLDS.has(pid)) HOLDS.delete(pid); else HOLDS.add(pid);
+    store.set("holds", [...HOLDS]);
+    if (ENGINE) ENGINE.setHolds([...HOLDS]);
+    // Re-draw, keeping open player panels open and the page where it was.
+    const open = [...document.querySelectorAll("#tab-home details.prow-d[open]")].map((d) => d.dataset.pid);
+    const y = window.scrollY;
+    renderHome(); renderTrades(); renderTradeLab(); renderPlanner();
+    open.forEach((id) => { const d = document.querySelector(`#tab-home details.prow-d[data-pid="${CSS.escape(id)}"]`); if (d) d.open = true; });
+    window.scrollTo(0, y);
   }
 
   // ---------- Planner ----------
@@ -1380,8 +1491,9 @@
         .sort((a, b) => P[b].r - P[a].r).slice(0, 15);
       // weakest skill players first (so the default drop is the least valuable); K/DEF last
       const isKD = (p) => (P[p].p === "K" || P[p].p === "DEF" ? 1 : 0);
-      const dropOpts = planRoster(L.current_week + 1).slice().sort((a, b) => (isKD(a) - isKD(b)) || (E.vor(a) - E.vor(b)))
-        .map((p) => `<option value="${esc(p)}">${esc(P[p].n)} (${esc(P[p].p)} · ${num(P[p].r)}/wk)</option>`).join("");
+      const dropOpts = planRoster(L.current_week + 1).slice()
+        .sort((a, b) => (isHeld(a) - isHeld(b)) || (isKD(a) - isKD(b)) || (E.vor(a) - E.vor(b)))
+        .map((p) => `<option value="${esc(p)}">${esc(P[p].n)} (${esc(P[p].p)} · ${num(P[p].r)}/wk)${isHeld(p) ? " · held" : ""}</option>`).join("");
       $("pl-fas").innerHTML = list.map((p) => `<div class="fa-row"><div class="prow" style="grid-template-columns:44px minmax(0,1fr) auto">
         <span class="slot ${esc(P[p].p)}">${esc(P[p].p)}</span>
         <div><div class="pname">${esc(P[p].n)}${P[p].s ? ` <span class="chip ${P[p].s === "Questionable" ? "q" : "inj"}">${esc(P[p].s)}</span>` : ""}</div>
@@ -1560,6 +1672,18 @@
     }
     $("status").innerHTML = notes.join("");
   }
+
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-act]");
+    if (!b) return;
+    e.preventDefault(); e.stopPropagation();
+    const pid = b.dataset.pid, act = b.dataset.act;
+    if (act === "trade-for") openInLab(ownerOf(pid), [], [pid], { suggest: true });
+    else if (act === "shop") openInLab((labState && labState.partner) || Object.keys(DATA.lab.rosters).find((t) => Number(t) !== myRid()), [pid], [], { suggest: true, shopAll: true });
+    else if (act === "pitch") openInLab(b.dataset.partner, [pid], [], { suggest: true });
+    else if (act === "plan-add") planPickup(pid);
+    else if (act === "hold") toggleHold(pid);
+  }, true);
 
   setupTheme();
   setupApp();
