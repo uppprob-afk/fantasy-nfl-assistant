@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+*.egg-info/
+
+# Your league: settings and everything generated from it stay local / in Actions cache
+config.yaml
+/data/
+site/data/*
+!site/data/.gitkeep
+/demo/
+
+# Mac / editors
+.DS_Store
+.vscode/
+.idea/
+
+# Secrets
+.env

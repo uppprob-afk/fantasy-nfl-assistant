@@ -1,0 +1,80 @@
+name: Tests, data update and site deploy
+
+# Tests run on every push and pull request.
+# The league pipeline + GitHub Pages deploy only run when the repository variable
+# LEAGUE_ID is set (Settings → Secrets and variables → Actions → Variables), so a
+# fork or template with no league configured never publishes anything.
+#
+# League data is never committed: snapshots (needed to spot what changed since the
+# last run) are kept in the Actions cache between runs.
+
+on:
+  schedule:
+    # GitHub cron runs in UTC. 08:00 UTC Tue + Fri is after Monday and Thursday night
+    # games finish (latest ~06:30 UTC) all season. Pick times that suit your timezone.
+    - cron: "0 8 * * 2,5"
+  workflow_dispatch: # "Run workflow" button on the Actions tab
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.2.0
+      - run: uv sync
+      - run: uv run pytest -q
+
+  update:
+    needs: test
+    if: vars.LEAGUE_ID != '' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      LEAGUE_ID: ${{ vars.LEAGUE_ID }}
+      SLEEPER_USERNAME: ${{ vars.SLEEPER_USERNAME }}
+      LEAGUE_TIMEZONE: ${{ vars.LEAGUE_TIMEZONE }}
+      NICKNAMES: ${{ vars.NICKNAMES }}
+      TARGETS: ${{ vars.TARGETS }}
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.2.0
+      - run: uv sync
+
+      - name: Restore previous snapshots
+        uses: actions/cache/restore@v6
+        with:
+          path: data/
+          key: league-data-${{ github.run_id }}
+          restore-keys: league-data-
+
+      - name: Run pipeline
+        run: uv run python -m nfl_assistant.run
+
+      - name: Save snapshots for next run
+        uses: actions/cache/save@v6
+        with:
+          path: data/
+          key: league-data-${{ github.run_id }}
+
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+      - id: deployment
+        uses: actions/deploy-pages@v5

@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <title>Fantasy NFL Assistant</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div>
+        <h1 id="team-name">Fantasy NFL Assistant</h1>
+        <p class="sub" id="subtitle">Loading…</p>
+      </div>
+      <button class="theme-btn" id="theme-btn" type="button" aria-label="Toggle dark mode">◐</button>
+    </div>
+    <nav class="tabs" id="tabs" role="tablist">
+      <button role="tab" data-tab="team" aria-selected="true">My Team</button>
+      <button role="tab" data-tab="news">News</button>
+      <button role="tab" data-tab="standings">Standings</button>
+      <button role="tab" data-tab="matchups">Matchups</button>
+      <button role="tab" data-tab="playoffs">Playoffs</button>
+      <button role="tab" data-tab="faab">FAAB</button>
+      <button role="tab" data-tab="trades">Trades</button>
+      <button role="tab" data-tab="rosters">Rosters</button>
+      <button role="tab" data-tab="brief">Brief</button>
+    </nav>
+  </header>
+
+  <main>
+    <div id="warnings"></div>
+    <section id="tab-team" class="tab-panel"></section>
+    <section id="tab-news" class="tab-panel" hidden></section>
+    <section id="tab-standings" class="tab-panel" hidden></section>
+    <section id="tab-matchups" class="tab-panel" hidden></section>
+    <section id="tab-playoffs" class="tab-panel" hidden></section>
+    <section id="tab-faab" class="tab-panel" hidden></section>
+    <section id="tab-trades" class="tab-panel" hidden></section>
+    <section id="tab-rosters" class="tab-panel" hidden></section>
+    <section id="tab-brief" class="tab-panel" hidden></section>
+  </main>
+
+  <footer class="foot" id="footer"></footer>
+
+  <!-- Data files are written by the pipeline (uv run python -m nfl_assistant.run). -->
+  <script src="data/dashboard.js"></script>
+  <script src="data/faab.js"></script>
+  <script src="data/scanner.js"></script>
+  <script src="data/trades.js"></script>
+  <script src="data/outlook.js"></script>
+  <script src="data/brief.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+[
+ {"roster_id": 1, "matchup_id": 2, "points": 100.0, "players_points": {"qb1": 22.5, "rb1": 0, "wr1": 12.0, "rb2": 14.0, "PIT": 5.0}},
+ {"roster_id": 3, "matchup_id": 2, "points": 100.0, "players_points": {"qb3": 20.0}},
+ {"roster_id": 2, "matchup_id": 1, "points": 95.0, "players_points": {"qb2": 19.0, "rb3": 4.0}},
+ {"roster_id": 4, "matchup_id": 1, "points": 60.0, "players_points": {}}
+]

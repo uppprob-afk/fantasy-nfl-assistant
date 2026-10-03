@@ -1,0 +1,12 @@
+[
+ {"roster_id": 1, "owner_id": "u1", "players": ["qb1", "rb1", "wr1", "rb2", "PIT", "wr2", "rb3"],
+  "starters": ["qb1", "rb1", "wr1", "rb2", "PIT"], "reserve": null,
+  "settings": {"wins": 1, "losses": 1, "fpts": 200, "fpts_decimal": 50, "fpts_against": 190, "fpts_against_decimal": 5, "waiver_position": 3, "waiver_budget_used": 26}},
+ {"roster_id": 2, "owner_id": "u2", "players": ["qb2", "rb4", "wr3", "wr4", "DAL", "te1"],
+  "starters": ["qb2", "rb4", "wr3", "wr4", "DAL"], "reserve": ["te1"],
+  "settings": {"wins": 2, "losses": 0, "fpts": 180, "fpts_decimal": 0, "fpts_against": 150, "waiver_position": 4, "waiver_budget_used": 41}},
+ {"roster_id": 3, "owner_id": "u3", "players": ["qb3"], "starters": ["qb3", "0", "0", "0", "0"], "reserve": [],
+  "settings": {"wins": 1, "losses": 1, "fpts": 210, "fpts_decimal": 0, "waiver_position": 1}},
+ {"roster_id": 4, "owner_id": "u4", "players": [], "starters": [], "reserve": [],
+  "settings": {"wins": 0, "losses": 2, "fpts": 150, "waiver_position": 2}}
+]

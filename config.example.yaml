@@ -1,0 +1,55 @@
+# Fantasy NFL Assistant configuration.
+# Everything here is read by the pipeline (nfl_assistant/config.py).
+
+#
+# Copy this file to config.yaml (which is git-ignored) and fill in your league.
+# On GitHub Actions, set repository variables instead (they override this file):
+#   LEAGUE_ID, SLEEPER_USERNAME, LEAGUE_TIMEZONE, NICKNAMES ("user=Nick,user2=Nick2"),
+#   TARGETS ("Player One;Player Two")
+
+league:
+  platform: sleeper
+  # Find it in the Sleeper web app URL: sleeper.com/leagues/<LEAGUE_ID>/...
+  league_id: ""
+
+me:
+  # Your Sleeper username (the pipeline finds your roster from it).
+  username: ""
+
+# Optional: settings you expect. The pipeline warns (in the terminal and on the site)
+# if the real league settings differ. Leave empty to skip the check.
+expected_settings: {}
+#  num_teams: 10
+#  qb_slots: 1
+#  ppr: 1.0            # points per reception (1.0 = full PPR)
+#  waiver_type: faab
+#  faab_budget: 100
+
+# Optional nicknames shown next to Sleeper usernames in the UI.
+nicknames: {}
+#  some_username: Nickname
+
+# Free agents you're eyeing. Type player names exactly as Sleeper shows them.
+# The FAAB tab shows a bargain-first bid suggestion for each (plus trending free agents).
+targets: []
+#  - Example Player
+
+# Local timezone, used for snapshot folder dates and "last updated" times.
+timezone: UTC   # e.g. Australia/Melbourne, America/New_York
+
+api:
+  base_url: https://api.sleeper.app/v1
+  delay_seconds: 0.4    # pause between Sleeper calls (be polite)
+  max_retries: 4
+  timeout_seconds: 30
+
+crosscheck:
+  # nflverse weekly player stats (second source for verifying points)
+  nflverse_url: https://github.com/nflverse/nflverse-data/releases/download/stats_player/stats_player_week_{season}.csv
+  tolerance_points: 1.0
+
+projections:
+  # All free, openly published nflverse data (no scraping, no keys).
+  snaps_url: https://github.com/nflverse/nflverse-data/releases/download/snap_counts/snap_counts_{season}.csv
+  schedule_url: https://github.com/nflverse/nfldata/raw/master/data/games.csv
+  prior_season_cache_hours: 168   # last season's files rarely change

@@ -1,0 +1,11 @@
+{
+ "qb1": {"full_name": "Quinn Back", "position": "QB", "team": "BAL", "gsis_id": " 00-0000001"},
+ "rb1": {"full_name": "Randy Back Jr.", "position": "RB", "team": "DAL", "injury_status": "Out"},
+ "wr1": {"full_name": "Wade Receiver", "position": "WR", "team": "SEA", "injury_status": "Questionable"},
+ "rb2": {"full_name": "Ron Runner", "position": "RB", "team": "CAR"},
+ "wr2": {"full_name": "Will Hurt", "position": "WR", "team": "CHI", "injury_status": "IR"},
+ "rb3": {"full_name": "Rob Doubt", "position": "RB", "team": "GB", "injury_status": "Doubtful"},
+ "PIT": {"first_name": "Pittsburgh", "last_name": "Steelers", "position": "DEF", "team": "PIT"},
+ "te1": {"full_name": "Tim Endy", "position": "TE", "team": "LV", "injury_status": "Questionable"},
+ "k1": {"full_name": "Kim Kicker", "position": "K", "team": "HOU"}
+}

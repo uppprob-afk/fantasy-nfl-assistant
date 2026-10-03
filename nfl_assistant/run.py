@@ -1,0 +1,571 @@
+"""Run the whole pipeline:  uv run python -m nfl_assistant.run"""
+
+import csv
+import io
+import json
+import sys
+from collections import defaultdict
+from datetime import datetime, timedelta
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+from . import brief, dashboard, faab, lineups, nflverse, outlook, projections, scanner, tendencies, trades
+from .config import ROOT, ConfigError, load_config
+from .output import write_site_data, write_snapshot
+from .players import find_player, ir_allowed_statuses, player_brief, slim_players
+from .sleeper import SleeperClient
+
+
+class PipelineError(Exception):
+    pass
+
+
+def say(msg: str) -> None:
+    print(msg, flush=True)
+
+
+# --- fetch ------------------------------------------------------------------
+def fetch(client: SleeperClient, cfg: dict) -> dict:
+    league_id = cfg["league"]["league_id"]
+    say("Fetching league data from Sleeper...")
+    state = client.state()
+    league = client.league(league_id)
+    if not league:
+        raise PipelineError(f"league {league_id} not found on Sleeper. Check config.yaml.")
+    me = client.user(cfg["me"]["username"])
+    if not me:
+        raise PipelineError(f"Sleeper user '{cfg['me']['username']}' not found.")
+    rosters = client.rosters(league_id)
+    users = client.users(league_id)
+    my_roster = next((r for r in rosters if r.get("owner_id") == me["user_id"]
+                      or me["user_id"] in (r.get("co_owners") or [])), None)
+    if not my_roster:
+        raise PipelineError(f"'{me['display_name']}' doesn't own a roster in this league.")
+
+    settings = league["settings"]
+    start = settings.get("start_week", 1)
+    current_week = max(int(state.get("display_week") or state.get("week") or 1), 1)
+    if state.get("season") != league.get("season"):
+        current_week = start  # league season hasn't started yet
+    last_scored = int(settings.get("last_scored_leg") or current_week - 1)
+    weeks = range(start, current_week + 1)
+
+    matchups = {w: client.matchups(league_id, w) for w in weeks}
+    reg_end = int(settings.get("playoff_week_start") or 15) - 1
+    future = {w: client.matchups(league_id, w) for w in range(current_week + 1, reg_end + 1)}
+    transactions = {w: client.transactions(league_id, w) for w in weeks}
+    say("Fetching trending players...")
+    trending = {"add": client.trending("add", 48, 60), "drop": client.trending("drop", 48, 60)}
+    say("Loading the NFL player database (cached, at most one download per run)...")
+    players = client.players()
+    say(f"  Season {league['season']}, week {current_week}; {last_scored} week(s) completed.")
+    return {"state": state, "league": league, "me": me, "rosters": rosters, "users": users,
+            "my_roster": my_roster, "current_week": current_week,
+            "completed_weeks": list(range(start, last_scored + 1)),
+            "matchups": matchups, "future_matchups": future, "transactions": transactions, "trending": trending,
+            "players": players}
+
+
+# --- stage 1 ----------------------------------------------------------------
+def build_dashboard(ctx: dict, cfg: dict, managers: dict, cache_dir, now) -> dict:
+    league, players, my_roster = ctx["league"], ctx["players"], ctx["my_roster"]
+    settings, completed = league["settings"], ctx["completed_weeks"]
+    warnings = dashboard.check_settings(league, cfg.get("expected_settings", {}))
+    present = {m["username"] for m in managers.values()}
+    for username in cfg.get("nicknames", {}):
+        if username not in present:
+            warnings.append(f"Nickname configured for '{username}', but no such manager is in the league.")
+
+    points = dashboard.weekly_points({w: m for w, m in ctx["matchups"].items() if w in completed})
+    say("Cross-checking my players' points against nflverse...")
+    try:
+        url = cfg["crosscheck"]["nflverse_url"].format(season=league["season"])
+        rows = nflverse.parse_rows(nflverse.download_weekly(url, cache_dir))
+        checks = nflverse.crosscheck(list(my_roster.get("players") or []), players, points, completed,
+                                     rows, league["scoring_settings"], cfg["crosscheck"]["tolerance_points"])
+    except Exception as exc:  # second source down shouldn't stop the dashboard
+        warnings.append(f"Couldn't load nflverse stats for the cross-check ({exc}). Points shown are Sleeper's only.")
+        checks = {}
+    played = {pid: set(c["played_weeks"]) for pid, c in checks.items()}
+
+    ir_allowed = ir_allowed_statuses(settings)
+    reserve_slots = settings.get("reserve_slots", 0)
+    budget = settings.get("waiver_budget", 0)
+
+    def view(r):
+        return dashboard.roster_view(r, players, points, completed, league["roster_positions"],
+                                     ir_allowed, reserve_slots, played)
+
+    my_view = view(my_roster)
+    for row in my_view["starters"] + my_view["bench"] + my_view["ir"]:
+        if row.get("id"):
+            row["check"] = checks.get(row["id"], {"status": "not_checked"})
+    all_rosters = []
+    for r in sorted(ctx["rosters"], key=lambda r: r["roster_id"]):
+        v = my_view if r is my_roster else view(r)
+        all_rosters.append({**managers[r["roster_id"]], **v, "is_mine": r is my_roster})
+
+    return {
+        "generated_at": now.isoformat(timespec="minutes"),
+        "league": {"id": league["league_id"], "name": league["name"], "season": league["season"],
+                   "current_week": ctx["current_week"], "completed_weeks": completed,
+                   "roster_positions": league["roster_positions"], "faab_budget": budget,
+                   "ppr": league["scoring_settings"].get("rec", 0),
+                   "ir_allowed": sorted(ir_allowed), "reserve_slots": reserve_slots},
+        "me": {**managers[my_roster["roster_id"]], **my_view},
+        "standings": dashboard.standings(ctx["rosters"], managers, budget),
+        "matchups": {"week": ctx["current_week"],
+                     "pairs": dashboard.matchup_pairs(ctx["matchups"].get(ctx["current_week"], []),
+                                                      managers, my_roster["roster_id"])},
+        "rosters": all_rosters,
+        "warnings": warnings,
+        "_checks": checks,
+        "_points": points,
+    }
+
+
+# --- stage 2 ----------------------------------------------------------------
+def build_faab(ctx: dict, cfg: dict, managers: dict, now) -> dict:
+    league, players, rosters = ctx["league"], ctx["players"], ctx["rosters"]
+    settings = league["settings"]
+    budget = settings.get("waiver_budget", 0)
+    txs = [t for week in sorted(ctx["transactions"]) for t in ctx["transactions"][week]]
+    log = faab.waiver_log(txs, players, managers, settings.get("waiver_bid_min", 0))
+    per_manager, warnings = faab.manager_faab(txs, rosters, managers, budget, log)
+    market = faab.market_prices(log, faab.all_bids(txs, players))
+    my_id = ctx["my_roster"]["roster_id"]
+    my_left = next(m["remaining"] for m in per_manager if m["roster_id"] == my_id)
+
+    rostered = {pid for r in rosters for pid in (r.get("players") or [])}
+    trending_adds = faab.trending_free_agents(ctx["trending"]["add"], rostered, players)
+    trending_drops = faab.trending_free_agents(ctx["trending"]["drop"], rostered, players)
+    for i, p in enumerate(trending_adds):
+        p["suggestion"] = faab.bid_suggestion(p["position"], market, my_left, "hot" if i < 5 else "warm")
+
+    targets = []
+    for name in cfg.get("targets") or []:
+        pid = find_player(name, players)
+        if not pid:
+            warnings.append(f"Target '{name}' wasn't found in Sleeper's player list. Check the spelling in config.yaml.")
+            continue
+        p = player_brief(pid, players)
+        owner = next((managers[r["roster_id"]]["label"] for r in rosters if pid in (r.get("players") or [])), None)
+        p.update({"rostered_by": owner,
+                  "suggestion": faab.bid_suggestion(p["position"], market, my_left, "warm"),
+                  "comparables": faab.comparable_claims(p["position"], log)})
+        targets.append(p)
+
+    return {
+        "generated_at": now.isoformat(timespec="minutes"),
+        "budget": budget, "min_bid": settings.get("waiver_bid_min", 0), "my_roster_id": my_id,
+        "my_remaining": my_left,
+        "managers": per_manager,
+        "waiver_log": log,
+        "other_moves": faab.other_moves(txs, players, managers),
+        "market": market,
+        "targets": targets,
+        "trending_adds": trending_adds,
+        "trending_drops": trending_drops,
+        "warnings": warnings,
+    }
+
+
+# --- stage 3 ----------------------------------------------------------------
+def load_previous(snap_root: Path) -> dict | None:
+    """The most recent saved snapshot (read before this run overwrites today's)."""
+    if not snap_root.exists():
+        return None
+    for d in sorted((p for p in snap_root.iterdir() if p.is_dir()), reverse=True):
+        if (d / "players.json").exists() and (d / "rosters.json").exists():
+            meta = json.loads((d / "meta.json").read_text()) if (d / "meta.json").exists() else {}
+            return {"date": d.name, "generated_at": meta.get("generated_at", d.name),
+                    "players": json.loads((d / "players.json").read_text()),
+                    "rosters": json.loads((d / "rosters.json").read_text())}
+    return None
+
+
+def season_table(points: dict, completed: list[int]) -> dict[str, dict]:
+    """player_id -> {points, games, avg} over completed weeks (league scoring)."""
+    return {pid: {k: v for k, v in dashboard.season_summary(w, completed).items() if k != "weekly"}
+            for pid, w in points.items()}
+
+
+def build_scanner(ctx: dict, prev: dict | None, managers: dict, dash: dict, faab_data: dict,
+                  season: dict, news_path: Path, now) -> dict:
+    run_at = now.isoformat(timespec="minutes")
+    log = json.loads(news_path.read_text()) if news_path.exists() else []
+    if prev is None:
+        result = {"my_players": [], "other_starters": [], "free_agents": [], "motivated_buyers": []}
+    else:
+        result = scanner.scan(prev["players"], ctx["players"], prev["rosters"], ctx["rosters"],
+                              ctx["my_roster"]["roster_id"], managers, set(dash["league"]["ir_allowed"]),
+                              dash["me"]["ir_open"], season)
+        for row in result["free_agents"]:
+            demand = "hot" if row["kind"] == "backup" else "warm"
+            row["suggestion"] = faab.bid_suggestion(row["position"], faab_data["market"],
+                                                    faab_data["my_remaining"], demand)
+    new_items = scanner.news_items(result, run_at)
+    cutoff = (now - timedelta(days=7)).isoformat(timespec="minutes")
+    recent = [n for n in log if n["seen"] >= cutoff]
+    keep = (now - timedelta(days=60)).isoformat(timespec="minutes")
+    news_path.parent.mkdir(parents=True, exist_ok=True)
+    news_path.write_text(json.dumps([n for n in log if n["seen"] >= keep] + new_items, indent=1) + "\n")
+    return {
+        "generated_at": run_at,
+        "baseline": prev and prev["generated_at"],
+        "first_run": prev is None,
+        **result,
+        "recent": sorted(recent, key=lambda n: n["seen"], reverse=True),
+    }
+
+
+# --- stage 4 ----------------------------------------------------------------
+def recent_buyers(scan: dict) -> list[dict]:
+    """Motivated buyers from this run plus trade openings logged in the last 7 days."""
+    buyers = {(b["roster_id"], b["position"]): b for b in scan["motivated_buyers"]}
+    for n in scan["recent"]:
+        if n.get("section") == "other_starters" and (n.get("action") or "").startswith("Trade opening"):
+            key = (n["roster_id"], n["position"])
+            buyers.setdefault(key, {"roster_id": n["roster_id"], "manager": n["manager"],
+                                    "position": n["position"], "player": n["name"],
+                                    "status": n.get("new"), "seen": n["seen"]})
+    return list(buyers.values())
+
+
+def load_nflverse(cfg: dict, season: str, cache_dir: Path) -> dict:
+    """Stats (this + last season), snap counts (both) and the schedule, cached on disk."""
+    pc = cfg["projections"]
+    prior = str(int(season) - 1)
+    long = pc.get("prior_season_cache_hours", 168)
+    get = lambda url, hours=6: nflverse.parse_rows(nflverse.download_weekly(url, cache_dir, hours))
+    stats_url = cfg["crosscheck"]["nflverse_url"]
+    return {"this": get(stats_url.format(season=season)),
+            "prior": get(stats_url.format(season=prior), long),
+            "snaps": get(pc["snaps_url"].format(season=prior), long) + get(pc["snaps_url"].format(season=season)),
+            "games": list(csv.DictReader(io.StringIO(nflverse.download_weekly(pc["schedule_url"], cache_dir)))),}
+
+
+def build_projections(ctx: dict, nfl: dict) -> tuple[dict, list[int], list[str]]:
+    """Projections for rostered players, relevant free agents and every defence."""
+    league, players = ctx["league"], ctx["players"]
+    slots = lineups.lineup_slots(league["roster_positions"])
+    teams = league.get("total_rosters") or 10
+    reg_end = int(league["settings"].get("playoff_week_start") or 15) - 1
+    weeks = list(range(ctx["current_week"], reg_end + 1))
+    flex = sum(s in lineups.FLEX_ELIGIBLE for s in slots)
+    starters = {"QB": teams * slots.count("QB") + 2, "RB": int(teams * (slots.count("RB") + flex / 2)),
+                "WR": int(teams * (slots.count("WR") + flex / 2)), "TE": teams * slots.count("TE"),
+                "K": teams * max(slots.count("K"), 1), "DEF": teams * max(slots.count("DEF"), 1)}
+    rostered = {pid for r in ctx["rosters"] for pid in (r.get("players") or [])}
+    candidates = set(rostered) | {
+        pid for pid, p in players.items()
+        if p.get("team") and p.get("position") in projections.POSITIONS
+        and (p.get("position") == "DEF" or (p.get("depth_chart_order") or 99) <= 3
+             or (p.get("search_rank") or 10**9) <= 400)}
+    proj = projections.build(players, candidates, nfl["prior"], nfl["this"], nfl["snaps"], nfl["games"],
+                             league["scoring_settings"], league["season"], weeks, starters)
+    return proj, weeks, slots
+
+
+def build_trades(ctx: dict, managers: dict, proj: dict, weeks: list[int], slots: list[str],
+                 scan: dict, now) -> dict:
+    players, rosters = ctx["players"], ctx["rosters"]
+    my_rid = ctx["my_roster"]["roster_id"]
+    rostered = {pid for r in rosters for pid in (r.get("players") or [])}
+    owners = {pid: r["roster_id"] for r in rosters for pid in (r.get("players") or [])}
+    valuer = trades.Valuer(proj, weeks, slots)
+    profiles = trades.league_profiles(rosters, valuer)
+    repl = projections.replacement_rates(proj, rostered)
+    names = {pid: player_brief(pid, players)["name"] for pid in proj}
+
+    def card(pid):
+        p = proj.get(pid)
+        out = player_brief(pid, players)
+        if p:
+            out.update({k: p[k] for k in ("rate", "sd", "confidence", "ros", "byes", "actual_ppg",
+                                          "expected_ppg", "prior_ppg", "games_this", "games_prior",
+                                          "partial_weeks", "team_changed")})
+            out["vor"] = projections.value_over_replacement(p, repl, len(weeks))
+        return out
+
+    ideas = [trades.explain(t, proj, profiles, my_rid, names, managers[t["roster_id"]]["label"], len(weeks))
+             for t in trades.find_trades(my_rid, rosters, proj, valuer, profiles)]
+    for t in ideas:
+        t["give"] = [card(p) for p in t["give"]]
+        t["get"] = [card(p) for p in t["get"]]
+        t["team_name"] = managers[t["roster_id"]]["team_name"]
+    buyers = trades.pitches_for_buyers(recent_buyers(scan), my_rid, rosters, proj, profiles)
+    for b in buyers:
+        b["my_options"] = [card(p) for p in b["my_options"]]
+    bs = projections.buy_sell(proj, owners, my_rid)
+    for key in bs:
+        bs[key] = [{**card(r["id"]), **r, "manager": managers[r["roster_id"]]["label"]} for r in bs[key][:8]]
+
+    teams = []
+    for rid, p in sorted(profiles.items(), key=lambda kv: -kv[1]["score"]):
+        teams.append({**managers[rid], "per_week": p["per_week"], "ros_total": p["lineup_total"],
+                      "strength": p["strength"], "vs_median": p["vs_median"], "depth": p["depth"],
+                      "needs": p["needs"], "surplus": p["surplus"], "is_mine": rid == my_rid})
+    values = sorted((dict(card(pid), roster_id=owners[pid], manager=managers[owners[pid]]["label"])
+                     for pid in rostered if pid in proj), key=lambda r: -r["vor"])
+    trade_deadline = ctx["league"]["settings"].get("trade_deadline")
+    return {"generated_at": now.isoformat(timespec="minutes"), "my_roster_id": my_rid,
+            "slots": slots, "weeks": weeks, "median": next(iter(profiles.values()))["median"],
+            "replacement": repl, "teams": teams, "ideas": ideas, "buyers": buyers,
+            "buy_low": bs["buy_low"], "sell_high": bs["sell_high"], "values": values,
+            "trade_deadline": trade_deadline,
+            "trades_closed": bool(trade_deadline and ctx["current_week"] > int(trade_deadline))}
+
+
+# --- part 2: matchups, start/sit, lineups, playoffs --------------------------------
+def pairs_by_week(entries: list[dict]) -> list[tuple[int, int]]:
+    groups = defaultdict(list)
+    for m in entries:
+        if m.get("matchup_id") is not None:
+            groups[m["matchup_id"]].append(m["roster_id"])
+    return [tuple(sorted(g)) for _, g in sorted(groups.items()) if len(g) == 2]
+
+
+def build_outlook(ctx: dict, managers: dict, proj: dict, weeks: list[int], slots: list[str], now) -> dict:
+    league, players, rosters = ctx["league"], ctx["players"], ctx["rosters"]
+    my_rid = ctx["my_roster"]["roster_id"]
+    cw = ctx["current_week"]
+    roster_of = {r["roster_id"]: r.get("players") or [] for r in rosters}
+    names = {}
+
+    def name(pid):
+        if pid not in names:
+            b = player_brief(pid, players)
+            names[pid] = {"name": b["name"], "position": b["position"], "team": b["team"],
+                          "injury_status": b["injury_status"],
+                          "confidence": (proj.get(pid) or {}).get("confidence")}
+        return pid
+
+    # this week: set lineups, live + projected
+    this = {}
+    for m in ctx["matchups"].get(cw, []):
+        starters = m.get("starters") or []
+        tw = outlook.team_week(starters, m.get("players_points") or {}, proj, cw)
+        tw["confidence"] = outlook.matchup_confidence(starters, proj, cw)
+        for row in tw["players"]:
+            if row["id"]:
+                name(row["id"])
+        this[m["roster_id"]] = {**tw, "matchup_id": m.get("matchup_id"), "starters": starters}
+    matchups = []
+    for a, b in pairs_by_week(ctx["matchups"].get(cw, [])):
+        if a not in this or b not in this:
+            continue
+        pa = outlook.win_probability(this[a], this[b])
+        if b == my_rid:
+            a, b, pa = b, a, 1 - pa
+        conf = min(this[a]["confidence"], this[b]["confidence"], key=["low", "medium", "high"].index)
+        matchups.append({"is_mine": a == my_rid, "confidence": conf,
+                         "teams": [{**managers[a], **this[a], "win_prob": round(pa, 3)},
+                                   {**managers[b], **this[b], "win_prob": round(1 - pa, 3)}]})
+    matchups.sort(key=lambda x: not x["is_mine"])
+
+    my_starters = this.get(my_rid, {}).get("starters", [])
+    sit = outlook.start_sit(my_starters, roster_of[my_rid], proj, cw, slots)
+    for r in sit:
+        name(r["starter"])
+        if r["alt"]:
+            name(r["alt"])
+
+    # optimal lineups for every remaining week, every team
+    lineups_by_team = {}
+    for rid, pids in roster_of.items():
+        lineups_by_team[rid] = {}
+        for w in weeks:
+            ow = outlook.optimal_week(pids, proj, w, slots)
+            for x in ow["lineup"]:
+                name(x["id"])
+            for b in ow["byes"]:
+                name(b)
+            lineups_by_team[rid][w] = ow
+
+    # playoff odds
+    sched = {cw: pairs_by_week(ctx["matchups"].get(cw, []))}
+    for w, entries in ctx.get("future_matchups", {}).items():
+        sched[w] = pairs_by_week(entries)
+    sched = {w: g for w, g in sched.items() if w in weeks}
+    dist = {}
+    for rid in roster_of:
+        for w in weeks:
+            if w == cw and rid in this:
+                dist[(rid, w)] = (this[rid]["mean"], this[rid]["sd"])
+            else:
+                ow = lineups_by_team[rid][w]
+                dist[(rid, w)] = (ow["total"], ow["sd"])
+    strength = {rid: outlook.team_strength_sd(pids, proj, slots, weeks[-1]) for rid, pids in roster_of.items()}
+    standings = {r["roster_id"]: {"wins": r["settings"].get("wins", 0), "losses": r["settings"].get("losses", 0),
+                                  "ties": r["settings"].get("ties", 0),
+                                  "pf": r["settings"].get("fpts", 0) + r["settings"].get("fpts_decimal", 0) / 100}
+                 for r in rosters}
+    n_playoff = int(league["settings"].get("playoff_teams") or 4)
+    seed = int(now.strftime("%Y%m%d"))
+    sim = outlook.simulate(standings, sched, dist, strength, n_playoff, seed=seed)
+    done = len(ctx["completed_weeks"])
+    conf = "low" if done < 5 else "medium" if done < 9 else "high"
+    this_games = [g for g in sim["games"] if g[0] == cw]
+    teams = []
+    for rid in roster_of:
+        g = next((x for x in this_games if rid in (x[1], x[2])), None)
+        if_win = if_lose = None
+        if g:
+            if_a, if_b = outlook.conditional_odds(sim, g, rid)
+            if_win, if_lose = (if_a, if_b) if g[1] == rid else (if_b, if_a)
+        odds = sim["made"].get(rid, 0) / sim["n"]
+        teams.append({**managers[rid], **standings[rid], "odds": round(odds, 3),
+                      "odds_text": outlook.round_odds(odds, conf),
+                      "seed1": round(sim["seed1"].get(rid, 0) / sim["n"], 3),
+                      "proj_wins": round(sim["avg_wins"][rid], 1),
+                      "if_win": if_win, "if_lose": if_lose,
+                      "if_win_text": outlook.round_odds(if_win, conf) if if_win is not None else None,
+                      "if_lose_text": outlook.round_odds(if_lose, conf) if if_lose is not None else None,
+                      "is_mine": rid == my_rid})
+    teams.sort(key=lambda t: -t["odds"])
+    keys = []
+    for k in outlook.key_games(sim, my_rid):
+        keys.append({**k, "a_label": managers[k["a"]]["label"], "b_label": managers[k["b"]]["label"],
+                     "a_team": managers[k["a"]]["team_name"], "b_team": managers[k["b"]]["team_name"],
+                     "if_a_text": outlook.round_odds(k["if_a"], conf), "if_b_text": outlook.round_odds(k["if_b"], conf)})
+    return {"generated_at": now.isoformat(timespec="minutes"), "week": cw, "weeks": weeks,
+            "reg_season_end": weeks[-1] if weeks else cw, "playoff_teams": n_playoff,
+            "my_roster_id": my_rid, "slots": slots, "matchups": matchups, "start_sit": sit,
+            "lineups": {str(rid): {str(w): v for w, v in ws.items()} for rid, ws in lineups_by_team.items()},
+            "managers": {str(rid): managers[rid] for rid in roster_of},
+            "playoffs": {"teams": teams, "key_games": keys, "sims": sim["n"], "confidence": conf,
+                         "completed_weeks": done},
+            "names": names}
+
+
+# --- part 3: manager tendencies ----------------------------------------------------
+def build_tendencies(ctx: dict, faab_data: dict, proj: dict, outlook_data: dict, scan: dict) -> None:
+    """Add manager bidding profiles and likely rivals to the FAAB (and scanner) data."""
+    players, rosters = ctx["players"], ctx["rosters"]
+    my_rid = ctx["my_roster"]["roster_id"]
+    txs = [t for week in sorted(ctx["transactions"]) for t in ctx["transactions"][week]]
+    bids = tendencies.bids_by_manager(txs, players)
+    profs = tendencies.profiles(bids, faab_data["managers"], faab_data["waiver_log"], faab_data["budget"])
+    for r in rosters:
+        profs[r["roster_id"]]["waiver_position"] = (r.get("settings") or {}).get("waiver_position")
+    weeks = outlook_data["weeks"]
+    week = ctx["current_week"] + 1 if ctx["current_week"] + 1 in weeks else ctx["current_week"]
+    lineups = {int(rid): v[str(week)]["lineup"] for rid, v in outlook_data["lineups"].items() if str(week) in v}
+    my_waiver = profs[my_rid]["waiver_position"]
+
+    def attach(p, hot):
+        pr = proj.get(p["id"])
+        if not pr:
+            return
+        pts = pr["weekly"].get(week, {}).get("pts", pr["rate"])
+        p["proj_week"] = round(pts, 1)
+        p["proj_rate"] = pr["rate"]
+        p["proj_confidence"] = pr["confidence"]
+        p["rivals"] = tendencies.rivals(p["position"], pts, my_rid, profs, lineups, my_waiver, hot)
+
+    for i, p in enumerate(faab_data["trending_adds"]):
+        attach(p, hot=i < 5)
+    for p in faab_data["targets"]:
+        if not p.get("rostered_by"):
+            attach(p, hot=False)
+    for p in scan.get("free_agents", []):
+        attach(p, hot=p.get("kind") == "backup")
+    faab_data["tendencies"] = {
+        "week": week, "my_waiver_position": my_waiver,
+        "min_bids_for_style": tendencies.MIN_BIDS_FOR_STYLE,
+        "profiles": sorted((v for k, v in profs.items()), key=lambda v: (v["roster_id"] != my_rid, -v["bids"])),
+    }
+
+
+# --- main -------------------------------------------------------------------
+def main() -> int:
+    try:
+        cfg = load_config()
+    except ConfigError as exc:
+        say(f"ERROR: {exc}")
+        return 1
+    now = datetime.now(ZoneInfo(cfg.get("timezone") or "UTC"))
+    api = cfg["api"]
+    cache_dir = ROOT / "data" / "cache"
+    site_data = ROOT / "site" / "data"
+    snap_dir = ROOT / "data" / "snapshots" / now.strftime("%Y-%m-%d")
+    client = SleeperClient(api["base_url"], api["delay_seconds"], api["max_retries"],
+                           api["timeout_seconds"], cache_dir)
+    try:
+        ctx = fetch(client, cfg)
+    except PipelineError as exc:
+        say(f"ERROR: {exc}")
+        return 1
+    managers = dashboard.manager_lookup(ctx["users"], ctx["rosters"], cfg.get("nicknames", {}))
+
+    dash = build_dashboard(ctx, cfg, managers, cache_dir, now)
+    checks = dash.pop("_checks")
+    points = dash.pop("_points")
+    say("Building FAAB and transactions tracker...")
+    faab_data = build_faab(ctx, cfg, managers, now)
+    say("Scanning for injuries and opportunities since the last run...")
+    prev = load_previous(snap_dir.parent)
+    season = season_table(points, ctx["completed_weeks"])
+    scan = build_scanner(ctx, prev, managers, dash, faab_data, season,
+                         ROOT / "data" / "news_log.json", now)
+    say("Building projections from nflverse stats, snap counts and the schedule...")
+    nfl = load_nflverse(cfg, ctx["league"]["season"], cache_dir)
+    proj, proj_weeks, slots = build_projections(ctx, nfl)
+    say("Looking for trade ideas...")
+    trade_data = build_trades(ctx, managers, proj, proj_weeks, slots, scan, now)
+    say("Projecting matchups and simulating the season...")
+    outlook_data = build_outlook(ctx, managers, proj, proj_weeks, slots, now)
+    say("Profiling manager bidding habits...")
+    build_tendencies(ctx, faab_data, proj, outlook_data, scan)
+
+    write_site_data(site_data, "dashboard", dash)
+    write_site_data(site_data, "faab", faab_data)
+    write_site_data(site_data, "scanner", scan)
+    write_site_data(site_data, "trades", trade_data)
+    write_site_data(site_data, "outlook", outlook_data)
+    brief_md = brief.build_brief(dash, faab_data, scan, trade_data, outlook_data)
+    (site_data / "claude_brief.md").write_text(brief_md, encoding="utf-8")
+    write_site_data(site_data, "brief", {"generated_at": now.isoformat(timespec="minutes"), "markdown": brief_md})
+
+    write_snapshot(snap_dir, "meta", {"generated_at": now.isoformat(timespec="minutes")})
+    write_snapshot(snap_dir, "state", ctx["state"])
+    write_snapshot(snap_dir, "league", ctx["league"])
+    write_snapshot(snap_dir, "rosters", ctx["rosters"])
+    write_snapshot(snap_dir, "users", ctx["users"])
+    write_snapshot(snap_dir, "matchups", {str(w): m for w, m in ctx["matchups"].items()})
+    write_snapshot(snap_dir, "transactions", {str(w): t for w, t in ctx["transactions"].items()})
+    write_snapshot(snap_dir, "trending", ctx["trending"])
+    rostered = {pid for r in ctx["rosters"] for pid in (r.get("players") or [])}
+    write_snapshot(snap_dir, "players", slim_players(ctx["players"], rostered))
+    write_snapshot(snap_dir, "crosscheck", checks)
+    write_snapshot(snap_dir, "projections", {pid: {k: p[k] for k in ("rate", "sd", "confidence", "ros")}
+                                             for pid, p in proj.items()})
+
+    say(f"\nDone. {client.calls} Sleeper API calls. Snapshot saved to {snap_dir.relative_to(ROOT)}/")
+    say(f"My team: {dash['me']['team_name']} ({dash['me']['label']})")
+    unverified = [pid for pid, c in checks.items() if c["status"] == "unverified"]
+    n_ver = sum(1 for c in checks.values() if c["status"] == "verified")
+    say(f"Cross-check: {n_ver} verified, {len(unverified)} unverified.")
+    say(f"FAAB: ${faab_data['my_remaining']} left; {len(faab_data['waiver_log'])} waiver claims logged this season.")
+    if scan["first_run"]:
+        say("Scanner: first run, so this one just saves a baseline to compare against next time.")
+    else:
+        say(f"Scanner (since {scan['baseline']}): {len(scan['my_players'])} on my team, "
+            f"{len(scan['other_starters'])} other starters, {len(scan['free_agents'])} free agents.")
+    me_po = next(t for t in outlook_data["playoffs"]["teams"] if t["is_mine"])
+    my_mu = next((m for m in outlook_data["matchups"] if m["is_mine"]), None)
+    if my_mu:
+        say(f"This week: {round(100 * my_mu['teams'][0]['win_prob'])}% to win "
+            f"({my_mu['teams'][0]['mean']} vs {my_mu['teams'][1]['mean']}).")
+    say(f"Playoff odds: {me_po['odds_text']} (if win {me_po['if_win_text']}, if lose {me_po['if_lose_text']}).")
+    say(f"Trades: {len(trade_data['ideas'])} ideas, {len(trade_data['buyers'])} motivated buyer(s).")
+    for w in dash["warnings"] + faab_data["warnings"]:
+        say(f"WARNING: {w}")
+    say("Claude brief written to site/data/claude_brief.md")
+    say("Open site/index.html to view.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

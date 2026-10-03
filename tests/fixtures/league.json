@@ -1,0 +1,8 @@
+{
+ "name": "Test League", "season": "2026", "total_rosters": 4,
+ "roster_positions": ["QB", "RB", "WR", "FLEX", "DEF", "BN", "BN"],
+ "scoring_settings": {"pass_yd": 0.04, "pass_td": 4, "pass_int": -2, "rush_yd": 0.1, "rush_td": 6,
+   "rec": 1, "rec_yd": 0.1, "rec_td": 6, "fum_lost": -2, "rec_2pt": 2, "xpm": 1, "fgm_40_49": 4, "fgmiss": -1},
+ "settings": {"num_teams": 4, "waiver_type": 2, "waiver_budget": 100, "reserve_slots": 1,
+   "reserve_allow_out": 0, "reserve_allow_doubtful": 0, "last_scored_leg": 2, "start_week": 1}
+}

@@ -1,0 +1,26 @@
+[
+ {"type": "waiver", "status": "complete", "leg": 1, "status_updated": 1000, "roster_ids": [1], "adds": {"wr1": 1}, "drops": {"rb3": 1},
+  "settings": {"waiver_bid": 20}, "metadata": {"notes": "Your waiver claim was processed successfully!"}, "waiver_budget": []},
+ {"type": "waiver", "status": "failed", "leg": 1, "status_updated": 1000, "roster_ids": [2], "adds": {"wr1": 2}, "drops": null,
+  "settings": {"waiver_bid": 12}, "metadata": {"notes": "This player was claimed by another owner."}, "waiver_budget": []},
+ {"type": "waiver", "status": "failed", "leg": 1, "status_updated": 1000, "roster_ids": [3], "adds": {"wr1": 3}, "drops": null,
+  "settings": {"waiver_bid": 5}, "metadata": {"notes": "This player was claimed by another owner."}, "waiver_budget": []},
+ {"type": "waiver", "status": "failed", "leg": 1, "status_updated": 1000, "roster_ids": [4], "adds": {"wr1": 4}, "drops": null,
+  "settings": {"waiver_bid": 30}, "metadata": {"notes": "Unfortunately, your roster will have too many players after this transaction."}, "waiver_budget": []},
+
+ {"type": "waiver", "status": "complete", "leg": 2, "status_updated": 2000, "roster_ids": [2], "adds": {"rb2": 2}, "drops": null,
+  "settings": {"waiver_bid": 8}, "metadata": {"notes": "Your waiver claim was processed successfully!"}, "waiver_budget": []},
+ {"type": "waiver", "status": "failed", "leg": 2, "status_updated": 2000, "roster_ids": [1], "adds": {"rb2": 1}, "drops": null,
+  "settings": {"waiver_bid": 8}, "metadata": {"notes": "This player was claimed by another owner."}, "waiver_budget": []},
+
+ {"type": "waiver", "status": "complete", "leg": 2, "status_updated": 2000, "roster_ids": [3], "adds": {"PIT": 3}, "drops": null,
+  "settings": {"waiver_bid": 3}, "metadata": {"notes": "Your waiver claim was processed successfully!"}, "waiver_budget": []},
+
+ {"type": "waiver", "status": "complete", "leg": 1, "status_updated": 1000, "roster_ids": [2], "adds": {"te1": 2}, "drops": null,
+  "settings": {"waiver_bid": 0}, "metadata": {"notes": "Your waiver claim was processed successfully!"}, "waiver_budget": []},
+
+ {"type": "free_agent", "status": "complete", "leg": 2, "status_updated": 2500, "roster_ids": [1], "adds": {"k1": 1}, "drops": {"wr2": 1},
+  "settings": null, "metadata": null, "waiver_budget": []},
+ {"type": "trade", "status": "complete", "leg": 2, "status_updated": 2600, "roster_ids": [1, 2], "adds": {"qb2": 1, "qb1": 2}, "drops": {"qb1": 1, "qb2": 2},
+  "settings": null, "metadata": null, "waiver_budget": [{"sender": 2, "receiver": 1, "amount": 5}]}
+]
