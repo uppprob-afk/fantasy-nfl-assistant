@@ -64,6 +64,7 @@ nfl_assistant/
   outlook.py              win chances, start/sit, weekly lineups, playoff simulation
   tendencies.py           manager FAAB habits + likely rivals / bid-to-win
   cards.py                player cards: last 3 (Sleeper actual) vs next 3 (projected), log, usage, value
+  lab.py                  compact data for the in-browser Trade Lab / Planner (site/lab.js)
   brief.py                Markdown brief for pasting into an AI assistant
   anonymize.py            shareable copy of the site with league names replaced
   output.py               site data + snapshot writers
@@ -150,6 +151,18 @@ On the Trades tab, `playerExpand()` renders the same details: trade-idea and buy
 (`.tp` inside `.has-detail`) open a full-width `.trade-detail` panel under the card;
 sell-high / buy-low rows are `<details>`; value-table rows (`.tp-row`) insert a
 `tr.detail-row`. Handled by one delegated listener (`wireTradeDetails`).
+
+## Trade Lab (in-browser engine)
+
+`site/data/lab.js` (from `lab.py`) holds compact per-player weekly projections `w` and
+variances `v` aligned with `weeks` (0 = bye or game already played), rosters, standings,
+remaining schedule, this week's set-lineup distributions and Python `check_scores`.
+`site/lab.js` (`window.NFLLab.create(data)`) mirrors lineups.py / trades.Valuer /
+outlook.simulate in JavaScript: `lineup`, `value`, `profile`, `simulate` (mulberry32 seed,
+same random seasons before/after), `evaluateTrade`. **Any change to the Python valuation
+or simulation must be mirrored in lab.js.** Verify with
+`uv run --with playwright python tools/lab_parity.py` (values within 0.5, trade gains
+within 0.2, odds within 3 percentage points). The site shows a warning if `selfCheck()` fails.
 
 ## Automation
 

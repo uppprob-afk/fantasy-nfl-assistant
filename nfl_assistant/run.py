@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from . import brief, cards, dashboard, faab, lineups, nflverse, outlook, projections, scanner, tendencies, trades
+from . import brief, cards, dashboard, faab, lab, lineups, nflverse, outlook, projections, scanner, tendencies, trades
 from .config import ROOT, ConfigError, load_config
 from .output import write_site_data, write_snapshot
 from .players import find_player, ir_allowed_statuses, player_brief, slim_players
@@ -326,6 +326,22 @@ def pairs_by_week(entries: list[dict]) -> list[tuple[int, int]]:
     return [tuple(sorted(g)) for _, g in sorted(groups.items()) if len(g) == 2]
 
 
+def sim_schedule(ctx: dict, weeks: list[int]) -> dict[int, list[tuple[int, int]]]:
+    """Remaining regular-season pairings: this week plus future weeks from Sleeper."""
+    cw = ctx["current_week"]
+    sched = {cw: pairs_by_week(ctx["matchups"].get(cw, []))}
+    for w, entries in ctx.get("future_matchups", {}).items():
+        sched[w] = pairs_by_week(entries)
+    return {w: g for w, g in sched.items() if w in weeks}
+
+
+def sim_standings(rosters: list[dict]) -> dict[int, dict]:
+    return {r["roster_id"]: {"wins": r["settings"].get("wins", 0), "losses": r["settings"].get("losses", 0),
+                             "ties": r["settings"].get("ties", 0),
+                             "pf": r["settings"].get("fpts", 0) + r["settings"].get("fpts_decimal", 0) / 100}
+            for r in rosters}
+
+
 def build_outlook(ctx: dict, managers: dict, proj: dict, weeks: list[int], slots: list[str], now) -> dict:
     league, players, rosters = ctx["league"], ctx["players"], ctx["rosters"]
     my_rid = ctx["my_roster"]["roster_id"]
@@ -384,10 +400,7 @@ def build_outlook(ctx: dict, managers: dict, proj: dict, weeks: list[int], slots
             lineups_by_team[rid][w] = ow
 
     # playoff odds
-    sched = {cw: pairs_by_week(ctx["matchups"].get(cw, []))}
-    for w, entries in ctx.get("future_matchups", {}).items():
-        sched[w] = pairs_by_week(entries)
-    sched = {w: g for w, g in sched.items() if w in weeks}
+    sched = sim_schedule(ctx, weeks)
     dist = {}
     for rid in roster_of:
         for w in weeks:
@@ -397,10 +410,7 @@ def build_outlook(ctx: dict, managers: dict, proj: dict, weeks: list[int], slots
                 ow = lineups_by_team[rid][w]
                 dist[(rid, w)] = (ow["total"], ow["sd"])
     strength = {rid: outlook.team_strength_sd(pids, proj, slots, weeks[-1]) for rid, pids in roster_of.items()}
-    standings = {r["roster_id"]: {"wins": r["settings"].get("wins", 0), "losses": r["settings"].get("losses", 0),
-                                  "ties": r["settings"].get("ties", 0),
-                                  "pf": r["settings"].get("fpts", 0) + r["settings"].get("fpts_decimal", 0) / 100}
-                 for r in rosters}
+    standings = sim_standings(rosters)
     n_playoff = int(league["settings"].get("playoff_teams") or 4)
     seed = int(now.strftime("%Y%m%d"))
     sim = outlook.simulate(standings, sched, dist, strength, n_playoff, seed=seed)
@@ -478,6 +488,24 @@ def build_tendencies(ctx: dict, faab_data: dict, proj: dict, outlook_data: dict,
     }
 
 
+# --- trade lab / planner data ------------------------------------------------------
+def build_lab(ctx: dict, managers: dict, proj: dict, weeks: list[int], slots: list[str],
+              outlook_data: dict, trade_data: dict) -> dict:
+    this_week = {}
+    for m in outlook_data["matchups"]:
+        for t in m["teams"]:
+            this_week[t["roster_id"]] = {
+                "mean": t["mean"], "sd": t["sd"], "starters": t["starters"],
+                "actual": {r["id"]: r["pts"] for r in t["players"] if r["id"] and r["status"] == "played"}}
+    names = {pid: {"name": player_brief(pid, ctx["players"])["name"]} for pid in proj}
+    roster_size = sum(1 for s in ctx["league"]["roster_positions"] if s not in ("IR", "TAXI"))
+    return lab.build_lab_data(proj, weeks, slots, ctx["rosters"], managers, names,
+                              sim_standings(ctx["rosters"]), sim_schedule(ctx, weeks), this_week,
+                              ctx["my_roster"]["roster_id"], outlook_data["playoff_teams"],
+                              outlook_data["playoffs"]["confidence"], trade_data["replacement"],
+                              roster_size, ctx["current_week"])
+
+
 # --- player cards ----------------------------------------------------------------
 def build_cards(ctx: dict, proj: dict, points: dict, weeks: list[int], nfl: dict, trade_data: dict) -> dict:
     """player_id -> card (last 3 / next 3 weeks, log, usage, value) for every rostered player."""
@@ -530,6 +558,7 @@ def main() -> int:
     dash["cards"] = build_cards(ctx, proj, points, proj_weeks, nfl, trade_data)
     say("Projecting matchups and simulating the season...")
     outlook_data = build_outlook(ctx, managers, proj, proj_weeks, slots, now)
+    lab_data = build_lab(ctx, managers, proj, proj_weeks, slots, outlook_data, trade_data)
     say("Profiling manager bidding habits...")
     build_tendencies(ctx, faab_data, proj, outlook_data, scan)
 
@@ -538,6 +567,7 @@ def main() -> int:
     write_site_data(site_data, "scanner", scan)
     write_site_data(site_data, "trades", trade_data)
     write_site_data(site_data, "outlook", outlook_data)
+    write_site_data(site_data, "lab", lab_data)
     brief_md = brief.build_brief(dash, faab_data, scan, trade_data, outlook_data)
     (site_data / "claude_brief.md").write_text(brief_md, encoding="utf-8")
     write_site_data(site_data, "brief", {"generated_at": now.isoformat(timespec="minutes"), "markdown": brief_md})
