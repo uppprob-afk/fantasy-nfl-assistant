@@ -508,6 +508,10 @@
     }
     html += `<div class="disclaimer">These are <b>suggestions, not advice</b>. Values are <b>rest-of-season projections</b>
       (weeks ${esc(T.weeks[0])}–${esc(T.weeks[n - 1])}), not points so far. Each shows a confidence level, so check it before acting.</div>`;
+    if (T.trade_deadline && !T.trades_closed) {
+      const left = T.trade_deadline - T.current_week;
+      html += `<div class="status-note">Trade deadline: <b>week ${esc(T.trade_deadline)}</b> (${left <= 0 ? "this week" : `${left} week${left === 1 ? "" : "s"} away`}).</div>`;
+    }
 
     html += `<h2>Trade ideas</h2><p class="lead-text">Each idea improves <b>both</b> teams' projected optimal lineups for every remaining week
       (byes included), counting only points above free-agent level, with injury cover and roster limits (the side receiving
@@ -539,22 +543,12 @@
     html += `<p class="subtle">Replacement level (avg of the best 3 free agents, pts/wk): ${
       Object.entries(T.replacement).map(([k, v]) => `${esc(k)} ${num(v)}`).join(" · ")}.</p>`;
 
-    const cols = ["QB", "RB", "WR", "TE", "FLEX"];
-    const rows = T.teams.map((t) => `<tr class="${t.is_mine ? "mine" : ""}">
-      <td class="team-cell"><div class="t">${esc(t.team_name)}</div><div class="m">${managerName(t)}</div>
-        <div class="m">${t.needs.length ? `needs <b>${esc(t.needs.join("/"))}</b>` : "no clear needs"}${t.surplus.length ? ` · spare ${esc(t.surplus.join("/"))}` : ""}</div></td>
-      ${cols.map((c) => {
-        const v = t.vs_median[c];
-        return `<td class="${v > 1 ? "up" : v < -1 ? "down" : ""}${c === "FLEX" ? " hide-sm" : ""}">${signed(v)}</td>`;
-      }).join("")}
-      <td class="hide-sm"><b>${num(t.per_week)}</b></td></tr>`).join("");
-    html += `<h2>Projected strength vs league median</h2>
-      <p class="lead-text">Average projected points per week from each position in the optimal weekly lineups (green = strength, red = need).</p>
-      <div class="card table-wrap"><table class="named">
-        <thead><tr><th>Team</th>${cols.map((c) => `<th${c === "FLEX" ? ' class="hide-sm"' : ""}>${c}</th>`).join("")}<th class="hide-sm">Proj/wk</th></tr></thead>
-        <tbody>${rows}</tbody></table></div>
-      <p class="subtle">Median: ${cols.map((c) => `${c} ${num(T.median[c])}`).join(" · ")} pts/wk.
-        Lineup slots: ${esc(T.slots.join(", "))}. "Spare" = a bench player who'd start for the median team.</p>`;
+    html += `<h2>Team strength vs league median</h2>
+      <div class="seg" id="str-seg" role="tablist">
+        <button type="button" data-view="past">Season so far</button>
+        <button type="button" data-view="proj">Projected</button>
+        <button type="button" data-view="partners">Partners</button>
+      </div><div id="str-body"></div>`;
 
     html += `<details class="recent"><summary>How values work</summary><div class="card card-pad subtle">
       <p><b>Per-week projection</b> = a blend of a position baseline (by depth chart role), <b>last season</b> (each game counts half,
@@ -571,8 +565,79 @@
       players), nflverse snap counts and schedule.</p></div></details>`;
     $("tab-trades").innerHTML = html;
     wireTradeDetails();
+    renderStrength(store.get("strengthView", "past"));
+    $("str-seg").querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
+      store.set("strengthView", b.dataset.view);
+      renderStrength(b.dataset.view);
+    }));
     $("tab-trades").querySelectorAll(".lab-open").forEach((b) => b.addEventListener("click", () =>
       openInLab(b.dataset.partner, b.dataset.give.split(","), b.dataset.get.split(","))));
+  }
+
+  function renderStrength(view) {
+    const cols = ["QB", "RB", "WR", "TE", "FLEX"];
+    const H = T.history || { teams: [], weeks: 0, median: {} };
+    if (view === "past" && !H.teams.length) view = "proj";
+    $("str-seg").querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.view === view)));
+    const cells = (vs) => cols.map((c) => {
+      const v = vs[c];
+      return `<td class="${v > 1 ? "up" : v < -1 ? "down" : ""}${c === "FLEX" ? " hide-sm" : ""}">${signed(v)}</td>`;
+    }).join("");
+    const head = (last) => `<thead><tr><th>Team</th>${cols.map((c) => `<th${c === "FLEX" ? ' class="hide-sm"' : ""}>${c}</th>`).join("")}<th class="hide-sm">${last}</th></tr></thead>`;
+    const weakest = (vs) => cols.filter((c) => c !== "FLEX" && vs[c] < -1).sort((a, b) => vs[a] - vs[b]);
+    let html = "";
+    if (view === "past") {
+      const rows = H.teams.map((t) => `<tr class="${t.is_mine ? "mine" : ""}">
+        <td class="team-cell"><div class="t">${esc(t.team_name)}</div><div class="m">${managerName(t)}</div>
+          <div class="m">${t.efficiency != null ? `started <b>${Math.round(100 * t.efficiency)}%</b> of best possible` : ""}${
+            weakest(t.vs_median).length ? ` · weakest ${esc(weakest(t.vs_median).join("/"))}` : ""}</div></td>
+        ${cells(t.vs_median)}<td class="hide-sm"><b>${num(t.actual)}</b></td></tr>`).join("");
+      html = `<p class="lead-text">Actual points per week from each position in the lineups teams really started
+        (weeks 1–${esc(H.weeks)}), compared with the median team. ${H.weeks < 5 ? `Only ${esc(H.weeks)} week${H.weeks === 1 ? "" : "s"} played, so treat as a rough guide.` : ""}</p>
+        <div class="card table-wrap"><table class="named">${head("Pts/wk")}<tbody>${rows}</tbody></table></div>
+        <p class="subtle">Median: ${cols.map((c) => `${c} ${num(H.median[c])}`).join(" · ")} pts/wk.
+          "Started X% of best possible" = actual starters' points vs the best lineup they could have set each week (in hindsight).
+          Managers who leave points on the bench may undervalue depth or value a simpler roster.</p>`;
+    } else if (view === "proj") {
+      const rows = T.teams.map((t) => `<tr class="${t.is_mine ? "mine" : ""}">
+        <td class="team-cell"><div class="t">${esc(t.team_name)}</div><div class="m">${managerName(t)}</div>
+          <div class="m">${t.needs.length ? `needs <b>${esc(t.needs.join("/"))}</b>` : "no clear needs"}${t.surplus.length ? ` · spare ${esc(t.surplus.join("/"))}` : ""}</div></td>
+        ${cells(t.vs_median)}<td class="hide-sm"><b>${num(t.per_week)}</b></td></tr>`).join("");
+      html = `<p class="lead-text">Average projected points per week from each position in the optimal weekly lineups
+        (rest of season, byes included).</p>
+        <div class="card table-wrap"><table class="named">${head("Proj/wk")}<tbody>${rows}</tbody></table></div>
+        <p class="subtle">Median: ${cols.map((c) => `${c} ${num(T.median[c])}`).join(" · ")} pts/wk.
+          Lineup slots: ${esc(T.slots.join(", "))}. "Spare" = a bench player who'd start for the median team.</p>`;
+    } else {
+      const odds = {};
+      if (O) O.playoffs.teams.forEach((t) => { odds[t.roster_id] = t; });
+      const rec = {};
+      D.standings.forEach((s) => { rec[s.roster_id] = s; });
+      const past = {};
+      H.teams.forEach((t) => { past[t.roster_id] = t; });
+      const mySpare = (T.teams.find((x) => x.is_mine) || { surplus: [] }).surplus;
+      const fitScore = (t) => t.needs.filter((pos) => mySpare.includes(pos)).length;
+      const rows = T.teams.filter((t) => !t.is_mine)
+        .sort((a, b) => (fitScore(b) - fitScore(a)) || ((odds[b.roster_id] || {}).odds || 0) - ((odds[a.roster_id] || {}).odds || 0))
+        .map((t) => {
+        const o = odds[t.roster_id], r = rec[t.roster_id], h = past[t.roster_id] || {};
+        const made = (T.history && T.history.trades_made && T.history.trades_made[String(t.roster_id)]) || 0;
+        const stance = !o ? "" : o.odds >= 0.6 ? "contender: may pay for help now" : o.odds <= 0.2 ? "long shot: may sell veterans" : "in the mix";
+        const fits = t.needs.filter((pos) => (T.teams.find((x) => x.is_mine) || { surplus: [] }).surplus.includes(pos));
+        return `<tr><td class="team-cell"><div class="t">${esc(t.team_name)}</div><div class="m">${managerName(t)}</div>
+            <div class="m">${t.needs.length ? `needs <b>${esc(t.needs.join("/"))}</b>` : "no clear needs"}${t.surplus.length ? ` · spare ${esc(t.surplus.join("/"))}` : ""}${
+              fits.length ? ` · <span style="color:var(--good)">your spare ${esc(fits.join("/"))} fits</span>` : ""}</div>
+            <div class="m">${esc(stance)}${h.efficiency != null ? ` · starts ${Math.round(100 * h.efficiency)}% of best` : ""}</div></td>
+          <td>${r ? `${r.wins}–${r.losses}` : "–"}</td><td><b>${o ? esc(o.odds_text) : "–"}</b></td><td>${made}</td></tr>`;
+      }).join("");
+      html = `<p class="lead-text">Who to talk to: what each team needs (projected), whether they're chasing the playoffs,
+        and how often they trade.</p>
+        <div class="card table-wrap"><table class="named"><thead><tr><th>Team</th><th>W–L</th><th>Playoffs</th><th title="Trades completed this season">Trades</th></tr></thead>
+        <tbody>${rows}</tbody></table></div>
+        <p class="subtle">Sorted by fit (they need what you can spare), then playoff odds. Contenders (60%+ playoff odds) tend to pay for help now; long shots (20% or less) may sell. Managers who have
+          already traded this season are likelier to deal. "Your spare fits" = they need a position where you have bench depth.</p>`;
+    }
+    $("str-body").innerHTML = html;
   }
 
   function tradePlayerLookup() {

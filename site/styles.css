@@ -329,6 +329,12 @@ span.up { color: var(--good); } span.down { color: var(--bad); }
 .fa-drop { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 0 14px 12px; }
 .fa-drop select { margin: 0; padding: 6px 8px; font-size: .85rem; }
 
+/* Segmented toggle */
+.seg { display: inline-flex; background: var(--surface-2); border-radius: 999px; padding: 3px; gap: 2px; margin: 0 0 10px; }
+.seg button { font: inherit; font-size: .85rem; font-weight: 600; border: 0; background: none; color: var(--muted);
+  border-radius: 999px; padding: 6px 12px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.15); }
+
 @media (max-width: 420px) {
   .pd { padding-left: 14px; }
   .stat .v { font-size: 1.1rem; }
