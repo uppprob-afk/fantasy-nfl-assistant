@@ -176,8 +176,7 @@
         <div>${ab}${v.rank} of ${v.rank_of} by rest-of-season projection · ${v.vor >= 0 ? "+" : ""}${Math.round(v.vor)} pts vs a free-agent replacement.</div>
         <div class="subtle">${v.byes.length ? `Bye: week ${v.byes.join(", ")}. ` : ""}${v.prior_ppg != null ? `Last season ${one(v.prior_ppg)}/g. ` : ""}See Trades → How values work.</div></div>`;
     }
-    const acts = actionButtons(p.id);
-    if (acts) html += `<div class="acts">${acts}</div>`;
+    html += `<div class="acts">${actionButtons(p.id)}<button type="button" class="mini" data-act="ask" data-kind="player" data-pid="${esc(p.id)}">Ask Claude</button></div>`;
     return html + `</div>`;
   }
 
@@ -1192,7 +1191,7 @@
       <div class="gains" style="margin:8px 0"><span class="gain me">You ${signed(res.gainMe)} pts ROS (${signed(res.perWeekMe)}/wk)</span>
         <span class="gain">Them ${signed(res.gainThem)} pts</span></div>
       <div class="subtle">${esc(VERDICT[res.balance] || "")}</div>${whyHtml}${
-        ""}<div class="acts"><button type="button" class="mini" data-act="improve">Optimise this deal</button>${
+        ""}<div class="acts"><button type="button" class="mini" data-act="improve">Optimise this deal</button><button type="button" class="mini" data-act="ask" data-kind="trade">Ask Claude</button>${
         labState.offers && labState.offers.offers.length > 1 ? `<button type="button" class="mini" data-act="jump-offers">See other suggested offers ↓</button>` : ""}</div>
         <div id="lab-improve"></div></div>`;
     html += `<h2>Players in the deal</h2><div class="card card-pad has-detail"><div class="swap">
@@ -1741,6 +1740,142 @@
     });
   }
 
+  // ---------- Ask Claude: package the relevant data as a message for the Claude app ----------
+  // (no API: shares via the phone's share sheet, or copies to paste into Claude)
+  const pnm = (pid) => (DATA.lab && DATA.lab.players[pid] ? DATA.lab.players[pid].n : (CARDS[pid] && CARDS[pid].name) || pid);
+  const ownerText = (pid) => {
+    const o = ownerOf(pid);
+    return o === undefined ? "" : o === myRid() ? "on my team" : o === null ? "free agent" : `owned by ${DATA.lab.rosters[String(o)].team_name}`;
+  };
+  function playerText(pid) {
+    const c = CARDS[pid], L = DATA.lab, r = L && L.players[pid];
+    const pos = r ? r.p : "", ab = POS_ABBR[pos] || pos;
+    const lines = [`### ${pnm(pid)} (${pos}${r ? ", " + r.t : ""}) - ${ownerText(pid)}${r && r.s ? `, status: ${r.s}` : ""}${isHeld(pid) ? ", I'm holding (stashing) him" : ""}`];
+    if (!c) return lines.concat(["No player card available."]).join("\n");
+    const v = c.value, k = c.consistency || {}, o = c.opportunity || {}, u = c.usage || {};
+    if (v) lines.push(`Projection: ${one(v.rate)} pts/wk (typical range ${one(Math.max(v.rate - v.sd, 0))}-${one(v.rate + v.sd)}), ${Math.round(v.ros)} pts rest of season, ${ab}${v.rank} of ${v.rank_of}, ${v.vor >= 0 ? "+" : ""}${Math.round(v.vor)} vs a free-agent replacement, ${v.confidence} confidence${v.flag ? `, flagged ${v.flag}` : ""}. Byes: ${v.byes.join(", ") || "none left"}.`);
+    const pts = (g) => (g.pts != null ? one(g.pts) : g.calc != null ? "~" + one(g.calc) : "n/a");
+    lines.push("Recent weeks: " + c.log.slice(-6).map((g) => g.bye ? `W${g.week} bye` : `W${g.week} ${g.opp ? "vs " + g.opp + " " : ""}${pts(g)} pts${g.finish ? ` (${ab}${g.finish})` : ""}${g.partial ? " partial game" : ""}`).join("; "));
+    if (k.games) lines.push(`Consistency: ${k.ppg}/g, best ${k.ceiling}, median ${k.median}, worst ${k.floor}; boom ${k.boom}, starter-level ${k.start} of ${k.games}, bust ${k.bust} (starter-level = top ${c.tiers.start} ${ab}).`);
+    const opp = [];
+    if (u.snap_pct != null) opp.push(`${u.snap_pct}% snaps`);
+    if (o.tgt_share != null) opp.push(`${Math.round(100 * o.tgt_share)}% target share`);
+    if (o.car_share) opp.push(`${Math.round(100 * o.car_share)}% carry share`);
+    if (o.wopr != null) opp.push(`WOPR ${o.wopr.toFixed(2)}`);
+    if (o.touches_pg) opp.push(`${o.touches_pg} touches/g`);
+    if (o.yds_per_touch != null) opp.push(`${o.yds_per_touch} yds/touch`);
+    if (o.exp_tds != null) opp.push(`${o.tds} TDs vs ~${o.exp_tds} expected from volume`);
+    if (u.actual_ppg != null && u.expected_ppg != null) opp.push(`scoring ${one(u.actual_ppg)}/g vs ${one(u.expected_ppg)}/g usage-based`);
+    if (opp.length) lines.push("Usage: " + opp.join(", ") + ".");
+    if (c.schedule && c.schedule.length) lines.push("Schedule ahead (projected): " + c.schedule.map((w) => w.bye ? `W${w.week} bye` : `W${w.week}${w.playoff ? " (playoffs)" : ""} ${w.home === false ? "@" : "vs "}${w.opp} ${one(w.pts)}${w.matchup && w.matchup !== "neutral" ? " " + w.matchup : ""}`).join("; "));
+    const wv = F && (F.available || []).find((x) => x.id === pid);
+    if (wv) {
+      const r2 = wv.rivals || {};
+      lines.push(`Waiver view: adds ${wv.gain_per_week >= 0 ? "+" : ""}${wv.gain_per_week} pts/wk to my lineup (${wv.gain} rest of season, fit: ${wv.fit})${wv.drop.length ? `, I'd cut ${wv.drop.map((d) => d.name).join(", ")}` : ""}. Suggested bid $${wv.suggestion.bid} (${wv.suggestion.reason}) Likely rival bidders: ${(r2.likely || []).map((x) => x.label).join(", ") || "none"}. My FAAB left: $${F.my_remaining}.`);
+    }
+    return lines.join("\n");
+  }
+  function rosterText() {
+    const me = D.me;
+    const row = (p, slot) => p.id ? `- ${slot}: ${p.name} (${p.position}, ${p.team})${p.injury_status ? " " + p.injury_status : ""}${CARDS[p.id] ? ` - last 3 avg ${one(CARDS[p.id].last3_avg)}, next 3 proj ${one(CARDS[p.id].next3_avg)}` : ""}${isHeld(p.id) ? " [held]" : ""}` : `- ${slot}: empty`;
+    return ["## My roster", ...me.starters.map((p) => row(p, p.slot)), ...me.bench.map((p) => row(p, "BN")), ...me.ir.map((p) => row(p, "IR"))].join("\n");
+  }
+  function tradeText() {
+    const E = engine(), L = DATA.lab;
+    if (!labState || !labState.give.length || !labState.get.length) return "";
+    const res = E.evaluateTrade(labState.partner, labState.give, labState.get);
+    const team = L.rosters[String(res.them)].team_name;
+    const pct = (x) => Math.round(100 * x) + "%";
+    const lines = [`## Trade I'm considering with ${team}`,
+      `I give: ${res.give.map(pnm).join(", ")}. I get: ${res.get.map(pnm).join(", ")}.`,
+      `Dashboard verdict: ${res.balance}. Rest-of-season value change: me ${signed(res.gainMe)} pts (${signed(res.perWeekMe)}/wk), them ${signed(res.gainThem)} pts. Confidence: ${res.confidence}.`,
+      `Playoff odds: me ${pct(res.odds.me[0])} -> ${pct(res.odds.me[1])}, them ${pct(res.odds.them[0])} -> ${pct(res.odds.them[1])}.`,
+      "Reasons: " + (res.reasons.join(" ") || "none listed"),
+      `Lineup week ${res.lineupChange.week}: I start ${res.lineupChange.me.in.map(pnm).join(", ") || "no change"}; they start ${res.lineupChange.them.in.map(pnm).join(", ") || "no change"}.`,
+      "Week by week (my change / their change): " + res.weekly.map((w) => `W${w.week} ${signed(w.me)}/${signed(w.them)}`).join(", "),
+      (res.moves.me.drop.length ? `I'd have to cut ${res.moves.me.drop.map(pnm).join(", ")}. ` : "") + (res.moves.them.drop.length ? `They'd cut ${res.moves.them.drop.map(pnm).join(", ")}.` : ""),
+      "", "## Players in the deal", ...res.give.concat(res.get).map(playerText)];
+    return lines.join("\n");
+  }
+  function waiversText() {
+    const best = (F && F.available || []).filter((p) => p.fit !== "none").slice(0, 10);
+    const top = best.length ? best : (F && F.available || []).slice(0, 8);
+    return [`## Waiver options (my FAAB left: $${F ? F.my_remaining : "?"}, waiver #${F && F.tendencies ? F.tendencies.my_waiver_position : "?"})`,
+      ...top.map((p) => `- ${p.name} (${p.position}, ${p.team}${p.injury_status ? ", " + p.injury_status : ""}): adds ${p.gain_per_week >= 0 ? "+" : ""}${p.gain_per_week}/wk to me (fit ${p.fit})${p.drop.length ? `, cut ${p.drop.map((d) => d.name).join(", ")}` : ""}; proj ${one(p.proj_rate)}/wk; suggested bid $${p.suggestion.bid}; likely rivals ${(p.rivals && p.rivals.likely || []).length}`)].join("\n");
+  }
+  const ASK = {
+    player: { about: (pid) => `About ${pnm(pid)}`, chips: (pid) => ownerOf(pid) === myRid()
+        ? ["Start, hold, trade or drop him?", "Is he a sell-high?", "How worried should I be about his schedule?"]
+        : ownerOf(pid) === null ? ["Should I pick him up, and what should I bid?", "Who on my roster would he replace?"]
+        : ["Should I try to trade for him? What would it cost?", "Is he a buy-low?"],
+      body: (pid) => playerText(pid) },
+    trade: { about: () => "About the trade in the Lab", chips: () => ["Should I make this trade?", "What would you change to make it better for me?", "Would they accept it?"],
+      body: () => tradeText() },
+    waivers: { about: () => "About waivers and FAAB", chips: () => ["Who should I bid on this week, and how much?", "Should I save my FAAB?"],
+      body: () => waiversText() },
+    general: { about: () => "About my team and league", chips: () => ["What should I do this week?", "Who should I start?", "What's my biggest weakness?"],
+      body: () => "" },
+  };
+  let askState = null;
+  function askMessage() {
+    const q = $("ask-q").value.trim() || ASK[askState.kind].chips(askState.pid)[0];
+    const parts = [`My question: ${q}`, "",
+      "Context: I play in a Sleeper fantasy football league. Use the data below from my dashboard (league scoring; projections are the dashboard's own model; '~' = calculated from NFL stats because the player wasn't on a league roster). Be specific and say if something you'd need isn't here.", ""];
+    const body = ASK[askState.kind].body(askState.pid);
+    if (body) parts.push(body, "");
+    if (askState.kind !== "general") parts.push(rosterText(), "");
+    else parts.push(rosterText(), "");
+    if (B && B.markdown) parts.push("## League brief", B.markdown);
+    return parts.join("\n");
+  }
+  function refreshAskPreview() {
+    const text = askMessage();
+    $("ask-preview").textContent = text;
+    $("ask-size").textContent = `What gets sent (${Math.round(text.length / 100) / 10} KB of your league data)`;
+  }
+  function openAsk(kind, pid) {
+    if (!kind) {
+      const visible = [...document.querySelectorAll(".tab-panel")].find((s) => !s.hidden);
+      const id = visible ? visible.id.replace("tab-", "") : "";
+      kind = id === "lab" && labState && labState.give.length && labState.get.length ? "trade" : id === "faab" ? "waivers" : "general";
+    }
+    askState = { kind, pid };
+    const A = ASK[kind];
+    $("ask-about").textContent = A.about(pid);
+    $("ask-q").value = "";
+    $("ask-q").placeholder = A.chips(pid)[0];
+    $("ask-chips").innerHTML = A.chips(pid).map((c) => `<button type="button" class="mini" data-chip="${esc(c)}">${esc(c)}</button>`).join("");
+    $("ask-status").textContent = "";
+    $("ask-share").hidden = !navigator.share;
+    refreshAskPreview();
+    const dlg = $("ask");
+    if (dlg.showModal) dlg.showModal(); else dlg.setAttribute("open", "");
+  }
+  function setupAsk() {
+    $("ask-btn").addEventListener("click", () => openAsk());
+    $("ask-q").addEventListener("input", refreshAskPreview);
+    $("ask-chips").addEventListener("click", (e) => {
+      const c = e.target.closest("[data-chip]");
+      if (c) { $("ask-q").value = c.dataset.chip; refreshAskPreview(); }
+    });
+    $("ask-share").addEventListener("click", async () => {
+      try { await navigator.share({ text: askMessage() }); $("ask-status").textContent = "Sent. Pick Claude in the share menu if you haven't."; }
+      catch (e) { if (e && e.name !== "AbortError") $("ask-status").textContent = "Sharing didn't work here. Use Copy instead."; }
+    });
+    $("ask-copy").addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(askMessage());
+        $("ask-status").innerHTML = `Copied ✓ Paste it into a new chat in the Claude app${navigator.share ? "" : ` or <a href="https://claude.ai/new" target="_blank" rel="noopener">claude.ai</a>`}.`;
+      } catch (e) {
+        const pre = $("ask-preview");
+        pre.closest("details").open = true;
+        const range = document.createRange(); range.selectNodeContents(pre);
+        const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range);
+        $("ask-status").textContent = "Text selected. Press ⌘C / long-press to copy.";
+      }
+    });
+  }
+
   // ---------- shell ----------
   // Five sections in the bottom bar; some hold sub-tabs switched by a segmented control.
   const SECTIONS = {
@@ -1872,6 +2007,7 @@
     else if (act === "pitch") openInLab(b.dataset.partner, [pid], [], { suggest: true });
     else if (act === "plan-add") planPickup(pid);
     else if (act === "hold") toggleHold(pid);
+    else if (act === "ask") openAsk(b.dataset.kind, pid);
     else if (act === "improve") runImprove();
     else if (act === "apply-edit") {
       const e = IMPROVE.edits.concat(IMPROVE.closest || [])[Number(b.dataset.i)];
@@ -1884,6 +2020,7 @@
   }, true);
 
   setupTheme();
+  setupAsk();
   setupApp();
   window.addEventListener("online", () => showStatus(D && D.generated_at));
   window.addEventListener("offline", () => showStatus(D && D.generated_at));

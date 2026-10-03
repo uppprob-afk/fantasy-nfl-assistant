@@ -429,6 +429,17 @@ details.bs-d[open] > .xp-body { margin-top: 12px; border-top: 1px solid var(--bo
 .fa-drop { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 0 16px 14px; }
 .fa-drop select { margin: 0; padding: 7px 10px; font-size: 14px; }
 
+/* ---------- Ask Claude sheet ---------- */
+dialog#ask { border: 0; padding: 0; background: transparent; width: min(560px, calc(100vw - 24px)); max-height: calc(100vh - 32px); color: var(--text); }
+dialog#ask::backdrop { background: rgba(0, 0, 0, .45); }
+.ask-box { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 16px; display: grid; gap: 6px; }
+.ask-top { display: flex; justify-content: space-between; align-items: center; }
+.ask-top h2 { margin: 0; }
+#ask-q { width: 100%; box-sizing: border-box; font: inherit; font-size: 15px; padding: 10px 12px; border-radius: 10px;
+  border: 1px solid var(--border); background: var(--surface-2); color: var(--text); resize: vertical; }
+#ask-chips .mini { white-space: normal; text-align: left; }
+.ask-pre { max-height: 32vh; margin-top: 8px; font-size: 11px; }
+
 /* ---------- waivers: available players ---------- */
 details.wv { border-top: 1px solid var(--border); }
 details.wv:first-child { border-top: 0; }

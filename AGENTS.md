@@ -199,6 +199,17 @@ top 3 = light green, bottom 3 = red, W/L) and expands to scoring rank, points ag
 week (schedule luck), all-play + luck, consistency (SD vs the league median SD) and every
 game with "would have beaten N of M". The same `.pill` / `.f-*` tier classes as player cards.
 
+## Ask Claude (no API)
+
+The header chat icon and an "Ask Claude" button in every player panel and the Lab summary
+open `dialog#ask`. `askMessage()` builds plain text: the question, a context line, a
+context block (`playerText` = card + waiver view, `tradeText` = `evaluateTrade` result +
+players, `waiversText` = Best-for-you list), `rosterText()` and the league brief. The header
+icon picks the context from the visible tab (lab with a trade → trade, faab → waivers, else
+general). Sent with `navigator.share` (Android share sheet → Claude app) or copied to the
+clipboard. Deliberately no API calls: the user doesn't want usage-based costs. Keep messages
+around 10 KB.
+
 ## Waiver targets (Waivers → Bids & FAAB)
 
 `run.build_available` → `faab.json` `available`: `waivers.pool` takes the best unrostered
