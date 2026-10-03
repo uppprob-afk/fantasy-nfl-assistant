@@ -176,3 +176,21 @@ def test_buy_low_sell_high():
     bs = P.buy_sell(p, owners, my_rid=1)
     assert [r["id"] for r in bs["sell_high"]] == ["mine_hot"]
     assert [r["id"] for r in bs["buy_low"]] == ["their_cold"]
+
+
+def test_assign_finishes_ranks_within_position_and_week():
+    from nfl_assistant.projections import assign_finishes
+    logs = {"a": [{"season": "2026", "week": 1, "position": "WR", "pts": 10.0}],
+            "b": [{"season": "2026", "week": 1, "position": "WR", "pts": 20.0},
+                  {"season": "2026", "week": 2, "position": "WR", "pts": 5.0}]}
+    dlogs = {"KC": [{"season": "2026", "week": 1, "position": "DEF", "pts": 7.0}]}
+    assign_finishes(logs, dlogs)
+    assert logs["b"][0]["finish"] == 1 and logs["a"][0]["finish"] == 2
+    assert logs["b"][1]["finish"] == 1 and dlogs["KC"][0]["finish"] == 1
+
+
+def test_td_per_touch_by_position():
+    from nfl_assistant.projections import td_per_touch
+    logs = {"a": [{"season": "2026", "position": "RB", "carries": 18, "targets": 2, "rush_td": 1, "rec_td": 0}],
+            "b": [{"season": "2025", "position": "RB", "carries": 20, "targets": 0, "rush_td": 3}]}
+    assert td_per_touch(logs, "2026") == {"RB": 0.05}

@@ -21,6 +21,10 @@ from statistics import mean, median
 from .nflverse import compute_points, index_rows, match_player, norm_name
 
 TEAM_FROM_NFLVERSE = {"LA": "LAR"}
+# Per-game fields kept on each player's game log (cards / detail panel).
+LOG_KEYS = ("week", "pts", "pct", "targets", "carries", "receptions", "attempts", "partial", "opp", "finish",
+            "pass_yd", "pass_td", "ints", "rush_yd", "rush_td", "rec_yd", "rec_td", "fum",
+            "tgt_share", "ay_share", "wopr", "car_share")
 SKILL = ("QB", "RB", "WR", "TE")
 POSITIONS = ("QB", "RB", "WR", "TE", "K", "DEF")
 
@@ -107,6 +111,9 @@ def component_points(row: dict, scoring: dict) -> dict[str, float]:
 def game_logs(rows: list[dict], snaps: list[dict], scoring: dict) -> dict[str, list[dict]]:
     """nflverse player_id -> list of games with points, snap share and usage."""
     snap_idx = _snap_index(snaps)
+    team_carries: dict[tuple, float] = defaultdict(float)
+    for r in rows:
+        team_carries[(r["season"], r["week"], r.get("team"))] += _n(r, "carries")
     logs: dict[str, list[dict]] = defaultdict(list)
     for r in rows:
         if r.get("season_type", "REG") != "REG":
@@ -119,6 +126,16 @@ def game_logs(rows: list[dict], snaps: list[dict], scoring: dict) -> dict[str, l
             "pct": snap_idx.get((r["season"], int(r["week"]), team, name)),
             "targets": _n(r, "targets"), "carries": _n(r, "carries"), "receptions": _n(r, "receptions"),
             "attempts": _n(r, "attempts"), "parts": component_points(r, scoring),
+            "opp": sleeper_team(r.get("opponent_team")),
+            "pass_yd": _n(r, "passing_yards"), "pass_td": _n(r, "passing_tds"),
+            "ints": _n(r, "passing_interceptions"),
+            "rush_yd": _n(r, "rushing_yards"), "rush_td": _n(r, "rushing_tds"),
+            "rec_yd": _n(r, "receiving_yards"), "rec_td": _n(r, "receiving_tds"),
+            "fum": _n(r, "rushing_fumbles_lost") + _n(r, "receiving_fumbles_lost") + _n(r, "sack_fumbles_lost"),
+            "tgt_share": round(_n(r, "target_share"), 3) or None, "ay_share": round(_n(r, "air_yards_share"), 3) or None,
+            "wopr": round(_n(r, "wopr"), 3) or None,
+            "car_share": (round(_n(r, "carries") / team_carries[(r["season"], r["week"], r.get("team"))], 3)
+                          if team_carries[(r["season"], r["week"], r.get("team"))] else None),
         })
     for games in logs.values():
         games.sort(key=lambda x: (x["season"], x["week"]))
@@ -176,15 +193,44 @@ def def_logs(rows: list[dict], games: list[dict], scoring: dict) -> dict[str, li
         if g.get("game_type") != "REG" or (g.get("home_score") or "") == "":
             continue
         week = int(g["week"])
-        for team, allowed in ((g["home_team"], g["away_score"]), (g["away_team"], g["home_score"])):
+        for team, allowed, opp in ((g["home_team"], g["away_score"], g["away_team"]),
+                                   (g["away_team"], g["home_score"], g["home_team"])):
             t = sleeper_team(team)
             stats = agg.get((g["season"], week, t), {})
             pts = sum(scoring.get(k, 0) * v for k, v in stats.items()) + tier_pts(int(allowed))
             out[t].append({"season": g["season"], "week": week, "team": t, "position": "DEF",
-                           "pts": round(pts, 2), "pct": None, "partial": False})
+                           "pts": round(pts, 2), "pct": None, "partial": False,
+                           "opp": sleeper_team(opp)})
     for logs in out.values():
         logs.sort(key=lambda x: (x["season"], x["week"]))
     return dict(out)
+
+
+def assign_finishes(*log_sets: dict[str, list[dict]]) -> None:
+    """Add each game's positional finish (1 = most points at that position that week, league
+    scoring, every NFL player) as g["finish"]."""
+    by_slot: dict[tuple, list] = defaultdict(list)
+    for logs in log_sets:
+        for games in logs.values():
+            for g in games:
+                if g.get("position"):
+                    by_slot[(g["season"], g["week"], g["position"])].append(g)
+    for games in by_slot.values():
+        games.sort(key=lambda g: -g["pts"])
+        for i, g in enumerate(games, 1):
+            g["finish"] = i
+
+
+def td_per_touch(logs: dict[str, list[dict]], season: str) -> dict[str, float]:
+    """Position -> touchdowns per touch (targets + carries) this season, league-wide."""
+    tot: dict[str, list[float]] = defaultdict(lambda: [0.0, 0.0])
+    for games in logs.values():
+        for g in games:
+            if g["season"] == season and g.get("position") in SKILL:
+                t = tot[g["position"]]
+                t[0] += g.get("rush_td", 0) + g.get("rec_td", 0)
+                t[1] += g.get("targets", 0) + g.get("carries", 0)
+    return {pos: round(td / touch, 4) for pos, (td, touch) in tot.items() if touch}
 
 
 # --- league-wide rates ------------------------------------------------------
@@ -380,7 +426,8 @@ def average_implied(sched: dict) -> float | None:
 # --- everything -------------------------------------------------------------
 def build(players: dict, candidate_ids: set[str], rows_prior: list[dict], rows_this: list[dict],
           snaps: list[dict], games: list[dict], scoring: dict, season: str,
-          weeks: list[int], starters_per_pos: dict[str, int]) -> dict[str, dict]:
+          weeks: list[int], starters_per_pos: dict[str, int],
+          playoff_weeks: list[int] | None = None) -> dict[str, dict]:
     """Projections for every candidate Sleeper player: rate, spread, confidence, weekly points.
 
     weeks = remaining regular-season weeks to project (games already played are skipped
@@ -389,6 +436,8 @@ def build(players: dict, candidate_ids: set[str], rows_prior: list[dict], rows_t
     prior_season = str(int(season) - 1)
     logs = game_logs(rows_prior + rows_this, snaps, scoring)
     dlogs = def_logs(rows_prior + rows_this, games, scoring)
+    assign_finishes(logs, dlogs)
+    td_rates = td_per_touch(logs, season)
     sched = schedule(games, season)
     usage = usage_values(logs, prior_season)
     base_logs = {**logs, **{f"DEF:{t}": v for t, v in dlogs.items()}}
@@ -416,11 +465,11 @@ def build(players: dict, candidate_ids: set[str], rows_prior: list[dict], rows_t
                         p.get("depth_chart_order"))
         todo = unplayed_weeks(sched, team, weeks)
         weekly = project_weeks(r["rate"], pos, team, status, todo, first_week, sched, dvp, avg_imp)
-        log_this = [{k: g.get(k) for k in ("week", "pts", "pct", "targets", "carries", "receptions",
-                                            "attempts", "partial")}
-                    for g in plogs if g["season"] == season]
+        log_this = [{k: g.get(k) for k in LOG_KEYS} for g in plogs if g["season"] == season]
+        po = project_weeks(r["rate"], pos, team, status, unplayed_weeks(sched, team, playoff_weeks or []),
+                           first_week, sched, dvp, avg_imp)
         r.update({"id": pid, "position": pos, "team": team, "status": status, "weekly": weekly,
-                  "log": log_this,
+                  "log": log_this, "playoff_weeks": po, "pos_td_per_touch": td_rates.get(pos),
                   "ros": round(sum(x["pts"] for x in weekly.values()), 1),
                   "byes": [w for w, x in weekly.items() if x.get("bye")]})
         out[pid] = r
