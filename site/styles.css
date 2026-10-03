@@ -301,6 +301,24 @@ details.bs-d[open] > .xp-body { margin-top: 10px; border-top: 1px dashed var(--b
 tr.tp-row { cursor: pointer; }
 tr.detail-row td { text-align: left; white-space: normal; background: var(--surface); padding: 6px 12px 12px; }
 
+/* Trade Lab */
+.lab-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; margin-top: 4px; }
+.picks { display: grid; gap: 4px; max-height: 360px; overflow-y: auto; padding-right: 2px; }
+.pick { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: 6px; align-items: center; text-align: left;
+  font: inherit; font-size: .82rem; background: var(--surface); color: var(--text); border: 1px solid var(--border);
+  border-radius: 8px; padding: 5px 6px; cursor: pointer; }
+.pick .slot { font-size: .62rem; padding: 2px 0; }
+.pick-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pick-val { font-variant-numeric: tabular-nums; color: var(--muted); font-size: .78rem; }
+.pick.on { border-color: var(--accent); background: var(--accent-soft); }
+.pick.on .pick-val { color: var(--accent); font-weight: 700; }
+.lab-actions { display: flex; gap: 10px; align-items: center; margin: 10px 0 4px; }
+.btn.secondary.lab-open { margin-top: 8px; padding: 6px 12px; font-size: .82rem; }
+.odds-row { display: flex; justify-content: space-between; gap: 8px; padding: 4px 0; }
+ul.tight { margin: 0; padding-left: 18px; }
+td.up { color: var(--good); } td.down { color: var(--bad); }
+span.up { color: var(--good); } span.down { color: var(--bad); }
+
 @media (max-width: 420px) {
   .pd { padding-left: 14px; }
   .stat .v { font-size: 1.1rem; }

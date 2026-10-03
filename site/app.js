@@ -472,6 +472,8 @@
       <div class="gains"><span class="gain me">You ${signed(t.my_gain)} pts ROS (~${num(t.my_gain / n)}/wk)</span>
         <span class="gain">Them ${signed(t.their_gain)} pts</span></div>
       <div class="trade-detail" hidden></div>
+      <button type="button" class="btn secondary lab-open" data-partner="${t.roster_id}"
+        data-give="${esc(t.give.map((p) => p.id).join(","))}" data-get="${esc(t.get.map((p) => p.id).join(","))}">Open in Trade Lab</button>
       <details><summary>Why this trade?</summary><ul>${t.reasons.map((r) => `<li>${esc(r)}</li>`).join("")}</ul></details>
     </div>`;
   }
@@ -568,6 +570,8 @@
       players), nflverse snap counts and schedule.</p></div></details>`;
     $("tab-trades").innerHTML = html;
     wireTradeDetails();
+    $("tab-trades").querySelectorAll(".lab-open").forEach((b) => b.addEventListener("click", () =>
+      openInLab(b.dataset.partner, b.dataset.give.split(","), b.dataset.get.split(","))));
   }
 
   function tradePlayerLookup() {
@@ -580,11 +584,13 @@
   }
 
   function wireTradeDetails() {
-    const root = $("tab-trades");
-    const lookup = tradePlayerLookup();
+    wireExpanders($("tab-trades"), (pid) => tradePlayerLookup()[pid]);
+  }
+
+  function wireExpanders(root, find) {
     const toggle = (el) => {
       const pid = el.dataset.pid;
-      const p = lookup[pid];
+      const p = find(pid);
       if (!p || !CARDS[pid]) return;
       if (el.classList.contains("tp-row")) {           // values table: detail row underneath
         const next = el.nextElementSibling;
@@ -782,6 +788,182 @@
     $("tab-playoffs").innerHTML = html;
   }
 
+  // ---------- Trade Lab ----------
+  let ENGINE = null;
+  const engine = () => (ENGINE = ENGINE || (DATA.lab && window.NFLLab ? window.NFLLab.create(DATA.lab) : null));
+  const POS_ORDER = ["QB", "RB", "WR", "TE", "K", "DEF"];
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* private mode etc. */ } },
+  };
+  let labState = store.get("labState", null);
+
+  function labPlayer(pid) {
+    const r = DATA.lab.players[pid];
+    const owner = r.o != null ? DATA.lab.rosters[String(r.o)] : null;
+    return { id: pid, name: r.n, position: r.p, team: r.t, injury_status: r.s, manager: owner ? owner.label : "Free agent" };
+  }
+
+  function sortPids(pids) {
+    const P = DATA.lab.players;
+    return pids.slice().sort((a, b) => (POS_ORDER.indexOf(P[a].p) - POS_ORDER.indexOf(P[b].p)) || (P[b].r - P[a].r));
+  }
+
+  function pickChips(pids, chosen, side) {
+    const P = DATA.lab.players;
+    return sortPids(pids).map((pid) => {
+      const r = P[pid];
+      return `<button type="button" class="pick ${chosen.includes(pid) ? "on" : ""}" data-side="${side}" data-pid="${esc(pid)}"
+        aria-pressed="${chosen.includes(pid)}"><span class="slot ${esc(r.p)}">${esc(r.p)}</span>
+        <span class="pick-name">${esc(r.n)}${r.s ? ` <span class="chip ${r.s === "Questionable" ? "q" : "inj"}">${esc(r.s)}</span>` : ""}</span>
+        <span class="pick-val">${num(r.r)}</span></button>`;
+    }).join("");
+  }
+
+  function deltaCell(x, digits = 1) {
+    const cls = x > 0.05 ? "up" : x < -0.05 ? "down" : "";
+    return `<td class="${cls}">${x > 0 ? "+" : ""}${Number(x).toFixed(digits)}</td>`;
+  }
+
+  function oddsLine(label, pair, conf) {
+    const d = Math.round(100 * (pair[1] - pair[0]));
+    return `<div class="odds-row"><span>${label}</span><span><b>${pctText(pair[0], conf)}</b> → <b>${pctText(pair[1], conf)}</b>
+      <span class="${d > 0 ? "up" : d < 0 ? "down" : "muted"}" title="change in percentage points">(${d > 0 ? "+" : ""}${d})</span></span></div>`;
+  }
+
+  const VERDICT = {
+    "balanced": "Both teams improve by a similar amount, so this is a realistic offer.",
+    "favours you": "You gain more than they do. It could still be accepted, especially if it fills a need for them.",
+    "lopsided (tough sell)": "You gain far more than they do. Expect a no unless they value something the numbers don't.",
+    "they'd likely decline": "Their lineup gets worse, so they'd likely decline.",
+    "favours them": "This makes your team worse over the rest of the season.",
+    "bad for both": "Neither team's projected lineup improves.",
+  };
+
+  function renderLabResult(res) {
+    const L = DATA.lab, E = engine(), P = L.players;
+    const conf = L.confidence;
+    const name = (pid) => esc(P[pid].n);
+    const cls = res.balance.startsWith("balanced") ? "balanced" : (res.balance.startsWith("favours you") ? "favours" : "lopsided");
+    let html = `<div class="card card-pad">
+      <div class="trade-head"><span class="chip ${cls}">${esc(res.balance)}</span>${confChip(res.confidence)}</div>
+      <div class="gains" style="margin:8px 0"><span class="gain me">You ${signed(res.gainMe)} pts ROS (~${num(res.perWeekMe)}/wk)</span>
+        <span class="gain">Them ${signed(res.gainThem)} pts</span></div>
+      <div class="subtle">${esc(VERDICT[res.balance] || "")}</div></div>`;
+
+    html += `<h2>Playoff odds</h2><div class="card card-pad">
+      ${oddsLine("You", res.odds.me, conf)}${oddsLine(esc(L.rosters[res.them].team_name), res.odds.them, conf)}
+      <div class="subtle">Projected wins: you ${num(res.odds.meWins[0])} → ${num(res.odds.meWins[1])} ·
+        them ${num(res.odds.themWins[0])} → ${num(res.odds.themWins[1])}. Bracketed numbers are the change in percentage points (calculated before rounding). Same simulated seasons
+        before and after, so the change is the trade, not luck.</div></div>`;
+
+    const lc = res.lineupChange;
+    const list = (ids) => ids.length ? ids.map(name).join(", ") : "no change";
+    html += `<h2>Lineup in week ${esc(lc.week)}</h2><div class="card card-pad">
+      <div><b>You:</b> start ${list(lc.me.in)}${lc.me.out.length ? `; out of the lineup: ${list(lc.me.out)}` : ""}</div>
+      <div><b>Them:</b> start ${list(lc.them.in)}${lc.them.out.length ? `; out of the lineup: ${list(lc.them.out)}` : ""}</div></div>`;
+
+    const dealByes = res.give.concat(res.get).flatMap((pid) => P[pid].b.map((w) => [w, pid]));
+    html += `<h2>Week by week</h2><div class="card table-wrap"><table class="named">
+      <thead><tr><th>Week</th><th>You</th><th>Them</th><th class="hide-sm">Your proj</th></tr></thead><tbody>${
+      res.weekly.map((w) => {
+        const byes = dealByes.filter(([wk]) => wk === w.week).map(([, pid]) => name(pid));
+        return `<tr><td>Wk ${w.week}${byes.length ? ` <span class="subtle">bye: ${byes.join(", ")}</span>` : ""}</td>
+          ${deltaCell(w.me)}${deltaCell(w.them)}<td class="hide-sm">${num(w.meAfter)}</td></tr>`;
+      }).join("")}</tbody></table></div>
+      <p class="subtle">Change in each team's projected optimal lineup (points), byes and injuries included.</p>`;
+
+    const keys = ["QB", "RB", "WR", "TE", "FLEX"];
+    const pm0 = res.before.profiles[res.me], pm1 = res.after.profiles[res.me];
+    const pt0 = res.before.profiles[res.them], pt1 = res.after.profiles[res.them];
+    html += `<h2>Positional strength (pts/wk)</h2><div class="card table-wrap"><table class="named">
+      <thead><tr><th>Pos</th><th>You</th><th>Δ</th><th>Them</th><th>Δ</th></tr></thead><tbody>${
+      keys.map((k) => `<tr><td><b>${k}</b></td><td>${num(pm1.strength[k])}</td>${deltaCell(pm1.strength[k] - pm0.strength[k])}
+        <td>${num(pt1.strength[k])}</td>${deltaCell(pt1.strength[k] - pt0.strength[k])}</tr>`).join("")}</tbody></table></div>
+      <p class="subtle">Your needs before: ${esc(pm0.needs.join(", ") || "none")} → after: ${esc(pm1.needs.join(", ") || "none")}.
+        Theirs: ${esc(pt0.needs.join(", ") || "none")} → ${esc(pt1.needs.join(", ") || "none")}.</p>`;
+
+    const tile = (pid) => {
+      const r = P[pid];
+      return `<div class="tp" data-pid="${esc(pid)}" role="button" tabindex="0"><div class="pl">${esc(r.n)}${
+        r.s ? ` <span class="chip ${r.s === "Questionable" ? "q" : "inj"}">${esc(r.s)}</span>` : ""}${CARDS[pid] ? ` <span class="chev">▸</span>` : ""}</div>
+        <div class="pmeta">${esc(r.p)} · ${esc(r.t)} · <b>${num(r.r)}</b>/wk (${num(Math.max(r.r - r.sd, 0), 0)}–${num(r.r + r.sd, 0)})</div>
+        <div class="pmeta">ROS ${num(r.ros, 0)} · ${E.vor(pid) >= 0 ? "+" : ""}${num(E.vor(pid), 0)} vs repl. ${confChip(r.c)}</div></div>`;
+    };
+    html += `<h2>Players in the deal</h2><div class="card card-pad has-detail"><div class="swap">
+      <div><div class="col-label">You give</div>${res.give.map(tile).join("")}</div><div class="arrow">⇄</div>
+      <div><div class="col-label">You get</div>${res.get.map(tile).join("")}</div></div>
+      <div class="trade-detail" hidden></div></div>`;
+
+    const notes = [];
+    if (res.rosterSize.me > res.rosterSize.max) notes.push(`You'd need to drop ${res.rosterSize.me - res.rosterSize.max} player(s) to make room.`);
+    if (res.rosterSize.them > res.rosterSize.max) notes.push(`They'd need to drop ${res.rosterSize.them - res.rosterSize.max} player(s) to make room.`);
+    res.flagged.forEach((pid) => notes.push(`${P[pid].n} has little trade value here (kicker/defence, long-term injury or no games yet).`));
+    html += `<h2>Why</h2><div class="card card-pad"><ul class="tight">${
+      res.reasons.concat(notes).map((r) => `<li>${esc(r)}</li>`).join("") || "<li>No positional need is filled either way; the change comes from overall projected points.</li>"}</ul></div>`;
+    return html;
+  }
+
+  function renderTradeLab() {
+    const host = $("tab-lab");
+    const L = DATA.lab, E = engine();
+    if (!L || !E) { host.innerHTML = `<div class="empty">Trade Lab needs the latest data. Run an update.</div>`; return; }
+    const me = String(L.my_roster_id);
+    const others = Object.keys(L.rosters).filter((t) => t !== me);
+    if (!labState || !L.rosters[labState.partner]) labState = { partner: others[0], give: [], get: [] };
+    const mine = E.rosterOf(me), theirs = E.rosterOf(labState.partner);
+    labState.give = labState.give.filter((p) => mine.includes(p));
+    labState.get = labState.get.filter((p) => theirs.includes(p));
+    store.set("labState", labState);
+
+    const opts = others.map((t) => `<option value="${t}" ${t === String(labState.partner) ? "selected" : ""}>${
+      esc(L.rosters[t].team_name)}: ${esc(L.rosters[t].label)}</option>`).join("");
+    const check = E.selfCheck();
+    host.innerHTML = `<p class="lead-text" style="margin-top:12px">Build any trade and see what it does to both teams for the rest of the season.
+      Numbers update as you tap. Suggestions, not advice.</p>
+      ${check.ok ? "" : `<div class="alert">Heads up: the in-browser maths differs from the last update by ${num(check.maxDiff)} pts. Refresh after the next update.</div>`}
+      <label class="subtle" for="lab-partner">Trade with</label>
+      <select id="lab-partner">${opts}</select>
+      <div class="lab-cols">
+        <div><div class="col-label">You give (${labState.give.length})</div><div class="picks">${pickChips(mine, labState.give, "give")}</div></div>
+        <div><div class="col-label">You get (${labState.get.length})</div><div class="picks">${pickChips(theirs, labState.get, "get")}</div></div>
+      </div>
+      <div class="lab-actions"><button type="button" class="btn secondary" id="lab-clear">Clear</button>
+        <span class="subtle">Numbers on the right are projected pts/week.</span></div>
+      <div id="lab-result">${labState.give.length && labState.get.length ? `<div class="empty">Calculating…</div>`
+        : `<div class="empty">Pick at least one player on each side.</div>`}</div>
+      <details class="recent"><summary>How the Trade Lab works</summary><div class="card card-pad subtle">
+        <p>Each team's value is its best projected lineup for every remaining regular-season week (byes and injuries included)
+        plus a little credit for bench depth, the same maths as the Trades tab. Gains are the change in that value.</p>
+        <p>Playoff odds come from simulating the rest of the season on the real schedule before and after the trade,
+        using the same random seasons both times. Odds are rounded while confidence is ${esc(L.confidence)}.</p>
+        <p>Positional strength compares projected points per week from each position with the league median.</p></div></details>`;
+
+    $("lab-partner").addEventListener("change", (e) => { labState = { partner: e.target.value, give: labState.give, get: [] }; renderTradeLab(); });
+    $("lab-clear").addEventListener("click", () => { labState = { partner: labState.partner, give: [], get: [] }; renderTradeLab(); });
+    host.querySelectorAll(".pick").forEach((b) => b.addEventListener("click", () => {
+      const list = labState[b.dataset.side];
+      const i = list.indexOf(b.dataset.pid);
+      if (i >= 0) list.splice(i, 1); else list.push(b.dataset.pid);
+      renderTradeLab();
+    }));
+    if (labState.give.length && labState.get.length) {
+      setTimeout(() => {
+        const res = E.evaluateTrade(labState.partner, labState.give, labState.get);
+        $("lab-result").innerHTML = renderLabResult(res);
+        wireExpanders($("lab-result"), (pid) => labPlayer(pid));
+      }, 30);
+    }
+  }
+
+  function openInLab(partner, give, get) {
+    labState = { partner: String(partner), give: give.slice(), get: get.slice() };
+    store.set("labState", labState);
+    selectTab("lab");
+    renderTradeLab();
+    window.scrollTo(0, 0);
+  }
+
   // ---------- Brief ----------
   const B = DATA.brief;
 
@@ -895,7 +1077,7 @@
   }
   showStatus(D.generated_at);
   $("footer").textContent = `Updated ${new Date(D.generated_at).toLocaleString()} · Data: Sleeper API, nflverse`;
-  renderTeam(); renderNews(); renderStandings(); renderMatchups(); renderFaab(); renderTrades(); renderPlayoffs(); renderRosters(); renderBrief();
+  renderTeam(); renderNews(); renderStandings(); renderMatchups(); renderFaab(); renderTrades(); renderTradeLab(); renderPlayoffs(); renderRosters(); renderBrief();
   document.querySelectorAll("#tabs button").forEach((b) => b.addEventListener("click", () => selectTab(b.dataset.tab)));
   const initial = location.hash.slice(1);
   selectTab(document.querySelector(`#tabs button[data-tab="${initial}"]`) ? initial : "team");
