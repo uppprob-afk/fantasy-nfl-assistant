@@ -54,72 +54,126 @@
   const one = (n) => (n == null ? "–" : Number(n).toFixed(1));
   const POS_ABBR = { QB: "QB", RB: "RB", WR: "WR", TE: "TE", K: "K", DEF: "DEF" };
 
-  function strip(c) {
-    const past = c.last3.map((w) => ({ v: w.pts, label: `W${w.week}`, kind: "past", w }));
-    const next = c.next3.map((w) => ({ v: w.bye ? null : w.pts, label: w.bye ? "BYE" : `${w.home ? "" : "@"}${w.opp || ""}`,
-      kind: "next", w }));
-    const vals = past.concat(next).map((x) => x.v || 0);
-    const scale = Math.max(25, ...vals);
-    const cell = (x) => {
-      let cls = `wbar ${x.kind}`, txt = x.v == null ? "–" : Math.round(x.v), h = x.v ? Math.max(6, Math.round(100 * x.v / scale)) : 0;
-      if (x.kind === "past") {
-        if (x.w.bye) { txt = "bye"; cls += " none"; }
-        else if (!x.w.played && !x.v) { txt = "–"; cls += " none"; }
-        else if (x.v == null) { txt = "n/r"; cls += " none"; }
-        if (x.w.partial) { cls += " partial"; txt += "*"; }
-      } else {
-        if (x.w.bye) { txt = ""; cls += " none"; }
-        if (x.w.matchup && x.w.matchup !== "neutral") cls += ` ${x.w.matchup}`;
-      }
-      return `<div class="cell"><div class="val">${esc(txt)}</div><div class="track"><span class="${cls}" style="height:${h}%"></span></div>
-        <div class="lbl">${esc(x.label)}</div></div>`;
-    };
-    return `<div class="strip">${past.map(cell).join("")}<div class="divider"></div>${next.map(cell).join("")}</div>`;
+  // Finish tier for a positional finish: boom (top half of starters), start, mid, bust.
+  function tierOf(c, finish) {
+    const t = c.tiers;
+    if (!t || finish == null) return "none";
+    return finish <= t.boom ? "boom" : finish <= t.start ? "start" : finish <= t.bust ? "mid" : "bust";
+  }
+  const MU_MARK = { easy: `<span class="mk easy" title="Easy matchup">▲</span>`, tough: `<span class="mk tough" title="Tough matchup">▼</span>` };
+  const oppLabel = (w) => (w.bye ? "BYE" : `${w.home === false ? "@" : ""}${w.opp || ""}`);
+
+  // Last 3 as finish pills (points + positional finish, coloured by tier); next 3 as matchups.
+  function pills(c, pos) {
+    const ab = POS_ABBR[pos] || pos || "";
+    const past = c.last3.map((w) => {
+      if (w.bye) return `<span class="pill none"><b>bye</b><i>W${w.week}</i></span>`;
+      if (!w.played && w.pts == null) return `<span class="pill none"><b>–</b><i>W${w.week} DNP</i></span>`;
+      const pts = w.pts == null ? "n/r" : one(w.pts) + (w.partial ? "*" : "");
+      return `<span class="pill f-${tierOf(c, w.finish)}" title="Week ${w.week}${w.opp ? " vs " + esc(w.opp) : ""}"><b>${pts}</b><i>${
+        w.finish ? ab + w.finish : "W" + w.week}</i></span>`;
+    }).join("");
+    const next = c.next3.map((w) => w.bye
+      ? `<span class="pill nx none"><b>bye</b><i>W${w.week}</i></span>`
+      : `<span class="pill nx ${w.matchup !== "neutral" ? "mu-" + w.matchup : ""}" title="Week ${w.week}: ${w.matchup} matchup"><b>${one(w.pts)}${MU_MARK[w.matchup] || ""}</b><i>${esc(oppLabel(w))}</i></span>`).join("");
+    const arrow = { up: `<span class="trend up">▲</span>`, down: `<span class="trend down">▼</span>` }[c.trend] || "";
+    return `<div class="pills">
+      <div class="pl-row"><span class="pl-k">Last 3</span><div class="pl-set">${past}</div><span class="pl-avg">${one(c.last3_avg)}<small>avg</small></span></div>
+      <div class="pl-row"><span class="pl-k">Next 3</span><div class="pl-set">${next}</div><span class="pl-avg">${arrow}${one(c.next3_avg)}<small>proj</small></span></div>
+    </div>`;
   }
 
+  const pct = (x) => (x == null ? "–" : Math.round(100 * x) + "%");
+  const tileHtml = (k, v, sub, cls) => `<div class="tile ${cls || ""}"><div class="k">${k}</div><div class="v">${v}</div>${sub ? `<div class="s">${sub}</div>` : ""}</div>`;
+
   function detailPanel(p, c) {
-    const v = c.value, u = c.usage;
+    const v = c.value, u = c.usage, k = c.consistency || {}, o = c.opportunity || {};
+    const pos = p.position, ab = POS_ABBR[pos] || pos;
+    const isQB = pos === "QB", isKD = pos === "K" || pos === "DEF";
     let html = `<div class="pd">`;
-    // next 3 matchups
-    if (c.next3.length) {
-      html += `<div class="pd-sec"><div class="pd-h">Next 3 weeks</div>${c.next3.map((w) => w.bye
-        ? `<div class="pd-row"><span>Wk ${w.week}</span><span class="muted">Bye</span><span></span></div>`
-        : `<div class="pd-row"><span>Wk ${w.week} ${w.home ? "vs" : "@"} ${esc(w.opp)}</span>
-            <span><b>${one(w.pts)}</b> <span class="subtle">(${one(w.low)}–${one(w.high)})</span></span>
-            <span>${w.matchup !== "neutral" ? `<span class="chip mu-${w.matchup}">${w.matchup}</span>` : ""}${
-              w.avail < 1 ? ` <span class="chip q">${Math.round(100 * w.avail)}% to play</span>` : ""}</span></div>`).join("")}
-        <div class="subtle">Range = typical game-to-game spread. Matchup from ${c.next3.some((w) => w.source === "vegas") ? "Vegas lines (next game) and " : ""}opponent strength.</div></div>`;
+
+    // headline tiles
+    const tiles = [];
+    if (k.games) tiles.push(tileHtml("Season", `${one(k.ppg)}<small>/g</small>`, `${k.games} game${k.games > 1 ? "s" : ""}`));
+    if (k.games) tiles.push(tileHtml("Avg finish", `${ab}${k.avg_finish}`, `best ${ab}${k.best_finish}`));
+    if (v) tiles.push(tileHtml("Projected", `${one(v.rate)}<small>/wk</small>`, `${one(Math.max(v.rate - v.sd, 0))}–${one(v.rate + v.sd)}`));
+    if (v && v.rank) tiles.push(tileHtml("ROS rank", `${ab}${v.rank}`, `${Math.round(v.ros)} pts · ${v.vor >= 0 ? "+" : ""}${Math.round(v.vor)} vs FA`));
+    if (tiles.length) html += `<div class="tiles head">${tiles.join("")}</div>`;
+
+    // consistency & ceiling
+    if (k.games) {
+      const t = c.tiers;
+      html += `<div class="pd-sec"><div class="pd-h">Consistency &amp; ceiling</div>
+        <div class="tiles">${tileHtml("Best week", one(k.ceiling))}${tileHtml("Median", one(k.median))}${tileHtml("Worst week", one(k.floor))}</div>
+        <div class="fin-bar" role="img" aria-label="${k.boom} boom, ${k.start - k.boom} starter, ${k.games - k.start - k.bust} middling, ${k.bust} bust weeks">${
+          [["boom", k.boom], ["start", k.start - k.boom], ["mid", k.games - k.start - k.bust], ["bust", k.bust]]
+            .filter(([, n]) => n > 0).map(([cl, n]) => `<span class="f-${cl}" style="flex:${n}"></span>`).join("")}</div>
+        <div class="fin-legend"><span><i class="sw f-boom"></i>Boom ${k.boom} <small>(top ${t.boom})</small></span>
+          <span><i class="sw f-start"></i>Starter ${k.start - k.boom} <small>(${t.boom + 1}–${t.start})</small></span>
+          <span><i class="sw f-mid"></i>Middling ${k.games - k.start - k.bust}</span>
+          <span><i class="sw f-bust"></i>Bust ${k.bust} <small>(outside ${t.bust})</small></span></div>
+        <div class="subtle">Starter-level (top ${t.start} ${ab}) in <b>${k.start} of ${k.games}</b> weeks. Finish = rank among every ${ab} that week, league scoring.</div></div>`;
     }
-    // weekly log
-    const isQB = p.position === "QB";
-    html += `<div class="pd-sec"><div class="pd-h">Game log <span class="subtle">· season ${one(c.season.pts)} pts in ${c.season.games} gp</span></div>
-      <div class="table-wrap"><table class="log"><thead><tr><th>Wk</th><th>Pts</th><th>Snap</th>${isQB ? "<th>Att</th>" : "<th>Tgt</th><th>Rec</th>"}<th>Car</th></tr></thead><tbody>${
-      c.log.map((g) => `<tr${g.partial ? ' class="partial"' : ""}><td>${g.week}</td>
-        <td>${g.bye ? "bye" : g.pts == null ? "n/r" : one(g.pts)}${g.partial ? "*" : ""}</td>
-        <td>${g.pct != null ? Math.round(100 * g.pct) + "%" : "–"}</td>
-        ${isQB ? `<td>${g.attempts ?? "–"}</td>` : `<td>${g.targets ?? "–"}</td><td>${g.receptions ?? "–"}</td>`}
-        <td>${g.carries ?? "–"}</td></tr>`).join("")}</tbody></table></div>
-      <div class="subtle">* partial game (snap share well below normal, e.g. hurt early). n/r = not on a league roster that week.</div></div>`;
-    // usage
-    if (u && u.games) {
-      const bits = [];
-      if (u.snap_pct != null) bits.push(`<b>${u.snap_pct}%</b> snaps`);
-      if (isQB) bits.push(`<b>${u.attempts}</b> att/g`);
-      else if (p.position !== "K" && p.position !== "DEF") bits.push(`<b>${u.targets}</b> tgt/g`, `<b>${u.receptions}</b> rec/g`);
-      if (u.carries) bits.push(`<b>${u.carries}</b> car/g`);
-      const luck = u.actual_ppg != null && u.expected_ppg != null
-        ? `<div>Scoring <b>${one(u.actual_ppg)}</b>/g vs <b>${one(u.expected_ppg)}</b>/g that usage usually produces${
-            u.actual_ppg - u.expected_ppg > 3 ? " (running hot)" : u.expected_ppg - u.actual_ppg > 3 ? " (running cold)" : ""}.</div>` : "";
-      html += `<div class="pd-sec"><div class="pd-h">Usage <span class="subtle">· last ${u.games} ${u.partial_only ? "(partial) " : "full "}game${u.games > 1 ? "s" : ""}</span></div>
-        <div>${bits.join(" · ")}</div>${luck}</div>`;
+
+    // opportunity & efficiency
+    if (!isKD && (o.games || (u && u.games))) {
+      const t = [];
+      if (u && u.snap_pct != null) t.push(tileHtml("Snaps", `${u.snap_pct}%`, `last ${u.games}`));
+      if (isQB) {
+        if (u && u.attempts) t.push(tileHtml("Att/g", one(u.attempts)));
+        if (o.pass_yd_pg) t.push(tileHtml("Pass yd/g", Math.round(o.pass_yd_pg)));
+        if (u && u.carries) t.push(tileHtml("Rush/g", one(u.carries)));
+      } else {
+        if (o.tgt_share != null) t.push(tileHtml("Tgt share", pct(o.tgt_share), u && u.targets ? `${one(u.targets)} tgt/g` : ""));
+        if (o.ay_share != null && pos !== "RB") t.push(tileHtml("Air-yd share", pct(o.ay_share)));
+        if (o.wopr != null && pos !== "RB") t.push(tileHtml("WOPR", (o.wopr).toFixed(2)));
+        if (o.car_share) t.push(tileHtml("Carry share", pct(o.car_share), u && u.carries ? `${one(u.carries)} car/g` : ""));
+        if (o.touches_pg) t.push(tileHtml("Touches/g", one(o.touches_pg)));
+        if (o.yds_per_touch != null) t.push(tileHtml("Yds/touch", one(o.yds_per_touch)));
+      }
+      if (o.exp_tds != null && !isQB) t.push(tileHtml("TDs", `${o.tds}`, `~${one(o.exp_tds)} expected`, o.td_note === "hot" ? "warn" : o.td_note === "due" ? "good" : ""));
+      const notes = [];
+      if (o.td_note === "hot") notes.push(`More touchdowns than this volume usually brings (${o.tds} vs ~${one(o.exp_tds)}), so expect some cooling.`);
+      if (o.td_note === "due") notes.push(`Fewer touchdowns than this volume usually brings (${o.tds} vs ~${one(o.exp_tds)}), so there's upside.`);
+      if (u && u.actual_ppg != null && u.expected_ppg != null) notes.push(`Scoring <b>${one(u.actual_ppg)}</b>/g vs <b>${one(u.expected_ppg)}</b>/g that this usage usually produces${
+        u.actual_ppg - u.expected_ppg > 3 ? " (running hot)" : u.expected_ppg - u.actual_ppg > 3 ? " (running cold)" : ""}.`);
+      html += `<div class="pd-sec"><div class="pd-h">Opportunity &amp; efficiency <span class="subtle">· full games this season</span></div>
+        <div class="tiles">${t.join("")}</div>${notes.map((n) => `<div class="subtle" style="margin-top:6px">${n}</div>`).join("")}</div>`;
     }
+
+    // game log
+    const cols = isQB
+      ? [["Att", (g) => g.attempts], ["Yds", (g) => g.pass_yd], ["TD", (g) => g.pass_td], ["Int", (g) => g.ints], ["Car", (g) => g.carries], ["RuYd", (g) => g.rush_yd], ["RuTD", (g) => g.rush_td]]
+      : pos === "RB"
+      ? [["Snap", (g) => g.pct != null ? pct(g.pct) : null], ["Car", (g) => g.carries], ["Yds", (g) => g.rush_yd], ["Tgt", (g) => g.targets], ["Rec", (g) => g.receptions], ["ReYd", (g) => g.rec_yd], ["TD", (g) => g.rush_td != null ? (g.rush_td || 0) + (g.rec_td || 0) : null]]
+      : isKD ? []
+      : [["Snap", (g) => g.pct != null ? pct(g.pct) : null], ["Tgt", (g) => g.targets], ["Rec", (g) => g.receptions], ["Yds", (g) => g.rec_yd], ["TD", (g) => g.rec_td], ["Tgt%", (g) => g.tgt_share != null ? pct(g.tgt_share) : null]];
+    const cell = (x) => (x == null ? "–" : typeof x === "number" ? Math.round(x * 10) / 10 : x);
+    html += `<div class="pd-sec"><div class="pd-h">Game log</div>
+      <div class="table-wrap"><table class="log"><thead><tr><th>Wk</th><th>Opp</th><th>Pts</th><th>Finish</th>${cols.map(([h]) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${
+      c.log.slice().reverse().map((g) => g.bye
+        ? `<tr class="partial"><td>${g.week}</td><td>bye</td><td colspan="${2 + cols.length}"></td></tr>`
+        : `<tr${g.partial ? ' class="partial"' : ""}><td>${g.week}</td><td>${esc(g.opp || "–")}</td>
+          <td><b>${g.pts == null ? "n/r" : one(g.pts)}</b>${g.partial ? "*" : ""}</td>
+          <td>${g.finish ? `<span class="fin f-${tierOf(c, g.finish)}">${ab}${g.finish}</span>` : "–"}</td>
+          ${cols.map(([, f]) => `<td>${cell(f(g))}</td>`).join("")}</tr>`).join("")}</tbody></table></div>
+      <div class="subtle">Newest first. * partial game (snap share well below normal, e.g. hurt early). n/r = not on a league roster that week.</div></div>`;
+
+    // schedule ahead
+    if (c.schedule && c.schedule.length) {
+      const wk = (w) => `<div class="sch ${w.bye ? "bye" : w.matchup && w.matchup !== "neutral" ? "mu-" + w.matchup : ""}">
+        <div class="w">W${w.week}</div><div class="o">${esc(oppLabel(w))}</div><div class="p">${w.bye ? "–" : one(w.pts)}${MU_MARK[w.matchup] || ""}</div></div>`;
+      const reg = c.schedule.filter((w) => !w.playoff), po = c.schedule.filter((w) => w.playoff);
+      html += `<div class="pd-sec"><div class="pd-h">Schedule ahead <span class="subtle">· projected pts, ▲ easy ▼ tough</span></div>
+        <div class="sched">${reg.map(wk).join("")}</div>
+        ${po.length ? `<div class="pd-h" style="margin-top:10px">Fantasy playoffs</div><div class="sched po">${po.map(wk).join("")}</div>` : ""}
+        ${c.next3.some((w) => w.source === "vegas") ? `<div class="subtle">Next game uses Vegas lines; later weeks use opponent strength.</div>` : ""}</div>`;
+    }
+
     // value
     if (v) {
       html += `<div class="pd-sec"><div class="pd-h">Value ${confChip(v.confidence)}${v.flag ? ` <span class="chip ${v.flag === "sell-high" ? "hot" : "ok-style"}">${esc(v.flag)}</span>` : ""}</div>
-        <div><b>${one(v.rate)}</b>/wk projected (typically ${one(Math.max(v.rate - v.sd, 0))}–${one(v.rate + v.sd)})
-          · <b>${Math.round(v.ros)}</b> pts rest of season</div>
-        <div>${POS_ABBR[p.position] || p.position}${v.rank} of ${v.rank_of} by rest-of-season projection ·
-          ${v.vor >= 0 ? "+" : ""}${Math.round(v.vor)} vs a free-agent replacement</div>
+        <div>${ab}${v.rank} of ${v.rank_of} by rest-of-season projection · ${v.vor >= 0 ? "+" : ""}${Math.round(v.vor)} pts vs a free-agent replacement.</div>
         <div class="subtle">${v.byes.length ? `Bye: week ${v.byes.join(", ")}. ` : ""}${v.prior_ppg != null ? `Last season ${one(v.prior_ppg)}/g. ` : ""}See Trades → How values work.</div></div>`;
     }
     const acts = actionButtons(p.id);
@@ -146,7 +200,6 @@
     }
     const v = c.value;
     const rank = v && v.rank ? ` · ${POS_ABBR[p.position] || p.position}${v.rank}` : "";
-    const arrow = { up: `<span class="trend up">▲</span>`, down: `<span class="trend down">▼</span>`, flat: "" }[c.trend] || "";
     return `<details class="prow-d" data-pid="${esc(p.id)}"><summary class="prow prow-card">
       <span class="slot ${esc(cls)}">${esc(label)}</span>
       <div class="pmain">
@@ -154,11 +207,8 @@
         <div class="pmeta">${esc(p.team)}${rank}${v ? ` · ${esc(v.confidence)} conf` : ""}${v && v.flag && !isHeld(p.id) ? ` · <span class="flag">${esc(v.flag)}</span>` : ""}${isHeld(p.id) ? ` · <span class="held">held</span>` : ""}</div>
         ${reason}
       </div>
-      <div class="pnums l3n3">
-        <div><div class="k">Last 3</div><div class="big">${one(c.last3_avg)}</div></div>
-        <div><div class="k">Next 3</div><div class="big">${arrow}${one(c.next3_avg)}</div></div>
-      </div>
-      ${strip(c)}
+      <div class="pnums proj">${v ? `<div class="big">${one(v.rate)}</div><div class="small">proj/wk</div>` : ""}</div>
+      ${pills(c, p.position)}
     </summary>${detailPanel(p, c)}</details>`;
   }
 
@@ -397,12 +447,10 @@
   function playerExpand(p) {
     const c = CARDS[p.id];
     if (!c) return `<div class="empty">No details for this player yet.</div>`;
-    const arrow = { up: `<span class="trend up">▲</span>`, down: `<span class="trend down">▼</span>` }[c.trend] || "";
     return `<div class="xp-head"><div><span class="pname">${esc(p.name)}</span>${injuryChip(p)}
         <div class="pmeta">${esc(p.position)} · ${esc(p.team)}${p.manager ? ` · ${esc(p.manager)}` : ""}</div></div>
-      <div class="l3n3"><div><div class="k">Last 3</div><div class="big">${one(c.last3_avg)}</div></div>
-        <div><div class="k">Next 3</div><div class="big">${arrow}${one(c.next3_avg)}</div></div></div></div>
-      ${strip(c)}${detailPanel(p, c)}`;
+      <div class="pnums proj">${c.value ? `<div class="big">${one(c.value.rate)}</div><div class="small">proj/wk</div>` : ""}</div></div>
+      ${pills(c, p.position)}${detailPanel(p, c)}`;
   }
 
   function tradePlayers(list) {

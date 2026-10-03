@@ -87,3 +87,11 @@ def test_matchup_pairs_puts_mine_first(users, rosters, matchups_by_week):
     assert pairs[0]["is_mine"] and pairs[0]["teams"][0]["roster_id"] == 1
     assert pairs[0]["teams"][1]["roster_id"] == 3
     assert sum(p["is_mine"] for p in pairs) == 1
+
+
+def test_playoff_weeks_from_settings():
+    from nfl_assistant.run import playoff_weeks
+    assert playoff_weeks({"playoff_week_start": 15, "playoff_teams": 4}) == [15, 16]
+    assert playoff_weeks({"playoff_week_start": 15, "playoff_teams": 6}) == [15, 16, 17]
+    assert playoff_weeks({"playoff_week_start": 15, "playoff_teams": 4, "playoff_round_type": 1}) == [15, 16, 17]
+    assert playoff_weeks({"playoff_week_start": 16, "playoff_teams": 8, "playoff_round_type": 2}) == [16, 17, 18]

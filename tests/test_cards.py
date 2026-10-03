@@ -83,3 +83,40 @@ def test_build_card_headline_trend_and_value():
 def test_build_card_without_projection():
     c = cards.build_card("x", None, {1: 5.0}, [1], {}, {}, {}, 4, {})
     assert c["value"] is None and c["next3"] == [] and c["last3_avg"] is None
+
+
+def test_finish_tiers():
+    assert cards.finish_tiers(30) == {"boom": 15, "start": 30, "bust": 60}
+    assert cards.finish_tiers(1)["boom"] == 1
+
+
+def test_consistency_counts_starter_and_boom_weeks():
+    tiers = cards.finish_tiers(24)   # boom <= 12, start <= 24, bust > 48
+    log = [{"week": 1, "pts": 30.0, "finish": 3}, {"week": 2, "pts": 12.0, "finish": 30},
+           {"week": 3, "pts": 4.0, "finish": 70}, {"week": 4, "pts": None, "bye": True},
+           {"week": 5, "pts": 18.0, "finish": 20}]
+    c = cards.consistency(log, tiers)
+    assert c["games"] == 4 and c["floor"] == 4.0 and c["ceiling"] == 30.0
+    assert (c["boom"], c["start"], c["bust"]) == (1, 2, 1)
+    assert c["best_finish"] == 3 and c["ppg"] == 16.0
+    assert cards.consistency([], tiers) == {"games": 0}
+
+
+def test_opportunity_flags_unsustainable_touchdowns():
+    log = [{"targets": 8, "receptions": 6, "carries": 0, "rec_yd": 80, "rec_td": 2, "tgt_share": 0.3},
+           {"targets": 9, "receptions": 7, "carries": 0, "rec_yd": 90, "rec_td": 1, "tgt_share": 0.2},
+           {"targets": 2, "receptions": 1, "carries": 0, "rec_yd": 5, "partial": True}]
+    o = cards.opportunity(log, pos_td_rate=0.04)   # 17 targets -> 0.7 expected TDs, scored 3
+    assert o["games"] == 2 and o["tds"] == 3 and o["exp_tds"] == 0.7
+    assert o["td_note"] == "hot" and o["tgt_share"] == 0.25
+    assert o["yds_per_touch"] == round(170 / 13, 1)
+    assert cards.opportunity([], 0.04) == {"games": 0}
+
+
+def test_schedule_ahead_marks_playoff_weeks():
+    p = {"weekly": {5: {"pts": 12.0, "opp": "KC", "home": True, "mult": 1.1}, 6: {"pts": 0.0, "bye": True}},
+         "playoff_weeks": {15: {"pts": 10.0, "opp": "BUF", "home": False, "mult": 0.9}}}
+    s = cards.schedule_ahead(p)
+    assert [x["week"] for x in s] == [5, 6, 15]
+    assert s[0]["matchup"] == "easy" and s[1]["bye"] and s[1]["matchup"] is None
+    assert s[2]["playoff"] and s[2]["matchup"] == "tough"

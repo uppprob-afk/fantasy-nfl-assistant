@@ -3,6 +3,7 @@
 import csv
 import io
 import json
+import math
 import sys
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -245,6 +246,14 @@ def load_nflverse(cfg: dict, season: str, cache_dir: Path) -> dict:
             "games": list(csv.DictReader(io.StringIO(nflverse.download_weekly(pc["schedule_url"], cache_dir)))),}
 
 
+def starter_counts(teams: int, slots: list[str]) -> dict[str, int]:
+    """How many players at each position start league-wide in a typical week (flex split RB/WR)."""
+    flex = sum(s in lineups.FLEX_ELIGIBLE for s in slots)
+    return {"QB": teams * slots.count("QB") + 2, "RB": int(teams * (slots.count("RB") + flex / 2)),
+            "WR": int(teams * (slots.count("WR") + flex / 2)), "TE": teams * slots.count("TE"),
+            "K": teams * max(slots.count("K"), 1), "DEF": teams * max(slots.count("DEF"), 1)}
+
+
 def build_projections(ctx: dict, nfl: dict) -> tuple[dict, list[int], list[str]]:
     """Projections for rostered players, relevant free agents and every defence."""
     league, players = ctx["league"], ctx["players"]
@@ -252,10 +261,7 @@ def build_projections(ctx: dict, nfl: dict) -> tuple[dict, list[int], list[str]]
     teams = league.get("total_rosters") or 10
     reg_end = int(league["settings"].get("playoff_week_start") or 15) - 1
     weeks = list(range(ctx["current_week"], reg_end + 1))
-    flex = sum(s in lineups.FLEX_ELIGIBLE for s in slots)
-    starters = {"QB": teams * slots.count("QB") + 2, "RB": int(teams * (slots.count("RB") + flex / 2)),
-                "WR": int(teams * (slots.count("WR") + flex / 2)), "TE": teams * slots.count("TE"),
-                "K": teams * max(slots.count("K"), 1), "DEF": teams * max(slots.count("DEF"), 1)}
+    starters = starter_counts(teams, slots)
     rostered = {pid for r in ctx["rosters"] for pid in (r.get("players") or [])}
     candidates = set(rostered) | {
         pid for pid, p in players.items()
@@ -263,8 +269,19 @@ def build_projections(ctx: dict, nfl: dict) -> tuple[dict, list[int], list[str]]
         and (p.get("position") == "DEF" or (p.get("depth_chart_order") or 99) <= 3
              or (p.get("search_rank") or 10**9) <= 400)}
     proj = projections.build(players, candidates, nfl["prior"], nfl["this"], nfl["snaps"], nfl["games"],
-                             league["scoring_settings"], league["season"], weeks, starters)
+                             league["scoring_settings"], league["season"], weeks, starters,
+                             playoff_weeks(league["settings"]))
     return proj, weeks, slots
+
+
+def playoff_weeks(settings: dict) -> list[int]:
+    """Fantasy playoff weeks from Sleeper settings (round type 1 = two-week final,
+    2 = every round is two weeks). NFL regular season ends in week 18."""
+    start = int(settings.get("playoff_week_start") or 15)
+    rounds = max(1, math.ceil(math.log2(max(int(settings.get("playoff_teams") or 4), 2))))
+    kind = int(settings.get("playoff_round_type") or 0)
+    n = rounds * 2 if kind == 2 else rounds + 1 if kind == 1 else rounds
+    return [w for w in range(start, start + n) if w <= 18]
 
 
 def roster_limit(league: dict) -> int:
@@ -554,8 +571,10 @@ def build_cards(ctx: dict, proj: dict, points: dict, weeks: list[int], nfl: dict
     flags = {r["id"]: "sell-high" for r in trade_data.get("sell_high", [])}
     flags.update({r["id"]: "buy-low" for r in trade_data.get("buy_low", [])})
     rostered = {pid for r in ctx["rosters"] for pid in (r.get("players") or [])}
+    league = ctx["league"]
+    starters = starter_counts(league.get("total_rosters") or 10, lineups.lineup_slots(league["roster_positions"]))
     return {pid: cards.build_card(pid, proj.get(pid), points.get(pid, {}), ctx["completed_weeks"], sched,
-                                  ranks, trade_data["replacement"], len(weeks), flags)
+                                  ranks, trade_data["replacement"], len(weeks), flags, starters)
             for pid in rostered}
 
 

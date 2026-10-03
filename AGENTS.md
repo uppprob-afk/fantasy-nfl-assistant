@@ -63,7 +63,7 @@ nfl_assistant/
   trades.py               trade values (ROS optimal lineups) + mutual-benefit trade ideas
   outlook.py              win chances, start/sit, weekly lineups, playoff simulation
   tendencies.py           manager FAAB habits + likely rivals / bid-to-win
-  cards.py                player cards: last 3 (Sleeper actual) vs next 3 (projected), log, usage, value
+  cards.py                player cards: last/next 3, finishes, consistency, opportunity, game log, schedule, value
   lab.py                  compact data for the in-browser Trade Lab / Planner (site/lab.js)
   league.py               weekly scores vs median, all-play + luck, power rankings, odds history
   brief.py                Markdown brief for pasting into an AI assistant
@@ -153,7 +153,17 @@ league roster; average skips byes and games not played). Next 3 = next three unp
 weeks from projections with ±1 SD range; matchup easy >= 1.05 / tough <= 0.95 multiplier.
 Usage = last 3 full games (partial only if that's all there is). Position rank = by ROS
 projection among all projected players. The site renders each row as `<details>`
-(tap to expand); the bar strip uses the `wbar` class (`bar` is taken by the FAAB tab).
+(tap to expand). The row shows **finish pills**: last 3 = Sleeper points + positional finish,
+coloured by tier; next 3 = projected points + opponent with an easy/tough outline.
+Finish (`projections.assign_finishes`) = rank among every NFL player at the position that
+week, by nflverse stats under league scoring (displayed points stay Sleeper's). Tiers come
+from `run.starter_counts` (league-wide starters per position = n): boom <= ceil(n/2),
+start <= n, bust > 2n (`cards.finish_tiers`). The detail panel adds headline tiles,
+`consistency` (floor / median / ceiling, boom / starter / bust weeks), `opportunity`
+(target, air-yard and carry share, WOPR, touches, yards per touch, TDs vs the
+position's league-wide TDs per opportunity: "hot" if 2+ above, "due" if 1.5+ below), a game
+log (`STAT_KEYS`), and `schedule` (remaining weeks plus fantasy playoff weeks from
+`run.playoff_weeks`, projected with the same rate and matchup model).
 On the Trades tab, `playerExpand()` renders the same details: trade-idea and buyer players
 (`.tp` inside `.has-detail`) open a full-width `.trade-detail` panel under the card;
 sell-high / buy-low rows are `<details>`; value-table rows (`.tp-row`) insert a

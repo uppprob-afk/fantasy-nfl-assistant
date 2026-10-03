@@ -21,7 +21,7 @@ as a phone app.
 
 | Tab | What you get |
 |---|---|
-| **Home** | Everything about you: this week's matchup with projected scores, win chance and both lineups side by side, playoff odds with a trend line, if-you-win / if-you-lose odds, alerts, then a toggle for **Roster** (last 3 vs next 3 weeks per player, tap for details), **Start/sit** and **Weekly lineups** (byes included), plus your key games. |
+| **Home** | Everything about you: this week's matchup with projected scores, win chance and both lineups side by side, playoff odds with a trend line, if-you-win / if-you-lose odds, alerts, then a toggle for **Roster** (each player's last 3 weeks as colour-coded finish pills, e.g. 43 pts · WR1, and the next 3 matchups; tap for consistency, opportunity share, a full game log and the schedule through the fantasy playoffs), **Start/sit** and **Weekly lineups** (byes included), plus your key games. |
 | **League** | A toggle for **Standings** (with all-play record and luck; tap a team to see its roster), **Playoff race** (odds from 10,000 simulated seasons, trend, other games to watch) and **Power** rankings; a weekly scores chart (each week vs the league median); and all of this week's matchups. |
 | **Waivers → News** | Only what changed since the last run: injuries, depth chart promotions, team changes and fresh drops, split into *my players*, *other teams' starters* (trade openings) and *free agents worth a look* (with bid ideas and likely rival bidders). |
 | **Waivers → Bids & FAAB** | Bid ideas at three levels (bargain / competitive / safe), likely rivals with a bid-to-win range, manager tendencies (style, positions chased, overpaying, budget), a full waiver log with runner-up bids, and market prices. |
