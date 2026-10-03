@@ -146,6 +146,10 @@ weeks from projections with ±1 SD range; matchup easy >= 1.05 / tough <= 0.95 m
 Usage = last 3 full games (partial only if that's all there is). Position rank = by ROS
 projection among all projected players. The site renders each row as `<details>`
 (tap to expand); the bar strip uses the `wbar` class (`bar` is taken by the FAAB tab).
+On the Trades tab, `playerExpand()` renders the same details: trade-idea and buyer players
+(`.tp` inside `.has-detail`) open a full-width `.trade-detail` panel under the card;
+sell-high / buy-low rows are `<details>`; value-table rows (`.tp-row`) insert a
+`tr.detail-row`. Handled by one delegated listener (`wireTradeDetails`).
 
 ## Automation
 
