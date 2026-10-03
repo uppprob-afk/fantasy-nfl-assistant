@@ -1,8 +1,10 @@
 /* Trade Lab + Planner engine. Pure calculations, no DOM, so results can be checked.
 
    Mirrors the Python pipeline (lineups.py, trades.py, outlook.py): optimal lineup per week
-   (dedicated slots first, then flex), team value = sum of weekly optimal lineups + a small
-   credit for the best bench players, needs/surplus vs the league median, and a seeded
+   (dedicated slots first, then flex), team value = sum of weekly optimal lineups with every
+   slot worth at least free-agent replacement level, minus the expected cost of unexpected
+   absences (after the best bench / replacement cover), with rosters cut to the league size,
+   needs/surplus vs the league median, and a seeded
    Monte Carlo of the rest of the season. Data comes from window.NFL_DATA.lab. */
 (function () {
   "use strict";
@@ -45,15 +47,61 @@
       return { total, sd: Math.sqrt(variance), lineup: out };
     }
 
-    function value(pids) {
+    const absence = L.absence_rate;
+    const reserveAll = new Set(L.reserve_all || []);
+    const floor = L.floor || {};
+    const byPid = (x, y) => (x < y ? -1 : x > y ? 1 : 0);
+
+    /* Expected points in week w: every slot worth at least the free-agent replacement
+       level, minus the expected cost of unexpected absences after the best cover. */
+    function weekValue(pids, w, lu) {
+      const starters = new Set(lu.map(([, p]) => p));
+      const bench = pids.filter((p) => P[p] && !starters.has(p));
+      const remaining = lu.slice();
+      let total = 0;
+      for (const slot of L.slots) {
+        const i = remaining.findIndex(([s]) => s === slot);
+        const fl = floor[slot] || 0;
+        if (i < 0) { total += fl; continue; }
+        const pid = remaining.splice(i, 1)[0][1];
+        const pts = P[pid].w[w];
+        if (pts <= fl) { total += fl; continue; }
+        const ok = FLEX[slot] || [slot];
+        const cover = Math.max(fl, ...bench.filter((b) => ok.includes(P[b].p)).map((b) => P[b].w[w]));
+        total += pts - absence * (pts - cover);
+      }
+      return total;
+    }
+
+    function rawValue(pids) {
       const weekly = L.weeks.map((_, w) => lineup(pids, w));
-      const lineupTotal = weekly.reduce((s, x) => s + x.total, 0);
-      const starts = {};
-      weekly.forEach((x) => x.lineup.forEach(([, p]) => { starts[p] = (starts[p] || 0) + 1; }));
-      const bench = pids.filter((p) => P[p] && skill.has(P[p].p) && (starts[p] || 0) < nW / 2)
-        .map((p) => P[p].ros).sort((a, b) => b - a);
-      const depth = L.depth_weight * bench.slice(0, L.depth_count).reduce((s, x) => s + x, 0);
-      return { score: round(lineupTotal + depth, 1), lineupTotal: round(lineupTotal, 1), weekly, starts };
+      const expected = weekly.map((x, w) => weekValue(pids, w, x.lineup));
+      return { score: expected.reduce((s, x) => s + x, 0), lineupTotal: weekly.reduce((s, x) => s + x.total, 0),
+        weekly, expected };
+    }
+
+    /* Team value after cutting down to the league's roster size if needed. */
+    function value(pids) {
+      pids = pids.slice();
+      const dropped = [];
+      const active = (ps) => ps.filter((p) => !reserveAll.has(p));
+      if (L.roster_size) {
+        while (active(pids).length > L.roster_size) {
+          let cands = active(pids).filter((p) => !P[p] || skill.has(P[p].p))
+            .sort((x, y) => ((P[x] ? P[x].ros : 0) - (P[y] ? P[y].ros : 0)) || byPid(x, y)).slice(0, L.drop_candidates);
+          if (!cands.length) cands = active(pids).slice(-1);
+          let best = null, bestScore = -Infinity;
+          for (const c of cands) {
+            const sc = rawValue(pids.filter((p) => p !== c)).score;
+            if (sc > bestScore || (sc === bestScore && byPid(c, best) > 0)) { best = c; bestScore = sc; }
+          }
+          pids = pids.filter((p) => p !== best);
+          dropped.push(best);
+        }
+      }
+      const v = rawValue(pids);
+      return { score: round(v.score, 1), lineupTotal: round(v.lineupTotal, 1), weekly: v.weekly,
+        expected: v.expected, pids, dropped };
     }
 
     function profile(pids) {
@@ -65,6 +113,7 @@
       }));
       const now = new Set(v.weekly[0] ? v.weekly[0].lineup.map(([, p]) => p) : []);
       const depth = {};
+      pids = v.pids;
       for (const pos of L.skill) {
         const b = pids.filter((p) => P[p] && P[p].p === pos && !now.has(p)).map((p) => P[p].ros / nW)
           .sort((a, c) => c - a);
@@ -79,25 +128,30 @@
     }
 
     function rosterOf(rid) { return L.rosters[String(rid)].players.slice(); }
+    function rosterAll(rid) { const r = L.rosters[String(rid)]; return (r.all || r.players).slice(); }
 
     /* Monte Carlo of the remaining season. rosters: {rid: [pids]} overrides; weekOverrides:
-       {"rid|week": {mean, sd}} replaces a team's distribution for one week. */
+       {"rid|week": {mean, sd}} replaces a team's distribution for one week.
+       mode "lineup" (default, matches the Playoffs tab) uses each roster's best lineup as is;
+       mode "value" uses the same expected weekly points as the trade value (free-agent floor,
+       injury cover, roster limit), so trade odds agree with trade gains. */
     function simulate(rosters, opts) {
-      const o = Object.assign({ n: 4000, seed: 20261003, weekOverrides: {} }, opts || {});
+      const o = Object.assign({ n: 4000, seed: 20261003, weekOverrides: {}, mode: "lineup" }, opts || {});
       const teams = Object.keys(L.rosters);
       const dist = {};
       const sdBias = {};
       for (const t of teams) {
-        const pids = rosters[t] || rosterOf(t);
+        const pids = rosters[t] || (o.mode === "value" ? rosterAll(t) : rosterOf(t));
         sdBias[t] = strengthSd(pids);
+        const val = o.mode === "value" ? value(pids) : null;
         L.weeks.forEach((week, w) => {
           const key = `${t}|${week}`;
           if (o.weekOverrides[key]) { dist[key] = o.weekOverrides[key]; return; }
           if (week === L.current_week && L.this_week[t]) {
             dist[key] = { mean: L.this_week[t].mean, sd: L.this_week[t].sd };
           } else {
-            const lu = lineup(pids, w);
-            dist[key] = { mean: lu.total, sd: lu.sd };
+            const lu = lineup(val ? val.pids : pids, w);
+            dist[key] = { mean: val ? val.expected[w] : lu.total, sd: lu.sd };
           }
         });
       }
@@ -148,7 +202,7 @@
 
     function leagueProfiles(overrides) {
       const out = {};
-      for (const t of Object.keys(L.rosters)) out[t] = profile((overrides && overrides[t]) || rosterOf(t));
+      for (const t of Object.keys(L.rosters)) out[t] = profile((overrides && overrides[t]) || rosterAll(t));
       const keys = ["QB", "RB", "WR", "TE", "FLEX"];
       const median = {};
       for (const k of keys) {
@@ -172,7 +226,7 @@
     /* Full breakdown of a trade between me and `partner`. */
     function evaluateTrade(partner, give, get, opts) {
       const me = String(L.my_roster_id), them = String(partner);
-      const mine0 = rosterOf(me), theirs0 = rosterOf(them);
+      const mine0 = rosterAll(me), theirs0 = rosterAll(them);
       const mine1 = mine0.filter((p) => !give.includes(p)).concat(get);
       const theirs1 = theirs0.filter((p) => !get.includes(p)).concat(give);
       const before = leagueProfiles();
@@ -181,10 +235,10 @@
       const gainThem = round(after.profiles[them].value.score - before.profiles[them].value.score, 1);
       const weekly = L.weeks.map((week, w) => ({
         week,
-        me: round(after.profiles[me].value.weekly[w].total - before.profiles[me].value.weekly[w].total, 1),
-        them: round(after.profiles[them].value.weekly[w].total - before.profiles[them].value.weekly[w].total, 1),
-        meAfter: after.profiles[me].value.weekly[w].total,
-        themAfter: after.profiles[them].value.weekly[w].total,
+        me: round(after.profiles[me].value.expected[w] - before.profiles[me].value.expected[w], 1),
+        them: round(after.profiles[them].value.expected[w] - before.profiles[them].value.expected[w], 1),
+        meAfter: after.profiles[me].value.expected[w],
+        themAfter: after.profiles[them].value.expected[w],
       }));
       const nextIdx = Math.min(L.weeks.indexOf(L.current_week + 1) >= 0 ? L.weeks.indexOf(L.current_week + 1) : 0, nW - 1);
       const startersAt = (prof) => new Set(prof.value.weekly[nextIdx].lineup.map(([, p]) => p));
@@ -195,8 +249,8 @@
         them: changes(startersAt(before.profiles[them]), startersAt(after.profiles[them])),
       };
       const sims = (opts && opts.sims) || 4000;
-      const odds0 = simulate({}, { n: sims });
-      const odds1 = simulate({ [me]: mine1, [them]: theirs1 }, { n: sims });
+      const odds0 = simulate({}, { n: sims, mode: "value" });
+      const odds1 = simulate({ [me]: mine1, [them]: theirs1 }, { n: sims, mode: "value" });
       const ratio = gainMe ? gainThem / gainMe : 1;
       const lopsided = gainThem < 0.25 * gainMe;
       let balance;
@@ -224,6 +278,7 @@
         odds: { me: [odds0[me].odds, odds1[me].odds], them: [odds0[them].odds, odds1[them].odds],
                 meWins: [odds0[me].wins, odds1[me].wins], themWins: [odds0[them].wins, odds1[them].wins] },
         rosterSize: { me: sizeAfter(mine1, me), them: sizeAfter(theirs1, them), max: L.roster_size },
+        moves: { me: { drop: after.profiles[me].value.dropped }, them: { drop: after.profiles[them].value.dropped } },
       };
     }
 
@@ -234,11 +289,11 @@
 
     /* Check the browser maths against the pipeline's own team values. */
     function selfCheck() {
-      const diffs = Object.keys(L.check_scores).map((t) => Math.abs(value(rosterOf(t)).score - L.check_scores[t]));
+      const diffs = Object.keys(L.check_scores).map((t) => Math.abs(value(rosterAll(t)).score - L.check_scores[t]));
       return { ok: diffs.every((d) => d < 0.5), maxDiff: Math.max(...diffs) };
     }
 
-    return { lineup, value, profile, simulate, evaluateTrade, leagueProfiles, rosterOf, tradeable: tradeableRec,
+    return { lineup, value, rawValue, profile, simulate, evaluateTrade, leagueProfiles, rosterOf, rosterAll, tradeable: tradeableRec,
       vor, selfCheck, weekIndex: wi, players: P };
   }
 

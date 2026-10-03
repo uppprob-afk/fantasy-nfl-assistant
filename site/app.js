@@ -510,7 +510,8 @@
       (weeks ${esc(T.weeks[0])}–${esc(T.weeks[n - 1])}), not points so far. Each shows a confidence level, so check it before acting.</div>`;
 
     html += `<h2>Trade ideas</h2><p class="lead-text">Each idea improves <b>both</b> teams' projected optimal lineups for every remaining week
-      (byes included), plus a little credit for bench depth. Ranked by benefit to you; lopsided ones last.</p>`;
+      (byes included), counting only points above free-agent level, with injury cover and roster limits (the side receiving
+      two players must cut someone). Ranked by benefit to you; lopsided ones last.</p>`;
     html += `<div class="card">${T.ideas.length ? T.ideas.map(tradeCard).join("") : `<div class="empty">No mutually beneficial trades found right now.</div>`}</div>`;
 
     html += `<h2>Sell high</h2><p class="lead-text">Your players scoring well above what their usage and track record support.</p>
@@ -851,6 +852,14 @@
         <span class="gain">Them ${signed(res.gainThem)} pts</span></div>
       <div class="subtle">${esc(VERDICT[res.balance] || "")}</div></div>`;
 
+    const mv = res.moves;
+    const nm2 = (ids) => esc(ids.map((p) => (P[p] ? P[p].n : p)).join(", "));
+    const moveBits = [];
+    if (mv.me.drop.length) moveBits.push(`you cut <b>${nm2(mv.me.drop)}</b>`);
+    if (mv.them.drop.length) moveBits.push(`they cut <b>${nm2(mv.them.drop)}</b>`);
+    if (moveBits.length) html += `<div class="card card-pad"><div class="pd-h">Roster spots</div>
+      <div>To stay at ${L.roster_size} players: ${moveBits.join("; ")} (least valuable player). Already counted in the numbers above.</div></div>`;
+
     html += `<h2>Playoff odds</h2><div class="card card-pad">
       ${oddsLine("You", res.odds.me, conf)}${oddsLine(esc(L.rosters[res.them].team_name), res.odds.them, conf)}
       <div class="subtle">Projected wins: you ${num(res.odds.meWins[0])} → ${num(res.odds.meWins[1])} ·
@@ -871,7 +880,8 @@
         return `<tr><td>Wk ${w.week}${byes.length ? ` <span class="subtle">bye: ${byes.join(", ")}</span>` : ""}</td>
           ${deltaCell(w.me)}${deltaCell(w.them)}<td class="hide-sm">${num(w.meAfter)}</td></tr>`;
       }).join("")}</tbody></table></div>
-      <p class="subtle">Change in each team's projected optimal lineup (points), byes and injuries included.</p>`;
+      <p class="subtle">Change in each team's expected points per week (best lineup, byes, injury cover and roster-spot moves),
+        so the rows add up to the headline gain.</p>`;
 
     const keys = ["QB", "RB", "WR", "TE", "FLEX"];
     const pm0 = res.before.profiles[res.me], pm1 = res.after.profiles[res.me];
@@ -896,8 +906,9 @@
       <div class="trade-detail" hidden></div></div>`;
 
     const notes = [];
-    if (res.rosterSize.me > res.rosterSize.max) notes.push(`You'd need to drop ${res.rosterSize.me - res.rosterSize.max} player(s) to make room.`);
-    if (res.rosterSize.them > res.rosterSize.max) notes.push(`They'd need to drop ${res.rosterSize.them - res.rosterSize.max} player(s) to make room.`);
+    const names = (ids) => ids.map((p) => P[p] ? P[p].n : p).join(", ");
+    if (res.moves.me.drop.length) notes.push(`You'd cut ${names(res.moves.me.drop)} to make room. Counted in the value.`);
+    if (res.moves.them.drop.length) notes.push(`They'd cut ${names(res.moves.them.drop)} to make room. Counted in their value.`);
     res.flagged.forEach((pid) => notes.push(`${P[pid].n} has little trade value here (kicker/defence, long-term injury or no games yet).`));
     html += `<h2>Why</h2><div class="card card-pad"><ul class="tight">${
       res.reasons.concat(notes).map((r) => `<li>${esc(r)}</li>`).join("") || "<li>No positional need is filled either way; the change comes from overall projected points.</li>"}</ul></div>`;
@@ -933,10 +944,20 @@
       <div id="lab-result">${labState.give.length && labState.get.length ? `<div class="empty">Calculating…</div>`
         : `<div class="empty">Pick at least one player on each side.</div>`}</div>
       <details class="recent"><summary>How the Trade Lab works</summary><div class="card card-pad subtle">
-        <p>Each team's value is its best projected lineup for every remaining regular-season week (byes and injuries included)
-        plus a little credit for bench depth, the same maths as the Trades tab. Gains are the change in that value.</p>
+        <p>Each team's value is its best projected lineup for every remaining regular-season week (byes and known injuries
+        included), the same maths as the Trades tab. Two adjustments make uneven trades fair:</p>
+        <p><b>Free-agent floor:</b> every lineup spot is worth at least what the best free agent at that position would score,
+        because any team can pick one up. So only points <i>above</i> free-agent level count: two "fine" players aren't
+        automatically worth one star, and a throw-in who wouldn't beat a free agent adds nothing.</p>
+        <p><b>Roster spots:</b> a team that ends up over the ${DATA.lab.roster_size}-player limit cuts its least valuable player
+        (the side receiving two players in a 2-for-1 pays for that).</p>
+        <p><b>Injury cover:</b> every starter has about a ${Math.round(100 * DATA.lab.absence_rate)}% chance of missing any given
+        week beyond what's known today. The expected cost is what you'd lose after covering with your best eligible bench
+        player or a free agent. So depth is worth exactly what it would cover, no more.</p>
         <p>Playoff odds come from simulating the rest of the season on the real schedule before and after the trade,
-        using the same random seasons both times. Odds are rounded while confidence is ${esc(L.confidence)}.</p>
+        using the same random seasons both times and the same weekly points as the trade value (so odds and gains agree).
+        That's why the "before" odds can differ slightly from the Playoffs tab, which uses each team's lineup exactly as it
+        stands. Odds are rounded while confidence is ${esc(L.confidence)}.</p>
         <p>Positional strength compares projected points per week from each position with the league median.</p></div></details>`;
 
     $("lab-partner").addEventListener("change", (e) => { labState = { partner: e.target.value, give: labState.give, get: [] }; renderTradeLab(); });
