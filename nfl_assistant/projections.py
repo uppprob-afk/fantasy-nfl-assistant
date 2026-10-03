@@ -117,7 +117,7 @@ def game_logs(rows: list[dict], snaps: list[dict], scoring: dict) -> dict[str, l
             "season": r["season"], "week": int(r["week"]), "team": team,
             "position": r.get("position"), "pts": compute_points(r, scoring),
             "pct": snap_idx.get((r["season"], int(r["week"]), team, name)),
-            "targets": _n(r, "targets"), "carries": _n(r, "carries"),
+            "targets": _n(r, "targets"), "carries": _n(r, "carries"), "receptions": _n(r, "receptions"),
             "attempts": _n(r, "attempts"), "parts": component_points(r, scoring),
         })
     for games in logs.values():
@@ -416,7 +416,11 @@ def build(players: dict, candidate_ids: set[str], rows_prior: list[dict], rows_t
                         p.get("depth_chart_order"))
         todo = unplayed_weeks(sched, team, weeks)
         weekly = project_weeks(r["rate"], pos, team, status, todo, first_week, sched, dvp, avg_imp)
+        log_this = [{k: g.get(k) for k in ("week", "pts", "pct", "targets", "carries", "receptions",
+                                            "attempts", "partial")}
+                    for g in plogs if g["season"] == season]
         r.update({"id": pid, "position": pos, "team": team, "status": status, "weekly": weekly,
+                  "log": log_this,
                   "ros": round(sum(x["pts"] for x in weekly.values()), 1),
                   "byes": [w for w, x in weekly.items() if x.get("bye")]})
         out[pid] = r

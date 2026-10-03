@@ -63,6 +63,7 @@ nfl_assistant/
   trades.py               trade values (ROS optimal lineups) + mutual-benefit trade ideas
   outlook.py              win chances, start/sit, weekly lineups, playoff simulation
   tendencies.py           manager FAAB habits + likely rivals / bid-to-win
+  cards.py                player cards: last 3 (Sleeper actual) vs next 3 (projected), log, usage, value
   brief.py                Markdown brief for pasting into an AI assistant
   anonymize.py            shareable copy of the site with league names replaced
   output.py               site data + snapshot writers
@@ -135,6 +136,16 @@ page. Requests with `?ping` bypass the worker (the page's offline check). It's r
 only off `file://`. Bump `CACHE` in `sw.js` if the shell file list changes. The header has
 Install (shown on `beforeinstallprompt`), reload and theme buttons. iOS gets
 `apple-mobile-web-app-*` meta tags plus `apple-touch-icon`.
+
+## Player cards
+
+`dashboard.json` → `cards[player_id]` for every rostered player (built after projections and
+trades). Last 3 = last three completed weeks of Sleeper `players_points` (None = not on a
+league roster; average skips byes and games not played). Next 3 = next three unplayed
+weeks from projections with ±1 SD range; matchup easy >= 1.05 / tough <= 0.95 multiplier.
+Usage = last 3 full games (partial only if that's all there is). Position rank = by ROS
+projection among all projected players. The site renders each row as `<details>`
+(tap to expand); the bar strip uses the `wbar` class (`bar` is taken by the FAAB tab).
 
 ## Automation
 

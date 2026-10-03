@@ -32,6 +32,82 @@
       : esc(m.username);
   }
 
+  // ---------- player row: last 3 vs next 3, tap for details ----------
+  const CARDS = (D && D.cards) || {};
+  const one = (n) => (n == null ? "–" : Number(n).toFixed(1));
+  const POS_ABBR = { QB: "QB", RB: "RB", WR: "WR", TE: "TE", K: "K", DEF: "DEF" };
+
+  function strip(c) {
+    const past = c.last3.map((w) => ({ v: w.pts, label: `W${w.week}`, kind: "past", w }));
+    const next = c.next3.map((w) => ({ v: w.bye ? null : w.pts, label: w.bye ? "BYE" : `${w.home ? "" : "@"}${w.opp || ""}`,
+      kind: "next", w }));
+    const vals = past.concat(next).map((x) => x.v || 0);
+    const scale = Math.max(25, ...vals);
+    const cell = (x) => {
+      let cls = `wbar ${x.kind}`, txt = x.v == null ? "–" : Math.round(x.v), h = x.v ? Math.max(6, Math.round(100 * x.v / scale)) : 0;
+      if (x.kind === "past") {
+        if (x.w.bye) { txt = "bye"; cls += " none"; }
+        else if (!x.w.played && !x.v) { txt = "–"; cls += " none"; }
+        else if (x.v == null) { txt = "n/r"; cls += " none"; }
+        if (x.w.partial) { cls += " partial"; txt += "*"; }
+      } else {
+        if (x.w.bye) { txt = ""; cls += " none"; }
+        if (x.w.matchup && x.w.matchup !== "neutral") cls += ` ${x.w.matchup}`;
+      }
+      return `<div class="cell"><div class="val">${esc(txt)}</div><div class="track"><span class="${cls}" style="height:${h}%"></span></div>
+        <div class="lbl">${esc(x.label)}</div></div>`;
+    };
+    return `<div class="strip">${past.map(cell).join("")}<div class="divider"></div>${next.map(cell).join("")}</div>`;
+  }
+
+  function detailPanel(p, c) {
+    const v = c.value, u = c.usage;
+    let html = `<div class="pd">`;
+    // next 3 matchups
+    if (c.next3.length) {
+      html += `<div class="pd-sec"><div class="pd-h">Next 3 weeks</div>${c.next3.map((w) => w.bye
+        ? `<div class="pd-row"><span>Wk ${w.week}</span><span class="muted">Bye</span><span></span></div>`
+        : `<div class="pd-row"><span>Wk ${w.week} ${w.home ? "vs" : "@"} ${esc(w.opp)}</span>
+            <span><b>${one(w.pts)}</b> <span class="subtle">(${one(w.low)}–${one(w.high)})</span></span>
+            <span>${w.matchup !== "neutral" ? `<span class="chip mu-${w.matchup}">${w.matchup}</span>` : ""}${
+              w.avail < 1 ? ` <span class="chip q">${Math.round(100 * w.avail)}% to play</span>` : ""}</span></div>`).join("")}
+        <div class="subtle">Range = typical game-to-game spread. Matchup from ${c.next3.some((w) => w.source === "vegas") ? "Vegas lines (next game) and " : ""}opponent strength.</div></div>`;
+    }
+    // weekly log
+    const isQB = p.position === "QB";
+    html += `<div class="pd-sec"><div class="pd-h">Game log <span class="subtle">· season ${one(c.season.pts)} pts in ${c.season.games} gp</span></div>
+      <div class="table-wrap"><table class="log"><thead><tr><th>Wk</th><th>Pts</th><th>Snap</th>${isQB ? "<th>Att</th>" : "<th>Tgt</th><th>Rec</th>"}<th>Car</th></tr></thead><tbody>${
+      c.log.map((g) => `<tr${g.partial ? ' class="partial"' : ""}><td>${g.week}</td>
+        <td>${g.bye ? "bye" : g.pts == null ? "n/r" : one(g.pts)}${g.partial ? "*" : ""}</td>
+        <td>${g.pct != null ? Math.round(100 * g.pct) + "%" : "–"}</td>
+        ${isQB ? `<td>${g.attempts ?? "–"}</td>` : `<td>${g.targets ?? "–"}</td><td>${g.receptions ?? "–"}</td>`}
+        <td>${g.carries ?? "–"}</td></tr>`).join("")}</tbody></table></div>
+      <div class="subtle">* partial game (snap share well below normal, e.g. hurt early). n/r = not on a league roster that week.</div></div>`;
+    // usage
+    if (u && u.games) {
+      const bits = [];
+      if (u.snap_pct != null) bits.push(`<b>${u.snap_pct}%</b> snaps`);
+      if (isQB) bits.push(`<b>${u.attempts}</b> att/g`);
+      else if (p.position !== "K" && p.position !== "DEF") bits.push(`<b>${u.targets}</b> tgt/g`, `<b>${u.receptions}</b> rec/g`);
+      if (u.carries) bits.push(`<b>${u.carries}</b> car/g`);
+      const luck = u.actual_ppg != null && u.expected_ppg != null
+        ? `<div>Scoring <b>${one(u.actual_ppg)}</b>/g vs <b>${one(u.expected_ppg)}</b>/g that usage usually produces${
+            u.actual_ppg - u.expected_ppg > 3 ? " (running hot)" : u.expected_ppg - u.actual_ppg > 3 ? " (running cold)" : ""}.</div>` : "";
+      html += `<div class="pd-sec"><div class="pd-h">Usage <span class="subtle">· last ${u.games} ${u.partial_only ? "(partial) " : "full "}game${u.games > 1 ? "s" : ""}</span></div>
+        <div>${bits.join(" · ")}</div>${luck}</div>`;
+    }
+    // value
+    if (v) {
+      html += `<div class="pd-sec"><div class="pd-h">Value ${confChip(v.confidence)}${v.flag ? ` <span class="chip ${v.flag === "sell-high" ? "hot" : "ok-style"}">${esc(v.flag)}</span>` : ""}</div>
+        <div><b>${one(v.rate)}</b>/wk projected (typically ${one(Math.max(v.rate - v.sd, 0))}–${one(v.rate + v.sd)})
+          · <b>${Math.round(v.ros)}</b> pts rest of season</div>
+        <div>${POS_ABBR[p.position] || p.position}${v.rank} of ${v.rank_of} by rest-of-season projection ·
+          ${v.vor >= 0 ? "+" : ""}${Math.round(v.vor)} vs a free-agent replacement</div>
+        <div class="subtle">${v.byes.length ? `Bye: week ${v.byes.join(", ")}. ` : ""}${v.prior_ppg != null ? `Last season ${one(v.prior_ppg)}/g. ` : ""}See Trades → How values work.</div></div>`;
+    }
+    return html + `</div>`;
+  }
+
   function playerRow(p, slot) {
     if (!p.id) {
       return `<div class="prow"><span class="slot ${esc(slot)}">${esc(slot)}</span>
@@ -39,18 +115,32 @@
     }
     const label = slot || p.position;
     const cls = slot === "BN" || slot === "IR" ? slot : (slot || p.position);
+    const c = CARDS[p.id];
     const reason = p.check && p.check.status === "unverified"
       ? `<div class="pmeta" style="color:var(--warn)">${esc(p.check.reason)}</div>` : "";
     const irNote = slot !== "IR" && p.ir_eligible ? `<span class="chip q">IR-eligible</span>` : "";
-    return `<div class="prow">
+    if (!c) {
+      return `<div class="prow"><span class="slot ${esc(cls)}">${esc(label)}</span>
+        <div><div class="pname">${esc(p.name)}${injuryChip(p)}${irNote}${checkChip(p)}</div>
+        <div class="pmeta">${esc(p.position)} · ${esc(p.team)}</div>${reason}</div>
+        <div class="pnums"><div class="big">${num(p.avg)}</div><div class="small">per game</div></div></div>`;
+    }
+    const v = c.value;
+    const rank = v && v.rank ? ` · ${POS_ABBR[p.position] || p.position}${v.rank}` : "";
+    const arrow = { up: `<span class="trend up">▲</span>`, down: `<span class="trend down">▼</span>`, flat: "" }[c.trend] || "";
+    return `<details class="prow-d"><summary class="prow prow-card">
       <span class="slot ${esc(cls)}">${esc(label)}</span>
-      <div>
+      <div class="pmain">
         <div class="pname">${esc(p.name)}${injuryChip(p)}${irNote}${checkChip(p)}</div>
-        <div class="pmeta">${esc(p.position)} · ${esc(p.team)}${p.games != null ? ` · ${p.games} gp` : ""}</div>
+        <div class="pmeta">${esc(p.team)}${rank}${v ? ` · ${esc(v.confidence)} conf` : ""}${v && v.flag ? ` · <span class="flag">${esc(v.flag)}</span>` : ""}</div>
         ${reason}
       </div>
-      <div class="pnums"><div class="big">${num(p.points)}</div><div class="small">${num(p.avg)}/g</div></div>
-    </div>`;
+      <div class="pnums l3n3">
+        <div><div class="k">Last 3</div><div class="big">${one(c.last3_avg)}</div></div>
+        <div><div class="k">Next 3</div><div class="big">${arrow}${one(c.next3_avg)}</div></div>
+      </div>
+      ${strip(c)}
+    </summary>${detailPanel(p, c)}</details>`;
   }
 
   function rosterCards(r) {
@@ -75,7 +165,9 @@
       html += `<div class="alert"><strong>Heads up</strong><ul>${me.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul></div>`;
     }
     html += rosterCards(me);
-    html += `<p class="muted" style="font-size:.8rem">Season points use league scoring from Sleeper matchups (weeks ${
+    html += `<p class="muted" style="font-size:.8rem">Last 3 = average of the last three weeks the player played (league scoring, from Sleeper).
+      Next 3 = projected average over the next three games; bars show each week (solid = actual, outlined = projected,
+      green/red outline = easy/tough matchup). Tap a player for details. Season points weeks ${
       esc(D.league.completed_weeks.join(", "))}). ✓ = matches nflverse stats within 1 pt.
       IR allowed for: ${esc(D.league.ir_allowed.join(", "))}.</p>`;
     $("tab-team").innerHTML = html;

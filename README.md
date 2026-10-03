@@ -19,14 +19,14 @@ Free to run: public APIs only, no keys, no paid services.
 
 | Tab | What you get |
 |---|---|
-| **My Team** | Starters / bench / IR with injury status, season points (league scoring), points per game, and a ✓ when points match nflverse. IR advice follows your league's own IR rules. |
+| **My Team** | Each player shows **last 3 weeks vs next 3 weeks** (actual vs projected) with a six-week bar strip: partial games, byes and easy/tough matchups marked. Tap for the game log (snaps, targets, carries), next 3 matchups with ranges, usage vs expected points, and value (position rank, rest of season, vs replacement). Injury status, IR eligibility and ✓ verified points included. |
 | **News** | Only what changed since the last run: injuries, depth chart promotions, team changes and fresh drops, split into *my players*, *other teams' starters* (trade openings) and *free agents worth a look* (with bid ideas and likely rival bidders). |
 | **Standings** | W–L, points for/against and waiver priority, with optional manager nicknames. |
 | **Matchups** | Projected scores and win chances for every game, start/sit calls, and optimal lineups for every remaining week, byes included. |
 | **Playoffs** | Playoff odds for every team from 10,000 simulated seasons, odds if you win or lose this week, and the games that matter most. |
 | **FAAB** | Bid ideas at three levels (bargain / competitive / safe), likely rivals with a bid-to-win range, manager tendencies (style, positions chased, overpaying, budget), a full waiver log with runner-up bids, and market prices. |
 | **Trades** | Rest-of-season player values with range and confidence, value over replacement, mutual-benefit trade ideas with reasoning, buy-low / sell-high, and projected positional strength. |
-| **Rosters** | Every manager's roster. |
+| **Rosters** | Every manager's roster with the same player cards. |
 | **Brief** | `claude_brief.md`: a compact verified summary with a one-tap Copy button. |
 
 ## Use it with your league

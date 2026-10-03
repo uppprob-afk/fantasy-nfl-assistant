@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from . import brief, dashboard, faab, lineups, nflverse, outlook, projections, scanner, tendencies, trades
+from . import brief, cards, dashboard, faab, lineups, nflverse, outlook, projections, scanner, tendencies, trades
 from .config import ROOT, ConfigError, load_config
 from .output import write_site_data, write_snapshot
 from .players import find_player, ir_allowed_statuses, player_brief, slim_players
@@ -478,6 +478,19 @@ def build_tendencies(ctx: dict, faab_data: dict, proj: dict, outlook_data: dict,
     }
 
 
+# --- player cards ----------------------------------------------------------------
+def build_cards(ctx: dict, proj: dict, points: dict, weeks: list[int], nfl: dict, trade_data: dict) -> dict:
+    """player_id -> card (last 3 / next 3 weeks, log, usage, value) for every rostered player."""
+    sched = projections.schedule(nfl["games"], ctx["league"]["season"])
+    ranks = cards.position_ranks(proj)
+    flags = {r["id"]: "sell-high" for r in trade_data.get("sell_high", [])}
+    flags.update({r["id"]: "buy-low" for r in trade_data.get("buy_low", [])})
+    rostered = {pid for r in ctx["rosters"] for pid in (r.get("players") or [])}
+    return {pid: cards.build_card(pid, proj.get(pid), points.get(pid, {}), ctx["completed_weeks"], sched,
+                                  ranks, trade_data["replacement"], len(weeks), flags)
+            for pid in rostered}
+
+
 # --- main -------------------------------------------------------------------
 def main() -> int:
     try:
@@ -514,6 +527,7 @@ def main() -> int:
     proj, proj_weeks, slots = build_projections(ctx, nfl)
     say("Looking for trade ideas...")
     trade_data = build_trades(ctx, managers, proj, proj_weeks, slots, scan, now)
+    dash["cards"] = build_cards(ctx, proj, points, proj_weeks, nfl, trade_data)
     say("Projecting matchups and simulating the season...")
     outlook_data = build_outlook(ctx, managers, proj, proj_weeks, slots, now)
     say("Profiling manager bidding habits...")
