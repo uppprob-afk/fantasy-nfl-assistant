@@ -4,6 +4,15 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#f5f6f8" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0f1115" media="(prefers-color-scheme: dark)">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Fantasy">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/png" href="icons/favicon-32.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <title>Fantasy NFL Assistant</title>
   <link rel="stylesheet" href="styles.css">
 </head>
@@ -14,7 +23,11 @@
         <h1 id="team-name">Fantasy NFL Assistant</h1>
         <p class="sub" id="subtitle">Loading…</p>
       </div>
-      <button class="theme-btn" id="theme-btn" type="button" aria-label="Toggle dark mode">◐</button>
+      <div class="top-actions">
+        <button class="theme-btn" id="install-btn" type="button" hidden>Install</button>
+        <button class="theme-btn" id="refresh-btn" type="button" aria-label="Reload">↻</button>
+        <button class="theme-btn" id="theme-btn" type="button" aria-label="Toggle dark mode">◐</button>
+      </div>
     </div>
     <nav class="tabs" id="tabs" role="tablist">
       <button role="tab" data-tab="team" aria-selected="true">My Team</button>
@@ -30,6 +43,7 @@
   </header>
 
   <main>
+    <div id="status"></div>
     <div id="warnings"></div>
     <section id="tab-team" class="tab-panel"></section>
     <section id="tab-news" class="tab-panel" hidden></section>

@@ -678,7 +678,56 @@
     });
   }
 
+  // ---------- installable app ----------
+  function setupApp() {
+    // Offline support needs a real web address (https or localhost), not a file opened from disk.
+    if ("serviceWorker" in navigator && location.protocol !== "file:") {
+      navigator.serviceWorker.register("sw.js").catch(() => { /* optional */ });
+    }
+    let deferred = null;
+    window.addEventListener("beforeinstallprompt", (e) => {   // Android / desktop Chrome
+      e.preventDefault();
+      deferred = e;
+      $("install-btn").hidden = false;
+    });
+    $("install-btn").addEventListener("click", async () => {
+      if (!deferred) return;
+      deferred.prompt();
+      await deferred.userChoice;
+      deferred = null;
+      $("install-btn").hidden = true;
+    });
+    window.addEventListener("appinstalled", () => { $("install-btn").hidden = true; });
+    $("refresh-btn").addEventListener("click", () => location.reload());
+  }
+
+  async function isOffline() {
+    if (!navigator.onLine) return true;
+    if (location.protocol === "file:") return false;
+    try {
+      await fetch(`data/dashboard.json?ping=${Date.now()}`, { method: "HEAD", cache: "no-store" });
+      return false;
+    } catch (e) {
+      return true;
+    }
+  }
+
+  async function showStatus(generatedAt) {
+    const notes = [];
+    if (await isOffline()) {
+      notes.push(`<div class="status-note offline">You're offline. Showing the last update you loaded.</div>`);
+    }
+    const days = generatedAt ? (Date.now() - new Date(generatedAt).getTime()) / 86400000 : 0;
+    if (days >= 4) {
+      notes.push(`<div class="status-note">This data is ${Math.floor(days)} days old. Run an update for fresh numbers.</div>`);
+    }
+    $("status").innerHTML = notes.join("");
+  }
+
   setupTheme();
+  setupApp();
+  window.addEventListener("online", () => showStatus(D && D.generated_at));
+  window.addEventListener("offline", () => showStatus(D && D.generated_at));
   if (!D) {
     $("subtitle").textContent = "No data yet. Run: uv run python -m nfl_assistant.run";
     return;
@@ -689,6 +738,7 @@
   if (warnings.length) {
     $("warnings").innerHTML = `<div class="alert"><strong>Warnings</strong><ul>${warnings.map((w) => `<li>${esc(w)}</li>`).join("")}</ul></div>`;
   }
+  showStatus(D.generated_at);
   $("footer").textContent = `Updated ${new Date(D.generated_at).toLocaleString()} · Data: Sleeper API, nflverse`;
   renderTeam(); renderNews(); renderStandings(); renderMatchups(); renderFaab(); renderTrades(); renderPlayoffs(); renderRosters(); renderBrief();
   document.querySelectorAll("#tabs button").forEach((b) => b.addEventListener("click", () => selectTab(b.dataset.tab)));
