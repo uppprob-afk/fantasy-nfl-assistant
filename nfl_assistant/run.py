@@ -267,15 +267,21 @@ def build_projections(ctx: dict, nfl: dict) -> tuple[dict, list[int], list[str]]
     return proj, weeks, slots
 
 
+def roster_limit(league: dict) -> int:
+    """Active roster size (starters + bench; IR and taxi slots don't count)."""
+    return sum(1 for s in league["roster_positions"] if s not in ("IR", "TAXI"))
+
+
 def build_trades(ctx: dict, managers: dict, proj: dict, weeks: list[int], slots: list[str],
                  scan: dict, now) -> dict:
     players, rosters = ctx["players"], ctx["rosters"]
     my_rid = ctx["my_roster"]["roster_id"]
     rostered = {pid for r in rosters for pid in (r.get("players") or [])}
     owners = {pid: r["roster_id"] for r in rosters for pid in (r.get("players") or [])}
-    valuer = trades.Valuer(proj, weeks, slots)
-    profiles = trades.league_profiles(rosters, valuer)
     repl = projections.replacement_rates(proj, rostered)
+    valuer = trades.Valuer(proj, weeks, slots, roster_size=roster_limit(ctx["league"]),
+                           reserve={p for r in rosters for p in (r.get("reserve") or [])}, repl=repl)
+    profiles = trades.league_profiles(rosters, valuer)
     names = {pid: player_brief(pid, players)["name"] for pid in proj}
 
     def card(pid):
@@ -498,7 +504,7 @@ def build_lab(ctx: dict, managers: dict, proj: dict, weeks: list[int], slots: li
                 "mean": t["mean"], "sd": t["sd"], "starters": t["starters"],
                 "actual": {r["id"]: r["pts"] for r in t["players"] if r["id"] and r["status"] == "played"}}
     names = {pid: {"name": player_brief(pid, ctx["players"])["name"]} for pid in proj}
-    roster_size = sum(1 for s in ctx["league"]["roster_positions"] if s not in ("IR", "TAXI"))
+    roster_size = roster_limit(ctx["league"])
     return lab.build_lab_data(proj, weeks, slots, ctx["rosters"], managers, names,
                               sim_standings(ctx["rosters"]), sim_schedule(ctx, weeks), this_week,
                               ctx["my_roster"]["roster_id"], outlook_data["playoff_teams"],
