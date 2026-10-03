@@ -187,7 +187,7 @@
     const on = { quiet: "bargain_bid", warm: "competitive_bid", hot: "safe_bid" }[s.demand];
     const lvl = (k, label) => L[k] == null ? "" : `<span class="level ${k === on ? "on" : ""}">${label} ${money(L[k])}</span>`;
     const heat = p.count != null
-      ? `<span class="chip ${s.demand === "hot" ? "hot" : "warm"}">${s.demand === "hot" ? "🔥 " : ""}${Number(p.count).toLocaleString()} adds</span>` : "";
+      ? `<span class="chip ${s.demand === "hot" ? "hot" : "warm"}">${Number(p.count).toLocaleString()} adds</span>` : "";
     const owner = p.rostered_by ? `<div class="subtle" style="color:var(--warn)">Already rostered by ${esc(p.rostered_by)}</div>` : "";
     const comps = p.comparables && p.comparables.length
       ? `<div class="subtle">Similar claims: ${p.comparables.map((c) => `${esc(c.name)} ${money(c.bid)} (needed ${money(c.clearing_price)})`).join(" · ")}</div>` : "";
@@ -198,8 +198,9 @@
         <div class="bid-amt">${s.bid == null ? "–" : money(s.bid)}</div>
       </div>
       <div class="levels">${lvl("bargain_bid", "Bargain")}${lvl("competitive_bid", "Competitive")}${lvl("safe_bid", "Safe")}</div>
-      <div class="subtle" style="margin-top:4px">${esc(s.reason || "")}</div>${owner}${comps}
-      ${rivalsBlock(p)}
+      ${owner}
+      <details class="why"><summary>Why ${s.bid == null ? "this bid" : money(s.bid)}?</summary>
+        <div class="subtle" style="margin-top:6px">${esc(s.reason || "")}</div>${comps}${rivalsBlock(p)}</details>
     </div>`;
   }
 
@@ -356,7 +357,7 @@
     }
     $("tab-news").innerHTML = html;
     const count = S.my_players.length + S.other_starters.length + S.free_agents.length;
-    if (count) document.querySelector('#tabs button[data-tab="news"]').insertAdjacentHTML("beforeend", `<span class="badge">${count}</span>`);
+    if (count) document.querySelector('#tabs button[data-tab="waivers"]').insertAdjacentHTML("beforeend", `<span class="badge">${count}</span>`);
   }
 
   // ---------- Trades ----------
@@ -364,7 +365,7 @@
   const signed = (n) => (n > 0 ? "+" : "") + num(n);
 
   function confChip(level) {
-    return level ? `<span class="chip conf ${esc(level)}" title="How much data backs this number">${esc(level)}</span>` : "";
+    return level ? `<span class="conf-t ${esc(level)}" title="How much data backs this number">${esc(level)} conf.</span>` : "";
   }
 
   function projMeta(p) {
@@ -387,8 +388,8 @@
   function tradePlayers(list) {
     return list.map((p) => `<div class="tp${CARDS[p.id] ? "" : " no-card"}" data-pid="${esc(p.id)}" role="button" tabindex="0"
       aria-label="Show details for ${esc(p.name)}"><div class="pl">${esc(p.name)}${injuryChip(p)}${CARDS[p.id] ? ` <span class="chev">▸</span>` : ""}</div>
-      <div class="pmeta">${projMeta(p)}</div>
-      <div class="pmeta">ROS ${num(p.ros, 0)} pts · ${p.vor >= 0 ? "+" : ""}${num(p.vor, 0)} vs replacement ${confChip(p.confidence)}</div></div>`).join("");
+      <div class="pmeta">${esc(p.position)} · ${esc(p.team)} · <b>${num(p.rate)}</b>/wk · ROS ${num(p.ros, 0)}${
+        p.confidence === "low" ? ` ${confChip("low")}` : ""}</div></div>`).join("");
   }
 
   function tradeCard(t) {
@@ -404,7 +405,7 @@
         <div class="arrow">⇄</div>
         <div><div class="col-label">You get</div>${tradePlayers(t.get)}</div>
       </div>
-      <div class="gains"><span class="gain me">You ${signed(t.my_gain)} pts ROS (~${num(t.my_gain / n)}/wk)</span>
+      <div class="gains"><span class="gain me">You ${signed(t.my_gain)} pts ROS (${signed(t.my_gain / n)}/wk)</span>
         <span class="gain">Them ${signed(t.their_gain)} pts</span></div>
       <div class="trade-detail" hidden></div>
       <button type="button" class="btn secondary lab-open" data-partner="${t.roster_id}"
@@ -441,8 +442,7 @@
     if (T.trades_closed) {
       html += `<div class="alert">The trade deadline (week ${esc(T.trade_deadline)}) has passed. Values are still shown for reference.</div>`;
     }
-    html += `<div class="disclaimer">These are <b>suggestions, not advice</b>. Values are <b>rest-of-season projections</b>
-      (weeks ${esc(T.weeks[0])}–${esc(T.weeks[n - 1])}), not points so far. Each shows a confidence level, so check it before acting.</div>`;
+    html += `<p class="disclaimer">Suggestions, not advice · rest-of-season projections (weeks ${esc(T.weeks[0])}–${esc(T.weeks[n - 1])}).</p>`;
     if (T.trade_deadline && !T.trades_closed) {
       const left = T.trade_deadline - T.current_week;
       html += `<div class="status-note">Trade deadline: <b>week ${esc(T.trade_deadline)}</b> (${left <= 0 ? "this week" : `${left} week${left === 1 ? "" : "s"} away`}).</div>`;
@@ -637,17 +637,6 @@
   const nm = (pid) => (O && O.names[pid]) || { name: pid, position: "?", team: "" };
   const range = (mean, sd) => `${num(Math.max(mean - sd, 0), 0)}–${num(mean + sd, 0)}`;
 
-  function lineupRows(t) {
-    return t.players.map((r) => {
-      if (!r.id) return "";
-      const p = nm(r.id);
-      const tag = r.status === "played" ? `<span class="subtle">final</span>` : `<span class="subtle">proj ±${num(r.sd, 0)}</span>`;
-      return `<div class="prow"><span class="slot ${esc(p.position)}">${esc(p.position)}</span>
-        <div><div class="pname">${esc(p.name)}${injuryChip(p)}</div><div class="pmeta">${esc(p.team)}</div></div>
-        <div class="pnums"><div class="big">${num(r.pts)}</div><div class="small">${tag}</div></div></div>`;
-    }).join("");
-  }
-
   function winBar(a, b, conf) {
     const pa = Math.round(100 * a.win_prob);
     return `<div class="winbar" role="img" aria-label="Win chance ${pctText(a.win_prob, conf)}">
@@ -711,15 +700,40 @@
     const [a, b] = m.teams;
     const side = (t, right) => `<div class="side" ${right ? 'style="text-align:right"' : ""}>
       <div class="score">${num(t.mean)}</div>
-      <div class="subtle">likely ${range(t.mean, t.sd)}${t.played_pts ? ` · ${num(t.played_pts)} banked` : ""}</div>
-      <div class="pname">${esc(t.team_name)}</div><div class="pmeta">${managerName(t)} · ${esc(recBy[t.roster_id] ? record(recBy[t.roster_id]) : "")}</div></div>`;
-    const details = m.is_mine ? `<details class="mu-detail"><summary>Player-by-player</summary>
-        <div class="col-label" style="padding:8px 14px 0">${esc(a.team_name)}</div>${lineupRows(a)}
-        <div class="col-label" style="padding:8px 14px 0">${esc(b.team_name)}</div>${lineupRows(b)}</details>` : "";
+      <div class="pname">${esc(t.team_name)}</div>
+      <div class="pmeta">${esc(recBy[t.roster_id] ? record(recBy[t.roster_id]) : "")} · likely ${range(t.mean, t.sd)}</div></div>`;
+    const details = `<details class="mu-detail"${m.is_mine && store.get("muOpen", false) ? " open" : ""}><summary>Lineups side by side</summary>${sideBySide(a, b)}</details>`;
     return `<div class="card ${m.is_mine ? "mine" : ""}">
-      ${m.is_mine ? `<div class="mine-label">Week ${esc(O.week)} · your matchup ${confChip(m.confidence)}</div>` : ""}
+      ${m.is_mine ? `<div class="mine-label">Week ${esc(O.week)} · your matchup</div>` : ""}
       <div class="mu">${side(a)}<div class="vs">vs</div>${side(b, true)}</div>
       <div style="padding:0 14px 12px">${winBar(a, b, m.confidence)}</div>${details}</div>`;
+  }
+
+  // Both starting lineups slot by slot; the higher score in each row is emphasised.
+  function sideBySide(a, b) {
+    const cell = (r, right) => {
+      if (!r || !r.id) return `<div class="vsg-name${right ? " r" : ""}"><div class="n muted">Empty</div></div>`;
+      const p = nm(r.id);
+      const st = p.injury_status ? ` · <span style="color:var(--${p.injury_status === "Questionable" ? "warn" : "bad"})">${esc(p.injury_status)}</span>` : "";
+      return `<div class="vsg-name${right ? " r" : ""}"><div class="n">${esc(p.name)}</div><div class="t">${esc(p.team)}${st}</div></div>`;
+    };
+    const pts = (r, win) => {
+      if (!r || !r.id) return `<div class="vsg-pts">–</div>`;
+      const sub = r.status === "played" ? "final" : `±${num(r.sd, 0)}`;
+      return `<div class="vsg-pts${win ? " win" : ""}">${num(r.pts)}<span class="s">${sub}</span></div>`;
+    };
+    const rows = O.slots.map((slot, i) => {
+      const ra = a.players[i], rb = b.players[i];
+      const pa = ra && ra.id ? ra.pts : -1, pb = rb && rb.id ? rb.pts : -1;
+      return `<div class="vsg-row">${cell(ra)}${pts(ra, pa > pb)}<div class="vsg-slot">${esc(slot)}</div>${pts(rb, pb > pa)}${cell(rb, true)}</div>`;
+    }).join("");
+    return `<div class="vsg">
+      <div class="vsg-row vsg-head"><div>${esc(a.team_name)}</div><div></div><div></div><div></div><div class="r" style="text-align:right">${esc(b.team_name)}</div></div>
+      ${rows}
+      <div class="vsg-row vsg-total"><div class="vsg-name"><div class="n">Projected</div></div>
+        <div class="vsg-pts${a.mean > b.mean ? " win" : ""}">${num(a.mean)}</div><div class="vsg-slot">TOT</div>
+        <div class="vsg-pts${b.mean > a.mean ? " win" : ""}">${num(b.mean)}</div><div class="vsg-name r"><div class="n" style="text-align:right">Projected</div></div></div>
+    </div>`;
   }
 
   function keyRow(k) {
@@ -1076,7 +1090,7 @@
     const opts = others.map((t) => `<option value="${t}" ${t === String(labState.partner) ? "selected" : ""}>${
       esc(L.rosters[t].team_name)}: ${esc(L.rosters[t].label)}</option>`).join("");
     const check = E.selfCheck();
-    host.innerHTML = `<p class="lead-text" style="margin-top:12px">Build any trade and see what it does to both teams for the rest of the season.
+    host.innerHTML = `<h2>Trade Lab</h2><p class="lead-text">Build any trade and see what it does to both teams for the rest of the season.
       Numbers update as you tap. Suggestions, not advice.</p>
       ${check.ok ? "" : `<div class="alert">Heads up: the in-browser maths differs from the last update by ${num(check.maxDiff)} pts. Refresh after the next update.</div>`}
       <label class="subtle" for="lab-partner">Trade with</label>
@@ -1248,7 +1262,7 @@
     const left = best.mean - stats.mean;
 
     const chips = L.weeks.map((wk) => `<button type="button" data-w="${wk}" aria-pressed="${wk === week}">${wk === L.current_week ? "This wk" : `Wk ${wk}`}</button>`).join("");
-    let html = `<p class="lead-text" style="margin-top:12px">Forecast your lineup for any week: swap bench players in, or plan waiver
+    let html = `<h2>Planner</h2><p class="lead-text">Forecast your lineup for any week: swap bench players in, or plan waiver
       pickups and see the effect on the week, the season and your playoff odds. Your plan is saved on this device.</p>
       <div class="weekchips" id="pl-weeks">${chips}</div>`;
 
@@ -1429,24 +1443,76 @@
   }
 
   // ---------- shell ----------
+  // Five sections in the bottom bar; some hold sub-tabs switched by a segmented control.
+  const SECTIONS = {
+    home: [["home", "Home"]],
+    league: [["league", "League"]],
+    waivers: [["faab", "Bids & FAAB"], ["news", "News"]],
+    trades: [["trades", "Ideas"], ["lab", "Trade Lab"]],
+    more: [["planner", "Planner"], ["brief", "Brief"], ["more", "Settings"]],
+  };
+  const lastSub = {};
+  function sectionOf(name) {
+    if (SECTIONS[name]) return name;
+    return Object.keys(SECTIONS).find((sec) => SECTIONS[sec].some(([t]) => t === name)) || "home";
+  }
   function selectTab(name) {
-    document.querySelectorAll("#tabs button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === name)));
-    document.querySelectorAll(".tab-panel").forEach((s) => { s.hidden = s.id !== "tab-" + name; });
-    try { history.replaceState(null, "", "#" + name); } catch (e) { /* file:// may block */ }
+    const sec = sectionOf(name);
+    const sub = SECTIONS[name] ? (lastSub[sec] || SECTIONS[sec][0][0]) : name;
+    lastSub[sec] = sub;
+    document.querySelectorAll("#tabs button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === sec)));
+    document.querySelectorAll(".tab-panel").forEach((s) => { s.hidden = s.id !== "tab-" + sub; });
+    const subs = SECTIONS[sec];
+    $("subnav").innerHTML = subs.length > 1 ? `<div class="seg" role="tablist">${subs.map(([t, label]) =>
+      `<button type="button" data-sub="${t}" aria-pressed="${t === sub}">${label}</button>`).join("")}</div>` : "";
+    $("subnav").querySelectorAll("button").forEach((b) => b.addEventListener("click", () => selectTab(b.dataset.sub)));
+    if (location.hash.slice(1) !== sub) {
+      try { history.replaceState(null, "", "#" + sub); } catch (e) { /* file:// may block */ }
+    }
+    window.scrollTo(0, 0);
+  }
+
+  // Explanations are tucked behind an ⓘ next to the heading they belong to.
+  function tidyExplanations(root) {
+    root.querySelectorAll("p.lead-text:not([data-tidy])").forEach((p) => {
+      p.dataset.tidy = "1";
+      const h = p.previousElementSibling;
+      if (!h || h.tagName !== "H2") return;
+      const btn = document.createElement("button");
+      btn.type = "button"; btn.className = "info-btn"; btn.textContent = "i";
+      btn.setAttribute("aria-label", "What is this?"); btn.setAttribute("aria-expanded", "false");
+      h.appendChild(btn);
+      p.classList.remove("lead-text"); p.classList.add("info-body"); p.hidden = true;
+      btn.addEventListener("click", () => {
+        p.hidden = !p.hidden;
+        btn.setAttribute("aria-expanded", String(!p.hidden));
+      });
+    });
+  }
+
+  function renderMore() {
+    const saved = (() => { try { return localStorage.getItem("theme"); } catch (e) { return null; } })() || "auto";
+    $("tab-more").innerHTML = `<h2>Settings</h2><div class="card">
+        <div class="set-row"><div>Appearance</div><div class="seg" id="theme-seg">${[["auto", "Auto"], ["light", "Light"], ["dark", "Dark"]]
+          .map(([v, l]) => `<button type="button" data-theme="${v}" aria-pressed="${v === saved}">${l}</button>`).join("")}</div></div>
+        <div class="set-row"><div>Data<div class="subtle">Updated ${D ? esc(new Date(D.generated_at).toLocaleString()) : "–"}</div></div>
+          <button type="button" class="btn secondary" id="more-reload">Reload</button></div>
+        <div class="set-row"><div>Sources<div class="subtle">Sleeper API (league data, points) · nflverse (stats, snaps, schedule, Vegas lines)</div></div></div>
+      </div>
+      <p class="subtle">Suggestions throughout are heuristics, not advice.</p>`;
+    $("theme-seg").querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
+      const v = b.dataset.theme;
+      if (v === "auto") delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = v;
+      try { if (v === "auto") localStorage.removeItem("theme"); else localStorage.setItem("theme", v); } catch (e) { /* ignore */ }
+      $("theme-seg").querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+    }));
+    $("more-reload").addEventListener("click", () => location.reload());
   }
 
   function setupTheme() {
-    const root = document.documentElement;
     let saved = null;
     try { saved = localStorage.getItem("theme"); } catch (e) { /* ignore */ }
-    if (saved) root.dataset.theme = saved;
-    $("theme-btn").addEventListener("click", () => {
-      const dark = root.dataset.theme
-        ? root.dataset.theme === "dark"
-        : matchMedia("(prefers-color-scheme: dark)").matches;
-      root.dataset.theme = dark ? "light" : "dark";
-      try { localStorage.setItem("theme", root.dataset.theme); } catch (e) { /* ignore */ }
-    });
+    if (saved === "light" || saved === "dark") document.documentElement.dataset.theme = saved;
   }
 
   // ---------- installable app ----------
@@ -1510,11 +1576,18 @@
     $("warnings").innerHTML = `<div class="alert"><strong>Warnings</strong><ul>${warnings.map((w) => `<li>${esc(w)}</li>`).join("")}</ul></div>`;
   }
   showStatus(D.generated_at);
-  $("footer").textContent = `Updated ${new Date(D.generated_at).toLocaleString()} · Data: Sleeper API, nflverse`;
-  renderHome(); renderLeague(); renderNews(); renderFaab(); renderTrades(); renderTradeLab(); renderPlanner(); renderBrief();
+
+  renderHome(); renderLeague(); renderNews(); renderFaab(); renderTrades(); renderTradeLab(); renderPlanner(); renderBrief(); renderMore();
+  tidyExplanations(document);
+  new MutationObserver(() => tidyExplanations(document.querySelector("main"))).observe(document.querySelector("main"), { childList: true, subtree: true });
   document.querySelectorAll("#tabs button").forEach((b) => b.addEventListener("click", () => selectTab(b.dataset.tab)));
   // old bookmarks: My Team / Standings / Matchups / Playoffs / Rosters moved into Home and League
   const MOVED = { team: "home", matchups: "home", standings: "league", playoffs: "league", rosters: "league" };
   const initial = MOVED[location.hash.slice(1)] || location.hash.slice(1);
-  selectTab(document.querySelector(`#tabs button[data-tab="${initial}"]`) ? initial : "home");
+  const known = Object.values(SECTIONS).flat().map(([t]) => t).concat(Object.keys(SECTIONS));
+  selectTab(known.includes(initial) ? initial : "home");
+  window.addEventListener("hashchange", () => {
+    const h = MOVED[location.hash.slice(1)] || location.hash.slice(1);
+    if (known.includes(h)) selectTab(h);
+  });
 })();

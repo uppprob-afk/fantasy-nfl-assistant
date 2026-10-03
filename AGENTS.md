@@ -159,6 +159,19 @@ On the Trades tab, `playerExpand()` renders the same details: trade-idea and buy
 sell-high / buy-low rows are `<details>`; value-table rows (`.tp-row`) insert a
 `tr.detail-row`. Handled by one delegated listener (`wireTradeDetails`).
 
+## Design system and navigation
+
+`site/styles.css` is a small "clean & calm" system: neutral greys + one accent (`--accent`);
+colour only carries status (`--good/--warn/--bad`, injuries, up/down) and the diverging
+chart pair. Spacing 4/8/12/16/24/32; type 11 label / 13 small / 15 body / 17 title / 28 hero;
+flat cards (no nested borders), quiet position labels, small chips. Navigation: five sections
+in a bottom bar (floating pill on wide screens) defined in `SECTIONS` (app.js); sections with
+several panels show a segmented sub-nav (`#subnav`). Hashes are panel ids (#faab, #lab …) and
+`hashchange` is handled. Any `<p class="lead-text">` directly after an `<h2>` is turned into
+an ⓘ toggle by `tidyExplanations()` (MutationObserver), so keep explanations in that shape.
+Theme (Auto / Light / Dark) lives in More → Settings. Matchup cards include a side-by-side
+lineup (`sideBySide`) for every matchup.
+
 ## Home and League tabs
 
 Tabs: Home · League · News · FAAB · Trades · Trade Lab · Planner · Brief (old #team /
