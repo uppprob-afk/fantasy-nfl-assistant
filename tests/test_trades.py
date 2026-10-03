@@ -34,11 +34,50 @@ def league():
             "profiles": trades.league_profiles(rosters, valuer)}
 
 
-def test_value_sums_weekly_optimal_lineups_plus_depth(league):
+def test_value_is_lineup_minus_injury_cover_cost(league):
     v = league["valuer"].value(league["rosters"][0]["players"])
     per_week = 20 + 8 + 20 + 18 + 10 + 16
     assert v["lineup_total"] == per_week * 3
-    assert v["score"] == round(per_week * 3 + 0.1 * 18, 1)       # bench: r1b, 6 pts x 3 weeks
+    # each starter may miss (7%); cost = drop to best eligible bench (no repl set here)
+    #   QB 20 -> nothing (0); RB 8 -> r1b 6; WR 20/18 -> nothing at WR on bench... w1c starts at FLEX
+    #   TE 10 -> nothing; FLEX 16 -> r1b 6
+    loss = trades.ABSENCE_RATE * ((20 - 0) + (8 - 6) + (20 - 0) + (18 - 0) + (10 - 0) + (16 - 6))
+    assert v["score"] == round(3 * (per_week - loss), 1)
+    assert v["dropped"] == []
+
+
+def test_replacement_floor_and_cover():
+    proj = {"q": P("QB", 12), "r": P("RB", 9), "w": P("WR", 15), "w2": P("WR", 7), "t": P("TE", 6),
+            "f": P("RB", 4)}
+    v = trades.Valuer(proj, WEEKS, SLOTS, repl={"QB": 16.0, "RB": 10.0, "WR": 8.0, "TE": 7.0})
+    out = v.value(list(proj))
+    # QB 12 < 16, RB 9 < 10, TE 6 < 7, WR2 7 < 8 -> floored; FLEX floor = max(RB, WR, TE) = 10
+    # only WR 15 is above its floor: cost of absence = 7% x (15 - max(8, bench WR none -> floor 8))
+    week = 16 + 10 + (15 - trades.ABSENCE_RATE * (15 - 8)) + 8 + 7 + 10
+    assert out["score"] == round(3 * week, 1)
+
+
+def test_bench_player_below_replacement_adds_nothing():
+    base = {"q": P("QB", 20), "r": P("RB", 12), "w": P("WR", 15), "w2": P("WR", 12), "t": P("TE", 9),
+            "f": P("WR", 11)}
+    repl = {"QB": 15.0, "RB": 9.0, "WR": 9.0, "TE": 7.0}
+    v = trades.Valuer(dict(base, scrub=P("RB", 4)), WEEKS, SLOTS, repl=repl)
+    assert v.value(list(base))["score"] == v.value(list(base) + ["scrub"])["score"]
+
+
+def test_roster_limit_cuts_least_valuable():
+    proj = {"q": P("QB", 20), "r": P("RB", 12), "w": P("WR", 15), "w2": P("WR", 12), "t": P("TE", 9),
+            "f": P("WR", 11), "low": P("RB", 3)}
+    v = trades.Valuer(proj, WEEKS, SLOTS, roster_size=6, repl={"RB": 5.0})
+    out = v.value(list(proj))
+    assert out["dropped"] == ["low"] and "low" not in out["pids"]
+    assert out["score"] == v.value([p for p in proj if p != "low"])["score"]
+
+
+def test_reserve_players_do_not_count_toward_roster_limit():
+    proj = {"q": P("QB", 20), "r": P("RB", 12), "hurt": P("RB", 15, status="IR")}
+    v = trades.Valuer(proj, WEEKS, SLOTS, roster_size=2, reserve={"hurt"})
+    assert v.value(list(proj))["dropped"] == []
 
 
 def test_bye_week_is_covered_by_bench(league):

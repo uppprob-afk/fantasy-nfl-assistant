@@ -114,9 +114,15 @@ tests/                    pytest + tests/fixtures/ (neutral sample data)
   (Q 0.85, D 0.25, Out 0 then 0.75, IR-type 0 for 4 weeks then 0.5); byes = 0. Confidence:
   high = 4+ full games this season and 8+ effective; medium = 4+ effective; else low.
   DEF points from nflverse defensive stats + final scores. nflverse "LA" = Sleeper "LAR".
-- **Trades**: team value = Σ remaining regular-season weeks of the optimal lineup's
-  projected points + 0.1 × best 3 bench players' ROS. Ideas need my gain >= 5 ROS pts and
-  theirs > 0; lopsided (< 25% of my gain) last. VOR = ROS − replacement (avg best 3 FAs) × weeks.
+- **Trades**: team value = Σ remaining regular-season weeks of the optimal lineup with
+  (1) a **free-agent floor**: every slot worth at least replacement level for that slot
+  (`repl` = avg of the best 3 healthy FAs; FLEX floor = max of eligible positions), so only
+  points above replacement count; (2) **injury cover**: each starter above the floor costs
+  `ABSENCE_RATE` (7%) × (pts − max(best eligible bench, floor)); (3) **roster limit**: a team over
+  the active roster size (IR/taxi excluded) cuts the player whose loss hurts least (from the
+  4 lowest-ROS skill players). Same rules before and after every trade. Ideas need my gain
+  >= 5 and theirs > 0; lopsided (< 25% of my gain) last. Each idea records implied cuts.
+  VOR = ROS − replacement × weeks.
 - **Outlook**: this week uses each team's set lineup (actual + projected). Variance scales
   with projection plus sit risk. Start/sit by P(bench outscores starter): swap >= 60%,
   close 40–60%. Playoffs: 10,000 seeded sims with per-team strength shifts for projection
@@ -162,7 +168,9 @@ outlook.simulate in JavaScript: `lineup`, `value`, `profile`, `simulate` (mulber
 same random seasons before/after), `evaluateTrade`. **Any change to the Python valuation
 or simulation must be mirrored in lab.js.** Verify with
 `uv run --with playwright python tools/lab_parity.py` (values within 0.5, trade gains
-within 0.2, odds within 3 percentage points). The site shows a warning if `selfCheck()` fails.
+within 0.2, odds within 3 percentage points). The site shows a warning if `selfCheck()` fails. Trade Lab odds use
+`simulate(..., {mode: "value"})` (weekly means = the trade value's expected points) so odds and
+gains agree; the default `mode: "lineup"` matches the Playoffs tab and is what parity checks.
 The Planner (app.js `renderPlanner`) uses the same engine: this week starts from Sleeper's set
 lineup with finished games locked (`a` = actual points), future weeks from the optimal
 lineup; planned waiver moves apply from `current_week + 1`; lineup edits are stored per week
