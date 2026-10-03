@@ -71,6 +71,17 @@ accident. League data is never committed; snapshots are kept in the Actions cach
 The schedule (`0 8 * * 2,5`, 08:00 UTC Tue + Fri) lands after Monday and Thursday night
 games all season. Change the cron in `.github/workflows/update.yml` to suit your timezone.
 
+## Install it as an app on your phone
+
+Once the site is hosted on https (GitHub Pages, Cloudflare, etc.) it installs like an app,
+with its own icon, full screen, and offline viewing of the last update:
+
+- **Android (Chrome):** tap **Install** in the dashboard's header (or menu → *Install app*).
+- **iPhone (Safari):** Share → **Add to Home Screen**.
+
+Offline support needs a real web address, so it isn't active when you open
+`site/index.html` straight from disk. Everything else works there.
+
 ## How it works
 
 ```

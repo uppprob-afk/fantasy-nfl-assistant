@@ -51,6 +51,10 @@ h2 { font-size: 1.05rem; margin: 20px 0 8px; }
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
 }
 .topbar h1 { font-size: 1.15rem; }
+.top-actions { display: flex; gap: 6px; flex: 0 0 auto; }
+#install-btn { width: auto; padding: 0 12px; font-size: .85rem; font-weight: 700; background: var(--accent); color: #fff; border-color: var(--accent); }
+.status-note { font-size: .82rem; color: var(--muted); background: var(--surface-2); border-radius: var(--radius); padding: 8px 12px; margin: 12px 0 0; }
+.status-note.offline { background: var(--warn-soft); color: var(--text); border: 1px solid var(--warn); }
 .theme-btn {
   border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
   border-radius: 999px; width: 36px; height: 36px; font-size: 1.1rem; cursor: pointer;

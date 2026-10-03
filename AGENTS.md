@@ -124,6 +124,18 @@ tests/                    pytest + tests/fixtures/ (neutral sample data)
   active, >= $5), history, budget. "Rivals suggest" = likely rivals' typical..biggest bid
   + $1; hot players with no likely rival use possible rivals; bigger spenders = wildcard.
 
+## Installable app (PWA)
+
+`site/manifest.webmanifest`, `site/icons/` (192/512/maskable/apple-touch/favicon) and
+`site/sw.js`. The service worker is network-first with a cache fallback, so you get fresh
+data when online and the last good copy offline. It only caches same-origin, non-redirected
+200s. Navigations go to the network untouched, so an access gate in front of the site
+(e.g. Cloudflare Access) still works; only a failed navigation falls back to the cached
+page. Requests with `?ping` bypass the worker (the page's offline check). It's registered
+only off `file://`. Bump `CACHE` in `sw.js` if the shell file list changes. The header has
+Install (shown on `beforeinstallprompt`), reload and theme buttons. iOS gets
+`apple-mobile-web-app-*` meta tags plus `apple-touch-icon`.
+
 ## Automation
 
 `.github/workflows/update.yml`: tests on every push/PR. The pipeline + GitHub Pages deploy
