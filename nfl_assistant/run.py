@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from . import brief, cards, dashboard, faab, lab, lineups, nflverse, outlook, projections, scanner, tendencies, trades
+from . import brief, cards, dashboard, faab, lab, league, lineups, nflverse, outlook, projections, scanner, tendencies, trades
 from .config import ROOT, ConfigError, load_config
 from .output import write_site_data, write_snapshot
 from .players import find_player, ir_allowed_statuses, player_brief, slim_players
@@ -509,6 +509,25 @@ def build_tendencies(ctx: dict, faab_data: dict, proj: dict, outlook_data: dict,
     }
 
 
+# --- league views (Home + League tabs) ----------------------------------------------
+def build_league(ctx: dict, trade_data: dict, outlook_data: dict, now, data_dir: Path) -> dict:
+    weekly, medians = league.weekly_scores(ctx["matchups"], ctx["completed_weeks"])
+    ap = league.all_play(weekly)
+    hist = {t["roster_id"]: t for t in trade_data["history"]["teams"]}
+    power, weights = league.power_rankings(
+        {rid: t["actual"] for rid, t in hist.items()},
+        {t["roster_id"]: t["per_week"] for t in trade_data["teams"]},
+        {rid: t.get("efficiency") for rid, t in hist.items()}, len(ctx["completed_weeks"]))
+    odds = {t["roster_id"]: t["odds"] for t in outlook_data["playoffs"]["teams"]}
+    history = league.update_odds_history(data_dir / "odds_history.json", now.isoformat(timespec="minutes"),
+                                         ctx["current_week"], odds)
+    return {"generated_at": now.isoformat(timespec="minutes"), "my_roster_id": ctx["my_roster"]["roster_id"],
+            "weeks": ctx["completed_weeks"],
+            "weekly": {str(k): v for k, v in weekly.items()}, "medians": {str(k): v for k, v in medians.items()},
+            "all_play": {str(k): v for k, v in ap.items()}, "power": power, "power_weights": weights,
+            "odds_history": history}
+
+
 # --- trade lab / planner data ------------------------------------------------------
 def build_lab(ctx: dict, managers: dict, proj: dict, weeks: list[int], slots: list[str],
               outlook_data: dict, trade_data: dict) -> dict:
@@ -580,6 +599,7 @@ def main() -> int:
     say("Projecting matchups and simulating the season...")
     outlook_data = build_outlook(ctx, managers, proj, proj_weeks, slots, now)
     lab_data = build_lab(ctx, managers, proj, proj_weeks, slots, outlook_data, trade_data)
+    league_data = build_league(ctx, trade_data, outlook_data, now, ROOT / "data")
     say("Profiling manager bidding habits...")
     build_tendencies(ctx, faab_data, proj, outlook_data, scan)
 
@@ -589,6 +609,7 @@ def main() -> int:
     write_site_data(site_data, "trades", trade_data)
     write_site_data(site_data, "outlook", outlook_data)
     write_site_data(site_data, "lab", lab_data)
+    write_site_data(site_data, "league", league_data)
     brief_md = brief.build_brief(dash, faab_data, scan, trade_data, outlook_data)
     (site_data / "claude_brief.md").write_text(brief_md, encoding="utf-8")
     write_site_data(site_data, "brief", {"generated_at": now.isoformat(timespec="minutes"), "markdown": brief_md})
