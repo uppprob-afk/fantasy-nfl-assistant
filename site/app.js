@@ -1173,14 +1173,24 @@
 
   function offersHtml(o) {
     const P = DATA.lab.players, R = DATA.lab.rosters;
-    if (!o.offers.length) return `<div class="card"><div class="empty">No offers found.</div></div>`;
+    const who = labState.get.length ? labState.get : labState.give;
+    const subject = who.map((p) => esc(P[p].n)).join(" + ");
+    if (!o.offers.length) {
+      return `<h2>Suggested offers</h2><div class="card"><div class="empty">No realistic offer found for ${subject}.
+        Every deal of similar value either costs you points or doesn't help the other team${labState.get.length ? "" : " — they may simply be worth more to you than in a trade"}.</div></div>`;
+    }
     const names = (ids) => ids.map((p) => esc(P[p].n)).join(" + ");
     return `<h2>Suggested offers</h2>
-      ${o.anyAcceptable ? "" : `<p class="subtle">Nothing found that clearly helps both teams; these come closest.</p>`}
+      <p class="subtle">${o.anyAcceptable
+        ? "Deals of similar value where you don't lose points and they gain, fairest first."
+        : "Nothing of similar value helps both teams right now. These come closest: they don't cost you, but the other team would lose a little, so expect to negotiate."}</p>
       <div class="card">${o.offers.map((x, i) => {
-        const cls = x.balance.startsWith("balanced") ? "balanced" : x.balance.startsWith("favours you") ? "favours" : "lopsided";
-        return `<div class="trade offer"><div class="trade-head"><div class="pname">${esc(R[x.partner].team_name)}</div><span class="chip ${cls}">${esc(x.balance)}</span></div>
-          <div class="subtle" style="margin:4px 0 8px">Give <b>${names(x.give)}</b> · get <b>${names(x.get)}</b></div>
+        const cls = x.gainThem <= 0 ? "lopsided" : x.balance.startsWith("balanced") ? "balanced" : x.balance.startsWith("favours you") ? "favours" : "lopsided";
+        const label = x.gainThem <= 0 ? "close — needs a sweetener" : x.balance;
+        const shape = `${x.give.length}-for-${x.get.length}`;
+        return `<div class="trade offer"><div class="trade-head"><div class="pname">${esc(R[x.partner].team_name)}</div><span class="chip ${cls}">${esc(label)}</span></div>
+          <div class="subtle" style="margin:4px 0 8px">Give <b>${names(x.give)}</b> · get <b>${names(x.get)}</b>
+            <br>${shape}${x.fits && x.fits.length ? " · " + esc(x.fits.join(" · ")) : ""}</div>
           <div class="gains"><span class="gain me">You ${signed(x.gainMe)}</span><span class="gain">Them ${signed(x.gainThem)}</span>
             <button type="button" class="mini" data-offer="${i}">Load</button></div></div>`;
       }).join("")}</div>`;
@@ -1568,16 +1578,18 @@
     if (SECTIONS[name]) return name;
     return Object.keys(SECTIONS).find((sec) => SECTIONS[sec].some(([t]) => t === name)) || "home";
   }
-  function selectTab(name) {
+  // `exact` = a sub-tab was picked directly (some sub-tabs share their section's name,
+  // e.g. "trades" = Ideas, so the name alone would jump back to the last sub-tab).
+  function selectTab(name, exact) {
     const sec = sectionOf(name);
-    const sub = SECTIONS[name] ? (lastSub[sec] || SECTIONS[sec][0][0]) : name;
+    const sub = SECTIONS[name] && !exact ? (lastSub[sec] || SECTIONS[sec][0][0]) : name;
     lastSub[sec] = sub;
     document.querySelectorAll("#tabs button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === sec)));
     document.querySelectorAll(".tab-panel").forEach((s) => { s.hidden = s.id !== "tab-" + sub; });
     const subs = SECTIONS[sec];
     $("subnav").innerHTML = subs.length > 1 ? `<div class="seg" role="tablist">${subs.map(([t, label]) =>
       `<button type="button" data-sub="${t}" aria-pressed="${t === sub}">${label}</button>`).join("")}</div>` : "";
-    $("subnav").querySelectorAll("button").forEach((b) => b.addEventListener("click", () => selectTab(b.dataset.sub)));
+    $("subnav").querySelectorAll("button").forEach((b) => b.addEventListener("click", () => selectTab(b.dataset.sub, true)));
     if (location.hash.slice(1) !== sub) {
       try { history.replaceState(null, "", "#" + sub); } catch (e) { /* file:// may block */ }
     }
@@ -1712,6 +1724,6 @@
   selectTab(known.includes(initial) ? initial : "home");
   window.addEventListener("hashchange", () => {
     const h = MOVED[location.hash.slice(1)] || location.hash.slice(1);
-    if (known.includes(h)) selectTab(h);
+    if (known.includes(h)) selectTab(h, true);
   });
 })();

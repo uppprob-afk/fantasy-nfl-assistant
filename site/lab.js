@@ -209,57 +209,84 @@
        Buy mode (get set, partner = their owner): what to give, 1 or 2 of my players.
        Shop mode (give set): what to ask for, 1 or 2 players, from one partner or every team.
        Ranked by my gain; held players are never offered. */
+    /* Realistic offers around a fixed player: `get` (players I want from `partner`) or
+       `give` (players I'm shopping, to `partner` or every team). Searches 1-for-1, 2-for-1,
+       1-for-2 and 2-for-2 deals of similar total value (like-for-like), keeps only ones where
+       I don't lose value and they gain, and ranks fair deals that fill a lineup gap first.
+       If nothing helps both, returns near-misses (they'd lose under 3 pts) instead. */
     function suggestOffers(o) {
       const me = String(L.my_roster_id);
       const get = o.get || [], give = o.give || [];
-      const poolSize = o.poolSize || 9;
-      const byRos = (a, b) => P[b].ros - P[a].ros;
+      const nPool = o.poolSize || 8, limit = o.limit || 6;
+      const byRos = (x, y) => P[y].ros - P[x].ros;
+      const ros = (ids) => ids.reduce((t, p) => t + Math.max(P[p].ros, 0), 0);
+      const pairs = (arr) => { const r = []; for (let i = 0; i < arr.length; i++) for (let j = i + 1; j < arr.length; j++) r.push([arr[i], arr[j]]); return r; };
       const mineAll = rosterAll(me);
       const myPool = rosterOf(me).filter((p) => tradeableRec(P[p]) && !holds.has(p) && !give.includes(p)).sort(byRos);
       const partners = o.partner ? [String(o.partner)] : Object.keys(L.rosters).filter((t) => t !== me);
-      const base = {};
-      const valueOf = (pids) => value(pids).score;
-      const out = [];
+      const profs = leagueProfiles().profiles;
+      const myBase = value(mineAll).score;
+      const winWin = [], close = [];
+      let searched = 0;
       for (const t of partners) {
         const theirsAll = rosterAll(t);
         const theirPool = rosterOf(t).filter((p) => tradeableRec(P[p]) && !get.includes(p)).sort(byRos);
-        base[me] = base[me] ?? valueOf(mineAll);
-        base[t] = valueOf(theirsAll);
+        const theirBase = value(theirsAll).score;
         const shapes = [];
         if (get.length && !give.length) {
-          myPool.forEach((a) => shapes.push([[a], get]));
-          const top = myPool.slice(0, poolSize);
-          for (let i = 0; i < top.length; i++) for (let j = i + 1; j < top.length; j++) shapes.push([[top[i], top[j]], get]);
+          const mine = myPool.slice(0, nPool + 4), extra = theirPool.slice(0, nPool);
+          mine.forEach((x) => shapes.push([[x], get]));
+          pairs(myPool.slice(0, nPool)).forEach((pr) => shapes.push([pr, get]));
+          if (get.length === 1) {
+            mine.forEach((x) => extra.forEach((c) => shapes.push([[x], [get[0], c]])));
+            pairs(myPool.slice(0, nPool)).forEach((pr) => extra.forEach((c) => shapes.push([pr, [get[0], c]])));
+          }
         } else if (give.length && !get.length) {
-          theirPool.forEach((b) => shapes.push([give, [b]]));
-          const top = theirPool.slice(0, poolSize);
-          for (let i = 0; i < top.length; i++) for (let j = i + 1; j < top.length; j++) shapes.push([give, [top[i], top[j]]]);
+          const theirs = theirPool.slice(0, nPool + 4), extra = myPool.slice(0, nPool);
+          theirs.forEach((y) => shapes.push([give, [y]]));
+          pairs(theirPool.slice(0, nPool)).forEach((pr) => shapes.push([give, pr]));
+          if (give.length === 1) {
+            extra.forEach((m) => theirs.forEach((y) => shapes.push([[give[0], m], [y]])));
+            extra.forEach((m) => pairs(theirPool.slice(0, nPool)).forEach((pr) => shapes.push([[give[0], m], pr])));
+          }
         } else if (give.length && get.length) {
           shapes.push([give, get]);
         }
+        const needs = profs[t].needs, myNeeds = profs[me].needs;
         for (const [g, r] of shapes) {
-          const mine1 = mineAll.filter((p) => !g.includes(p)).concat(r);
-          const theirs1 = theirsAll.filter((p) => !r.includes(p)).concat(g);
-          const gainMe = round(valueOf(mine1) - base[me], 1);
-          const gainThem = round(valueOf(theirs1) - base[t], 1);
-          out.push({ partner: t, give: g, get: r, gainMe, gainThem, balance: balanceOf(gainMe, gainThem) });
+          const rg = ros(g), rr = ros(r);
+          if (!rg || !rr || rr / rg > 1.5 || rr / rg < 0.67) continue;     // like-for-like value only
+          searched++;
+          const gainMe = round(value(mineAll.filter((p) => !g.includes(p)).concat(r)).score - myBase, 1);
+          if (gainMe < 0) continue;                                         // never a losing deal for me
+          const gainThem = round(value(theirsAll.filter((p) => !r.includes(p)).concat(g)).score - theirBase, 1);
+          if (gainThem <= -3) continue;
+          const fits = [];
+          [...new Set(g.map((p) => P[p].p))].forEach((pos) => { if (needs.includes(pos)) fits.push(`fills their ${pos} gap`); });
+          [...new Set(r.map((p) => P[p].p))].forEach((pos) => { if (myNeeds.includes(pos)) fits.push(`fills your ${pos} gap`); });
+          const x = { partner: t, give: g, get: r, gainMe, gainThem, balance: balanceOf(gainMe, gainThem), fits,
+            score: Math.min(gainMe, gainThem) * (1 + 0.5 * fits.length) + 0.1 * (gainMe + gainThem) };
+          (gainThem > 0 ? winWin : close).push(x);
         }
       }
-      const acceptable = out.filter((x) => x.gainThem > 0);
-      const pool = acceptable.length ? acceptable : out;
-      pool.sort((a, b) => (b.gainMe > 0) - (a.gainMe > 0) || ((b.gainThem >= 0.25 * b.gainMe) - (a.gainThem >= 0.25 * a.gainMe))
-        || b.gainMe - a.gainMe || b.gainThem - a.gainThem);
-      // Skip 2-player versions that only add a throw-in (same partner, contains a kept
-      // offer, gains within 0.5 of it) - they say the same thing twice.
-      const kept = [];
+      const lop = (x) => x.gainThem < 0.25 * x.gainMe;
+      winWin.sort((a, b) => lop(a) - lop(b) || b.score - a.score || b.gainMe - a.gainMe);
+      close.sort((a, b) => b.gainThem - a.gainThem || b.gainMe - a.gainMe);
+      const pool = winWin.length ? winWin : close;
+      // Variety: at most two per team, and skip versions that only add a throw-in
+      // (contain a kept offer with gains within 0.5 of it).
+      const kept = [], perTeam = {};
       const sub = (a, b) => a.every((p) => b.includes(p));
       for (const x of pool) {
-        if (kept.length >= (o.limit || 5)) break;
+        if (kept.length >= (winWin.length ? limit : 3)) break;
+        if ((perTeam[x.partner] || 0) >= (o.partner ? limit : 2)) continue;
         const dup = kept.some((k) => k.partner === x.partner && sub(k.give, x.give) && sub(k.get, x.get)
           && Math.abs(k.gainMe - x.gainMe) <= 0.5 && Math.abs(k.gainThem - x.gainThem) <= 0.5);
-        if (!dup) kept.push(x);
+        if (dup) continue;
+        kept.push(x);
+        perTeam[x.partner] = (perTeam[x.partner] || 0) + 1;
       }
-      return { offers: kept, anyAcceptable: acceptable.length > 0, searched: out.length };
+      return { offers: kept, anyAcceptable: winWin.length > 0, searched };
     }
 
     function tradeableRec(r) {
