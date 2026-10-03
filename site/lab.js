@@ -289,6 +289,56 @@
       return { offers: kept, anyAcceptable: winWin.length > 0, searched };
     }
 
+    /* Adjustments to a trade I've built, keeping its core (the most valuable player on each
+       side never moves). Tries every version within two changes (add, remove or swap a
+       supporting player, sides of 1-3 players) and returns the best few that I don't lose on
+       and they gain from: smallest fix, best for me, fairest. If none, the closest. */
+    function improveTrade(partner, give, get, o) {
+      o = o || {};
+      const me = String(L.my_roster_id), t = String(partner);
+      const mineAll = rosterAll(me), theirsAll = rosterAll(t);
+      const myBase = value(mineAll).score, theirBase = value(theirsAll).score;
+      const byRos = (x, y) => P[y].ros - P[x].ros;
+      const coreG = give.slice().sort(byRos)[0], coreR = get.slice().sort(byRos)[0];
+      const n = o.poolSize || 10;
+      const extrasG = [...new Set(give.filter((p) => p !== coreG).concat(rosterOf(me).filter((p) => tradeableRec(P[p]) && !holds.has(p) && p !== coreG).sort(byRos).slice(0, n)))];
+      const extrasR = [...new Set(get.filter((p) => p !== coreR).concat(rosterOf(t).filter((p) => tradeableRec(P[p]) && p !== coreR).sort(byRos).slice(0, n)))];
+      const upTo2 = (arr) => { const r = [[]]; arr.forEach((x, i) => { r.push([x]); for (let j = i + 1; j < arr.length; j++) r.push([x, arr[j]]); }); return r; };
+      const diff = (a, b) => a.filter((p) => !b.includes(p)).length + b.filter((p) => !a.includes(p)).length;
+      const score = (g, r) => {
+        const gainMe = round(value(mineAll.filter((p) => !g.includes(p)).concat(r)).score - myBase, 1);
+        const gainThem = round(value(theirsAll.filter((p) => !r.includes(p)).concat(g)).score - theirBase, 1);
+        return { gainMe, gainThem, balance: balanceOf(gainMe, gainThem) };
+      };
+      const cur = score(give, get);
+      const sides = (core, extras, now) => upTo2(extras).map((x) => [core].concat(x)).map((g) => ({ ids: g, d: diff(g, now) })).filter((x) => x.d <= 2);
+      const Gs = sides(coreG, extrasG, give), Rs = sides(coreR, extrasR, get);
+      const all = [];
+      for (const g of Gs) for (const r of Rs) {
+        const changes = g.d + r.d;
+        if (!changes || changes > 2) continue;
+        all.push(Object.assign({ give: g.ids, get: r.ids, changes,
+          added: g.ids.filter((p) => !give.includes(p)).map((p) => ["give", p]).concat(r.ids.filter((p) => !get.includes(p)).map((p) => ["get", p])),
+          removed: give.filter((p) => !g.ids.includes(p)).map((p) => ["give", p]).concat(get.filter((p) => !r.ids.includes(p)).map((p) => ["get", p])) },
+          score(g.ids, r.ids)));
+      }
+      const curOk = cur.gainMe >= 0 && cur.gainThem > 0;
+      const fair = (e) => Math.min(e.gainMe, e.gainThem);
+      // only versions that work for both and actually improve on what's there
+      const ok = all.filter((e) => e.gainMe >= 0 && e.gainThem > 0
+        && (!curOk || e.gainMe > cur.gainMe + 0.5 || fair(e) > fair(cur) + 0.5));
+      const picks = [];
+      const take = (e, tag) => { if (e && !picks.some((x) => x.give.join() === e.give.join() && x.get.join() === e.get.join())) picks.push(Object.assign({ tag }, e)); };
+      if (ok.length) {
+        const ones = ok.filter((e) => e.changes === 1);
+        if (ones.length) take(ones.slice().sort((a, b) => fair(b) + 0.3 * b.gainMe - fair(a) - 0.3 * a.gainMe)[0], curOk ? "One change" : "Smallest fix");
+        take(ok.slice().sort((a, b) => b.gainMe - a.gainMe || b.gainThem - a.gainThem)[0], curOk ? "More for you, still a yes for them" : "Best for you that works for both");
+        take(ok.slice().sort((a, b) => fair(b) - fair(a) || a.changes - b.changes)[0], "Fairest");
+      }
+      const closest = ok.length || curOk ? null : all.filter((e) => e.gainMe >= 0).sort((a, b) => b.gainThem - a.gainThem || a.changes - b.changes)[0] || null;
+      return { current: cur, acceptable: curOk, edits: picks, closest, core: [coreG, coreR], searched: all.length };
+    }
+
     function tradeableRec(r) {
       return skill.has(r.p) && !ltOut.has(r.s) && (r.gt > 0 || r.gp >= 4);
     }
@@ -380,7 +430,7 @@
       return { ok: diffs.every((d) => d < 0.5), maxDiff: Math.max(...diffs) };
     }
 
-    return { lineup, value, rawValue, profile, simulate, evaluateTrade, suggestOffers, leagueProfiles, rosterOf, rosterAll, tradeable: tradeableRec,
+    return { lineup, value, rawValue, profile, simulate, evaluateTrade, suggestOffers, improveTrade, leagueProfiles, rosterOf, rosterAll, tradeable: tradeableRec,
       setHolds: (ids) => { holds = new Set(ids || []); }, holds: () => holds,
       vor, selfCheck, weekIndex: wi, players: P };
   }

@@ -1054,7 +1054,9 @@
       <div class="gains" style="margin:8px 0"><span class="gain me">You ${signed(res.gainMe)} pts ROS (${signed(res.perWeekMe)}/wk)</span>
         <span class="gain">Them ${signed(res.gainThem)} pts</span></div>
       <div class="subtle">${esc(VERDICT[res.balance] || "")}</div>${whyHtml}${
-        labState.offers && labState.offers.offers.length > 1 ? `<div class="acts"><button type="button" class="mini" data-act="jump-offers">See other suggested offers ↓</button></div>` : ""}</div>`;
+        ""}<div class="acts"><button type="button" class="mini" data-act="improve">Optimise this deal</button>${
+        labState.offers && labState.offers.offers.length > 1 ? `<button type="button" class="mini" data-act="jump-offers">See other suggested offers ↓</button>` : ""}</div>
+        <div id="lab-improve"></div></div>`;
     html += `<h2>Players in the deal</h2><div class="card card-pad has-detail"><div class="swap">
       <div><div class="col-label">You give</div>${res.give.map(tile).join("")}</div><div class="arrow">⇄</div>
       <div><div class="col-label">You get</div>${res.get.map(tile).join("")}</div></div>
@@ -1191,6 +1193,46 @@
           <div class="gains"><span class="gain me">You ${signed(x.gainMe)}</span><span class="gain">Them ${signed(x.gainThem)}</span>
             ${isLoaded(x) ? `<span class="mini on">Showing above</span>` : `<button type="button" class="mini" data-offer="${i}">Load</button>`}</div></div>`;
       }).join("")}</div>`;
+  }
+
+  let IMPROVE = null;
+  function runImprove() {
+    const P = DATA.lab.players;
+    const box = $("lab-improve");
+    IMPROVE = engine().improveTrade(labState.partner, labState.give, labState.get);
+    const n = (p) => `<b>${esc(P[p].n)}</b>`;
+    const say = (e) => {
+      const bits = [];
+      const added = (side) => e.added.filter(([sd]) => sd === side).map(([, p]) => p);
+      const removed = (side) => e.removed.filter(([sd]) => sd === side).map(([, p]) => p);
+      for (const side of ["give", "get"]) {
+        const a = added(side), r = removed(side);
+        const list = (ids) => ids.map(n).join(" + ");
+        if (a.length && r.length) bits.push(side === "give" ? `offer ${list(a)} instead of ${list(r)}` : `ask for ${list(a)} instead of ${list(r)}`);
+        else if (a.length) bits.push(side === "give" ? `add ${list(a)} to your side` : `also ask for ${list(a)}`);
+        else if (r.length) bits.push(side === "give" ? `keep ${list(r)}` : `drop ${list(r)} from your ask`);
+      }
+      const t = bits.join(", and ");
+      return t.charAt(0).toUpperCase() + t.slice(1) + ".";
+    };
+    const row = (e, i, tag) => `<div class="edit"><div class="pd-h">${esc(tag)}</div><div>${say(e)}</div>
+      <div class="gains"><span class="gain me">You ${signed(e.gainMe)}</span><span class="gain">Them ${signed(e.gainThem)}</span>
+        <button type="button" class="mini" data-act="apply-edit" data-i="${i}">Apply</button></div></div>`;
+    const c = IMPROVE.current;
+    let html = "";
+    if (IMPROVE.edits.length) {
+      html = `<p class="subtle">${IMPROVE.acceptable ? "This already works for both teams. It could be better:" :
+        c.gainMe < 0 ? "As built, this costs you points. Ways to fix it:" : "As built, they'd likely say no. Ways to fix it:"}</p>`
+        + IMPROVE.edits.map((e, i) => row(e, i, e.tag)).join("");
+    } else if (IMPROVE.acceptable) {
+      html = `<p class="subtle">Already about as good as it gets: no tweak of up to two players improves it for you without costing them.</p>`;
+    } else if (IMPROVE.closest) {
+      html = `<p class="subtle">No tweak of up to two players (keeping ${n(IMPROVE.core[0])} and ${n(IMPROVE.core[1])}) makes this work for both teams. The closest:</p>`
+        + row(IMPROVE.closest, IMPROVE.edits.length, "Closest") + `<p class="subtle">Try <b>Suggest offers</b> with just the player you want.</p>`;
+    } else {
+      html = `<p class="subtle">No tweak of up to two players gets this to a deal that doesn't cost you. Try <b>Suggest offers</b> with just the player you want.</p>`;
+    }
+    box.innerHTML = `<div class="improve">${html}</div>`;
   }
 
   function wireOffers() {
@@ -1692,6 +1734,14 @@
     else if (act === "pitch") openInLab(b.dataset.partner, [pid], [], { suggest: true });
     else if (act === "plan-add") planPickup(pid);
     else if (act === "hold") toggleHold(pid);
+    else if (act === "improve") runImprove();
+    else if (act === "apply-edit") {
+      const e = IMPROVE.edits.concat(IMPROVE.closest || [])[Number(b.dataset.i)];
+      labState = Object.assign({}, labState, { give: e.give.slice(), get: e.get.slice() });
+      store.set("labState", labState);
+      renderTradeLab();
+      setTimeout(() => { const r = $("lab-result"); if (r) r.scrollIntoView({ block: "start", behavior: "smooth" }); }, 60);
+    }
     else if (act === "jump-offers") $("lab-offers").scrollIntoView({ block: "start", behavior: "smooth" });
   }, true);
 

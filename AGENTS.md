@@ -206,6 +206,11 @@ or simulation must be mirrored in lab.js.** Verify with
 within 0.2, odds within 3 percentage points). The site shows a warning if `selfCheck()` fails. Trade Lab odds use
 `simulate(..., {mode: "value"})` (weekly means = the trade value's expected points) so odds and
 gains agree; the default `mode: "lineup"` matches the Playoffs tab and is what parity checks.
+**Optimise this deal** (summary card) calls `improveTrade(partner, give, get)`: keeps the most
+valuable player on each side fixed, tries every version within two changes (add / remove /
+swap supporting players from each side's top 10 tradeable, holds excluded, sides 1-3), and
+returns up to three that I don't lose on and they gain from (smallest fix, best for me,
+fairest), or the closest if none. "Apply" loads that version.
 Lab page order: picker → result (summary card with verdict, gains and Why; then players
 in the deal, odds, lineup, week by week, strength) → suggested offers (the loaded one is
 marked "Showing above"; the summary card links down to the rest).
