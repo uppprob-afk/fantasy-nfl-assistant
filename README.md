@@ -43,6 +43,11 @@ uv run python -m nfl_assistant.run   # fetch, verify, project, build site/data/
 open site/index.html                 # view it (works straight from disk)
 ```
 
+**On a Mac without the terminal:** after the one-time setup above, double-click
+**`Update Dashboard.command`** in the project folder (or a Desktop shortcut to it). It
+refreshes your data and opens the dashboard. If macOS blocks it the first time,
+right-click it → **Open**.
+
 Your league ID is in the Sleeper web app's URL: `sleeper.com/leagues/<LEAGUE_ID>/...`.
 `config.yaml` is git-ignored, and so are all generated data and snapshots.
 
