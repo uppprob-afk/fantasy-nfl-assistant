@@ -35,6 +35,9 @@ uv run python -m nfl_assistant.anonymize    # anonymised copy of the site in dem
 open site/index.html
 ```
 
+`Update Dashboard.command` (macOS) does run + open on double-click, and works from a
+symlinked shortcut (it resolves its own path with `readlink -f`).
+
 ## Configuration
 
 `config.py` loads `config.yaml` if present, else `config.example.yaml`, then applies env
