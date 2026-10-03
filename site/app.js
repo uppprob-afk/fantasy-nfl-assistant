@@ -1035,19 +1035,31 @@
     const conf = L.confidence;
     const name = (pid) => esc(P[pid].n);
     const cls = res.balance.startsWith("balanced") ? "balanced" : (res.balance.startsWith("favours you") ? "favours" : "lopsided");
+    const tile = (pid) => {
+      const r = P[pid];
+      return `<div class="tp" data-pid="${esc(pid)}" role="button" tabindex="0"><div class="pl">${esc(r.n)}${
+        r.s ? ` <span class="chip ${r.s === "Questionable" ? "q" : "inj"}">${esc(r.s)}</span>` : ""}${CARDS[pid] ? ` <span class="chev">▸</span>` : ""}</div>
+        <div class="pmeta">${esc(r.p)} · ${esc(r.t)} · <b>${num(r.r)}</b>/wk (${num(Math.max(r.r - r.sd, 0), 0)}–${num(r.r + r.sd, 0)})</div>
+        <div class="pmeta">ROS ${num(r.ros, 0)} · ${E.vor(pid) >= 0 ? "+" : ""}${num(E.vor(pid), 0)} vs repl. ${confChip(r.c)}</div></div>`;
+    };
+    const notes = [];
+    const names = (ids) => ids.map((p) => P[p] ? P[p].n : p).join(", ");
+    if (res.moves.me.drop.length) notes.push(`You'd cut ${names(res.moves.me.drop)} to make room. Counted in the value.`);
+    if (res.moves.them.drop.length) notes.push(`They'd cut ${names(res.moves.them.drop)} to make room. Counted in their value.`);
+    res.flagged.forEach((pid) => notes.push(`${P[pid].n} has little trade value here (kicker/defence, long-term injury or no games yet).`));
+    const whyHtml = `<div class="pd-h" style="margin-top:12px">Why</div><ul class="tight">${
+      res.reasons.concat(notes).map((r) => `<li>${esc(r)}</li>`).join("") || "<li>No positional need is filled either way; the change comes from overall projected points.</li>"}</ul>`;
     let html = `<div class="card card-pad">
       <div class="trade-head"><span class="chip ${cls}">${esc(res.balance)}</span>${confChip(res.confidence)}</div>
       <div class="gains" style="margin:8px 0"><span class="gain me">You ${signed(res.gainMe)} pts ROS (${signed(res.perWeekMe)}/wk)</span>
         <span class="gain">Them ${signed(res.gainThem)} pts</span></div>
-      <div class="subtle">${esc(VERDICT[res.balance] || "")}</div></div>`;
+      <div class="subtle">${esc(VERDICT[res.balance] || "")}</div>${whyHtml}${
+        labState.offers && labState.offers.offers.length > 1 ? `<div class="acts"><button type="button" class="mini" data-act="jump-offers">See other suggested offers ↓</button></div>` : ""}</div>`;
+    html += `<h2>Players in the deal</h2><div class="card card-pad has-detail"><div class="swap">
+      <div><div class="col-label">You give</div>${res.give.map(tile).join("")}</div><div class="arrow">⇄</div>
+      <div><div class="col-label">You get</div>${res.get.map(tile).join("")}</div></div>
+      <div class="trade-detail" hidden></div></div>`;
 
-    const mv = res.moves;
-    const nm2 = (ids) => esc(ids.map((p) => (P[p] ? P[p].n : p)).join(", "));
-    const moveBits = [];
-    if (mv.me.drop.length) moveBits.push(`you cut <b>${nm2(mv.me.drop)}</b>`);
-    if (mv.them.drop.length) moveBits.push(`they cut <b>${nm2(mv.them.drop)}</b>`);
-    if (moveBits.length) html += `<div class="card card-pad"><div class="pd-h">Roster spots</div>
-      <div>To stay at ${L.roster_size} players: ${moveBits.join("; ")} (least valuable player). Already counted in the numbers above.</div></div>`;
 
     html += `<h2>Playoff odds</h2><div class="card card-pad">
       ${oddsLine("You", res.odds.me, conf)}${oddsLine(esc(L.rosters[res.them].team_name), res.odds.them, conf)}
@@ -1082,25 +1094,7 @@
       <p class="subtle">Your needs before: ${esc(pm0.needs.join(", ") || "none")} → after: ${esc(pm1.needs.join(", ") || "none")}.
         Theirs: ${esc(pt0.needs.join(", ") || "none")} → ${esc(pt1.needs.join(", ") || "none")}.</p>`;
 
-    const tile = (pid) => {
-      const r = P[pid];
-      return `<div class="tp" data-pid="${esc(pid)}" role="button" tabindex="0"><div class="pl">${esc(r.n)}${
-        r.s ? ` <span class="chip ${r.s === "Questionable" ? "q" : "inj"}">${esc(r.s)}</span>` : ""}${CARDS[pid] ? ` <span class="chev">▸</span>` : ""}</div>
-        <div class="pmeta">${esc(r.p)} · ${esc(r.t)} · <b>${num(r.r)}</b>/wk (${num(Math.max(r.r - r.sd, 0), 0)}–${num(r.r + r.sd, 0)})</div>
-        <div class="pmeta">ROS ${num(r.ros, 0)} · ${E.vor(pid) >= 0 ? "+" : ""}${num(E.vor(pid), 0)} vs repl. ${confChip(r.c)}</div></div>`;
-    };
-    html += `<h2>Players in the deal</h2><div class="card card-pad has-detail"><div class="swap">
-      <div><div class="col-label">You give</div>${res.give.map(tile).join("")}</div><div class="arrow">⇄</div>
-      <div><div class="col-label">You get</div>${res.get.map(tile).join("")}</div></div>
-      <div class="trade-detail" hidden></div></div>`;
 
-    const notes = [];
-    const names = (ids) => ids.map((p) => P[p] ? P[p].n : p).join(", ");
-    if (res.moves.me.drop.length) notes.push(`You'd cut ${names(res.moves.me.drop)} to make room. Counted in the value.`);
-    if (res.moves.them.drop.length) notes.push(`They'd cut ${names(res.moves.them.drop)} to make room. Counted in their value.`);
-    res.flagged.forEach((pid) => notes.push(`${P[pid].n} has little trade value here (kicker/defence, long-term injury or no games yet).`));
-    html += `<h2>Why</h2><div class="card card-pad"><ul class="tight">${
-      res.reasons.concat(notes).map((r) => `<li>${esc(r)}</li>`).join("") || "<li>No positional need is filled either way; the change comes from overall projected points.</li>"}</ul></div>`;
     return html;
   }
 
@@ -1131,9 +1125,9 @@
       <div class="lab-actions"><button type="button" class="btn" id="lab-suggest" ${(labState.give.length > 0) !== (labState.get.length > 0) ? "" : "disabled"}>Suggest offers</button>
         <button type="button" class="btn secondary" id="lab-clear">Clear</button></div>
       <p class="subtle">Pick only who you want (or only who you're shopping) and tap <b>Suggest offers</b>. Numbers on the right are projected pts/week.</p>
-      <div id="lab-offers">${labState.offers ? offersHtml(labState.offers) : ""}</div>
       <div id="lab-result">${labState.give.length && labState.get.length ? `<div class="empty">Calculating…</div>`
-        : `<div class="empty">Pick at least one player on each side.</div>`}</div>
+        : labState.offers || labState.give.length || labState.get.length ? "" : `<div class="empty">Pick at least one player on each side.</div>`}</div>
+      <div id="lab-offers">${labState.offers ? offersHtml(labState.offers) : ""}</div>
       <details class="recent"><summary>How the Trade Lab works</summary><div class="card card-pad subtle">
         <p>Each team's value is its best projected lineup for every remaining regular-season week (byes and known injuries
         included), the same maths as the Trades tab. Two adjustments make uneven trades fair:</p>
@@ -1180,7 +1174,10 @@
         Every deal of similar value either costs you points or doesn't help the other team${labState.get.length ? "" : " — they may simply be worth more to you than in a trade"}.</div></div>`;
     }
     const names = (ids) => ids.map((p) => esc(P[p].n)).join(" + ");
-    return `<h2>Suggested offers</h2>
+    const same = (a, b) => a.length === b.length && a.every((p) => b.includes(p));
+    const isLoaded = (x) => String(x.partner) === String(labState.partner) && same(x.give, labState.give) && same(x.get, labState.get);
+    const showing = labState.give.length && labState.get.length;
+    return `<h2>${showing ? "Other suggested offers" : "Suggested offers"}</h2>
       <p class="subtle">${o.anyAcceptable
         ? "Deals of similar value where you don't lose points and they gain, fairest first."
         : "Nothing of similar value helps both teams right now. These come closest: they don't cost you, but the other team would lose a little, so expect to negotiate."}</p>
@@ -1192,7 +1189,7 @@
           <div class="subtle" style="margin:4px 0 8px">Give <b>${names(x.give)}</b> · get <b>${names(x.get)}</b>
             <br>${shape}${x.fits && x.fits.length ? " · " + esc(x.fits.join(" · ")) : ""}</div>
           <div class="gains"><span class="gain me">You ${signed(x.gainMe)}</span><span class="gain">Them ${signed(x.gainThem)}</span>
-            <button type="button" class="mini" data-offer="${i}">Load</button></div></div>`;
+            ${isLoaded(x) ? `<span class="mini on">Showing above</span>` : `<button type="button" class="mini" data-offer="${i}">Load</button>`}</div></div>`;
       }).join("")}</div>`;
   }
 
@@ -1695,6 +1692,7 @@
     else if (act === "pitch") openInLab(b.dataset.partner, [pid], [], { suggest: true });
     else if (act === "plan-add") planPickup(pid);
     else if (act === "hold") toggleHold(pid);
+    else if (act === "jump-offers") $("lab-offers").scrollIntoView({ block: "start", behavior: "smooth" });
   }, true);
 
   setupTheme();

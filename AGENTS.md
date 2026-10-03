@@ -206,6 +206,9 @@ or simulation must be mirrored in lab.js.** Verify with
 within 0.2, odds within 3 percentage points). The site shows a warning if `selfCheck()` fails. Trade Lab odds use
 `simulate(..., {mode: "value"})` (weekly means = the trade value's expected points) so odds and
 gains agree; the default `mode: "lineup"` matches the Playoffs tab and is what parity checks.
+Lab page order: picker → result (summary card with verdict, gains and Why; then players
+in the deal, odds, lineup, week by week, strength) → suggested offers (the loaded one is
+marked "Showing above"; the summary card links down to the rest).
 Sub-tabs that share their section's name (`trades` = Ideas, `more` = Settings) are
 selected with `selectTab(name, true)` so they don't jump back to the last sub-tab.
 The Planner (app.js `renderPlanner`) uses the same engine: this week starts from Sleeper's set
