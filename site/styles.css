@@ -429,6 +429,23 @@ details.bs-d[open] > .xp-body { margin-top: 12px; border-top: 1px solid var(--bo
 .fa-drop { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 0 16px 14px; }
 .fa-drop select { margin: 0; padding: 7px 10px; font-size: 14px; }
 
+/* ---------- waivers: available players ---------- */
+details.wv { border-top: 1px solid var(--border); }
+details.wv:first-child { border-top: 0; }
+details.wv > summary { list-style: none; cursor: pointer; }
+details.wv > summary::-webkit-details-marker { display: none; }
+details.wv[open] > summary { background: var(--surface-2); }
+details.wv[open] .wv-riv .chev { transform: rotate(90deg); display: inline-block; }
+.wv-sum { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "head bid" "pills pills" "riv riv"; gap: 8px 12px; padding: 14px 16px; }
+.wv-head { grid-area: head; min-width: 0; }
+.wv-impact { font-size: 13px; margin-top: 4px; color: var(--text-2); }
+.wv-sum .bid-amt { grid-area: bid; text-align: right; line-height: 1.1; }
+.wv-sum .bid-amt small { display: block; font-size: 11px; font-weight: 500; color: var(--muted); }
+.wv-pills { grid-area: pills; }
+.wv-riv { grid-area: riv; font-size: 12.5px; }
+details.wv .pd + .pd { padding-top: 0; }
+#faab-pos { margin-bottom: 12px; }
+
 /* ---------- league: weekly scores ---------- */
 .ws-card { padding-top: 4px; }
 .ws-weeks { display: grid; gap: 6px; padding: 8px 16px 0; font-size: 10px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); font-weight: 650; text-align: center; max-width: 480px; box-sizing: border-box; }

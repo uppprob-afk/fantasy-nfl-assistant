@@ -218,10 +218,11 @@ DEMAND_LEVEL = {"hot": "safe_bid", "warm": "competitive_bid", "quiet": "bargain_
 
 
 def bid_suggestion(position: str, market: dict, remaining: int, demand: str = "quiet",
-                   min_sample: int = 1) -> dict:
+                   min_sample: int = 1, level: str | None = None, context: str | None = None) -> dict:
     """Bargain-first bid suggestion: the lowest level likely to win given expected demand.
 
     Uses the position's history if it has `min_sample`+ claims, otherwise league-wide.
+    `level` overrides the level picked from demand; `context` replaces the demand wording.
     """
     m, basis = market.get(position), position
     if not m or m["claims"] < min_sample:
@@ -230,14 +231,21 @@ def bid_suggestion(position: str, market: dict, remaining: int, demand: str = "q
         return {"bid": None, "demand": demand, "basis": None, "levels": {},
                 "reason": "No waiver history yet."}
     levels = {k: min(m[k], remaining) for k in ("bargain_bid", "competitive_bid", "safe_bid")}
-    bid = levels[DEMAND_LEVEL[demand]]
+    level = level or DEMAND_LEVEL[demand]
+    bid = levels[level]
     why = {
         "hot": f"heavily trending, so expect rivals: ${bid} beats 75% of the {m['bids_placed']} bids placed",
         "warm": f"some interest: ${bid} beats half of the {m['bids_placed']} bids placed",
         "quiet": f"little competition expected: ${bid} would have won half of past claims at what they actually cost",
     }[demand]
+    if context:
+        why = context + ": " + {
+            "safe_bid": f"${bid} beats 75% of the {m['bids_placed']} bids placed",
+            "competitive_bid": f"${bid} beats half of the {m['bids_placed']} bids placed",
+            "bargain_bid": f"${bid} would have won half of past claims at what they actually cost",
+        }[level]
     small = " Small sample, so treat as a rough guide." if m["claims"] < 6 else ""
-    return {"bid": bid, "demand": demand, "basis": basis, "levels": levels,
+    return {"bid": bid, "demand": demand, "basis": basis, "levels": levels, "level": level,
             "reason": f"{why} ({basis}, {m['claims']} claims).{small}"}
 
 
