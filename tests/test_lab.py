@@ -42,7 +42,9 @@ def test_build_lab_data_includes_pipeline_check_scores():
                  2: {"mean": 5.0, "sd": 2.0, "starters": ["x"], "actual": {}}}
     d = lab.build_lab_data(proj, WEEKS, SLOTS, rosters, managers, {}, {1: {"wins": 1}, 2: {"wins": 0}},
                            {4: [(1, 2)]}, this_week, 1, 1, "low", {"WR": 5.0}, 13, 4)
-    assert d["check_scores"]["1"] == trades.Valuer(proj, WEEKS, SLOTS).value(["q", "r", "w", "w2"])["score"]
+    v = trades.Valuer(proj, WEEKS, SLOTS, roster_size=13, reserve=set(), repl={"WR": 5.0})
+    assert d["check_scores"]["1"] == v.value(["q", "r", "w", "w2"])["score"]
+    assert d["floor"] == {"QB": 0.0, "RB": 0.0, "WR": 5.0, "FLEX": 5.0} and d["absence_rate"] == trades.ABSENCE_RATE
     assert d["rosters"]["1"]["players"] == ["q", "r", "w", "w2"] and d["rosters"]["1"]["waiver_position"] == 3
     assert d["schedule"] == {"4": [[1, 2]]} and d["this_week"]["1"]["mean"] == 50.0
     assert d["players"]["r"]["a"] == 12.0 and d["roster_size"] == 13

@@ -6,7 +6,7 @@ Pure functions, no network.
 """
 
 from .outlook import player_week
-from .trades import DEPTH_COUNT, DEPTH_WEIGHT, LONG_TERM_OUT, SKILL, Valuer
+from .trades import ABSENCE_RATE, DROP_CANDIDATES, LONG_TERM_OUT, SKILL, Valuer
 
 
 def lab_players(proj: dict, weeks: list[int], names: dict[str, dict], owners: dict[str, int],
@@ -47,15 +47,18 @@ def build_lab_data(proj: dict, weeks: list[int], slots: list[str], rosters: list
     actual_now = {}
     for t in this_week.values():
         actual_now.update(t.get("actual", {}))
-    valuer = Valuer(proj, weeks, slots)
+    reserve = {p for r in rosters for p in (r.get("reserve") or [])}
+    valuer = Valuer(proj, weeks, slots, roster_size=roster_size, reserve=reserve, repl=repl)
     return {
         "weeks": weeks, "current_week": current_week, "slots": slots, "my_roster_id": my_rid,
         "roster_size": roster_size, "playoff_teams": playoff_teams, "confidence": confidence,
-        "depth_weight": DEPTH_WEIGHT, "depth_count": DEPTH_COUNT, "skill": list(SKILL),
+        "absence_rate": ABSENCE_RATE, "drop_candidates": DROP_CANDIDATES, "skill": list(SKILL),
+        "reserve_all": sorted(reserve), "floor": valuer.floor,
         "long_term_out": sorted(LONG_TERM_OUT), "replacement": repl,
         "players": lab_players(proj, weeks, names, owners, actual_now),
         "rosters": {str(r["roster_id"]): {
             "players": [pid for pid in (r.get("players") or []) if pid in proj],
+            "all": list(r.get("players") or []),   # incl. players without projections (count toward roster size)
             "reserve": r.get("reserve") or [],
             "label": managers[r["roster_id"]]["label"], "team_name": managers[r["roster_id"]]["team_name"],
             "waiver_position": (r.get("settings") or {}).get("waiver_position"),
