@@ -905,9 +905,9 @@
         body.innerHTML = lineupsHtml();
         wireLineups(me.roster_id);
       } else {
-        body.innerHTML = rosterCards(me) + `<p class="muted" style="font-size:.8rem">Last 3 = average of the last three weeks played (league scoring, from Sleeper).
-          Next 3 = projected average over the next three games; bars show each week (solid = actual, outlined = projected,
-          green/red outline = easy/tough matchup). Tap a player for details. ✓ = matches nflverse stats within 1 pt.
+        body.innerHTML = rosterCards(me) + `<p class="muted" style="font-size:.8rem">Last 3 = points each week (league scoring, from Sleeper) and where that ranked at the position
+          (dark green = boom, light green = starter-level, red = bust). Next 3 = projected points per game (green/red outline = easy/tough matchup).
+          Tap a player for details. ✓ = matches nflverse stats within 1 pt.
           IR allowed for: ${esc(D.league.ir_allowed.join(", "))}.</p>`;
       }
     };
@@ -915,37 +915,79 @@
     draw(view);
   }
 
-  // weekly scores: one row per team, each week's score vs that week's league median
-  // (bars grow up/down from the median line, so form and consistency are visible)
+  // Weekly scores: one row per team, recent weeks as score pills (score + that week's league
+  // rank, coloured by rank, with W/L); tap a team for every game, schedule luck and consistency.
+  const ordinal = (n) => n + (n % 100 >= 11 && n % 100 <= 13 ? "th" : ["th", "st", "nd", "rd"][n % 10] || "th");
+  function weeklyStats() {
+    const ids = Object.keys(LG.weekly);
+    const rankOf = {};          // week -> rid -> rank (ties share the better rank)
+    const teamsIn = {};
+    LG.weeks.forEach((w) => {
+      const pts = ids.map((rid) => [rid, (LG.weekly[rid].find((g) => g.week === w) || {}).pts]).filter(([, p]) => p != null);
+      teamsIn[w] = pts.length;
+      rankOf[w] = {};
+      pts.forEach(([rid, p]) => { rankOf[w][rid] = 1 + pts.filter(([, q]) => q > p).length; });
+    });
+    const sd = (xs) => { const m = xs.reduce((a, b) => a + b, 0) / xs.length; return Math.sqrt(xs.reduce((a, x) => a + (x - m) ** 2, 0) / xs.length); };
+    const st = {};
+    ids.forEach((rid) => {
+      const g = LG.weekly[rid].slice().sort((x, y) => x.week - y.week);
+      const pts = g.map((x) => x.pts), pa = g.filter((x) => x.opp_pts != null).map((x) => x.opp_pts);
+      st[rid] = { games: g, avg: pts.length ? pts.reduce((a, b) => a + b, 0) / pts.length : 0,
+        high: pts.length ? Math.max(...pts) : null, low: pts.length ? Math.min(...pts) : null,
+        pa: pa.length ? pa.reduce((a, b) => a + b, 0) / pa.length : null, sd: pts.length > 1 ? sd(pts) : null,
+        above: g.filter((x) => x.pts >= LG.medians[String(x.week)]).length };
+    });
+    const rankBy = (key, desc) => { const r = {}; const v = ids.filter((i) => st[i][key] != null).sort((x, y) => desc ? st[y][key] - st[x][key] : st[x][key] - st[y][key]); v.forEach((i, k) => { r[i] = k + 1; }); return r; };
+    const sds = ids.map((i) => st[i].sd).filter((x) => x != null).sort((a, b) => a - b);
+    return { st, rankOf, teamsIn, avgRank: rankBy("avg", true), paRank: rankBy("pa", true), sdMedian: sds.length ? sds[Math.floor(sds.length / 2)] : null, n: ids.length };
+  }
+
   function weeklyChart() {
     if (!LG || !LG.weeks.length) return "";
-    const diffs = Object.values(LG.weekly).flat().map((g) => Math.abs(g.pts - LG.medians[String(g.week)]));
-    const maxDiff = Math.max(10, ...diffs);
-    const order = D.standings.map((s) => s.roster_id);
-    const rows = order.map((rid) => {
-      const games = LG.weekly[String(rid)] || [];
-      const s = recBy[rid];
-      const bars = LG.weeks.map((w) => {
-        const g = games.find((x) => x.week === w);
-        if (!g) return `<div class="wk"><div class="wk-track"></div><div class="wk-r">–</div></div>`;
-        const med = LG.medians[String(w)];
-        const d = g.pts - med;
-        const h = Math.max(2, Math.round(17 * Math.abs(d) / maxDiff));
+    const W = weeklyStats();
+    const show = LG.weeks.slice(-4);
+    const tier = (rank, n) => (rank === 1 ? "f-boom" : rank <= 3 ? "f-start" : rank > n - 3 ? "f-bust" : "f-mid");
+    const pill = (rid, g) => {
+      const r = W.rankOf[g.week][rid], n = W.teamsIn[g.week];
+      return `<span class="pill ${tier(r, n)}" title="Week ${g.week}: ${num(g.pts)}, ${ordinal(r)} of ${n}${g.result ? " · " + g.result : ""}"><b>${num(g.pts)}</b><i>${ordinal(r)}${g.result ? " · " + g.result : ""}</i></span>`;
+    };
+    const order = D.standings.map((s) => String(s.roster_id));
+    const rows = order.filter((rid) => W.st[rid]).map((rid) => {
+      const s = recBy[rid], t = W.st[rid], a = (LG.all_play || {})[rid];
+      const recent = show.map((w) => { const g = t.games.find((x) => x.week === w); return g ? pill(rid, g) : `<span class="pill none"><b>–</b><i>W${w}</i></span>`; }).join("");
+      const steady = t.sd == null || W.sdMedian == null ? "" : t.sd <= W.sdMedian ? "steady" : "boom-or-bust";
+      const paTxt = t.pa == null ? "–" : `${num(t.pa)}<small>/wk</small>`;
+      const paSub = t.pa == null ? "" : `${ordinal(W.paRank[rid])} most of ${W.n}${W.paRank[rid] <= 3 ? " · tough draw" : W.paRank[rid] > W.n - 3 ? " · easy draw" : ""}`;
+      const games = t.games.slice().reverse().map((g) => {
+        const r = W.rankOf[g.week][rid], n = W.teamsIn[g.week];
         const opp = g.opp != null && recBy[g.opp] ? recBy[g.opp].team_name : "";
-        const tip = `Week ${w}: ${num(g.pts)} (${d >= 0 ? "+" : ""}${num(d)} vs league median ${num(med)})${g.result ? ` · ${g.result}` : ""}${opp ? ` vs ${opp} ${num(g.opp_pts)}` : ""}`;
-        return `<div class="wk" title="${esc(tip)}" tabindex="0" aria-label="${esc(tip)}"><div class="wk-track">
-            <span class="wk-bar ${d >= 0 ? "pos" : "neg"}" style="height:${h}px"></span></div>
-          <div class="wk-r">${esc(g.result || "")}</div></div>`;
+        const margin = g.opp_pts != null ? g.pts - g.opp_pts : null;
+        return `<div class="ws-game"><div><b>W${g.week}</b> ${opp ? `vs ${esc(opp)}` : ""}
+            <div class="subtle">${ordinal(r)} of ${n} · would have beaten ${n - r} of ${n - 1}</div></div>
+          <div class="sc">${num(g.pts)}${g.opp_pts != null ? ` – ${num(g.opp_pts)}` : ""}</div>
+          <div>${g.result ? `<span class="chip ${g.result === "W" ? "balanced" : g.result === "L" ? "lopsided" : ""}">${g.result}${margin != null ? ` ${margin >= 0 ? "+" : ""}${num(margin)}` : ""}</span>` : ""}</div></div>`;
       }).join("");
-      const above = games.filter((g) => g.pts >= LG.medians[String(g.week)]).length;
-      return `<div class="wk-row ${rid === D.me.roster_id ? "mine-bg" : ""}"><div class="wk-team"><div class="t">${esc(s.team_name)}</div>
-        <div class="m">${esc(record(s))} · ${num(s.points_for / Math.max(LG.weeks.length, 1))}/wk · above median ${above}/${games.length}</div></div><div class="wk-bars">${bars}</div></div>`;
+      return `<details class="ws ${rid === String(D.me.roster_id) ? "mine-bg" : ""}" data-rid="${rid}"><summary class="ws-row">
+          <div class="ws-head"><div class="t">${esc(s.team_name)} <span class="chev">▸</span></div>
+            <div class="m">${esc(record(s))} · high ${num(t.high)} · low ${num(t.low)}</div></div>
+          <div class="ws-avg"><b>${num(t.avg)}</b><small>/wk · ${ordinal(W.avgRank[rid])}</small></div>
+          <div class="ws-pills" style="grid-template-columns:repeat(${show.length}, minmax(0, 1fr))">${recent}</div>
+        </summary>
+        <div class="pd">
+          <div class="tiles head">
+            ${tileHtml("Scoring", `${num(t.avg)}<small>/wk</small>`, `${ordinal(W.avgRank[rid])} of ${W.n} · above median ${t.above}/${t.games.length}`)}
+            ${tileHtml("Points against", paTxt, paSub)}
+            ${a ? tileHtml("All-play", `${a.w}–${a.l}${a.t ? "–" + a.t : ""}`, `luck ${a.luck >= 0 ? "+" : ""}${num(a.luck)} wins`, a.luck >= 1 ? "warn" : a.luck <= -1 ? "good" : "") : ""}
+            ${t.sd != null ? tileHtml("Consistency", `±${num(t.sd)}`, steady) : ""}
+          </div>
+          <div class="pd-sec"><div class="pd-h">Every game</div>${games}</div>
+        </div></details>`;
     }).join("");
     return `<h2>Weekly scores</h2>
-      <p class="lead-text">Each bar shows how far a team's score was above or below that week's league median. W/L = result.
-        Tap or hover a bar for the exact score.</p>
-      <div class="card">${rows}</div>
-      <div class="wk-legend subtle"><span class="wk-key pos"></span> above median <span class="wk-key neg"></span> below median · weeks ${esc(LG.weeks.join(", "))}</div>`;
+      <p class="lead-text">Each pill is a week's score and where it ranked in the league that week (green = top 3, red = bottom 3), with the result.
+        Tap a team for every game, how many teams each score would have beaten, points against (schedule luck) and consistency.</p>
+      <div class="card ws-card"><div class="ws-weeks" style="grid-template-columns:repeat(${show.length}, minmax(0, 1fr))">${show.map((w) => `<span>Wk ${w}</span>`).join("")}</div>${rows}</div>`;
   }
 
   function renderLeague() {

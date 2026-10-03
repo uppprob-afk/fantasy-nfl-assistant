@@ -172,8 +172,7 @@ sell-high / buy-low rows are `<details>`; value-table rows (`.tp-row`) insert a
 ## Design system and navigation
 
 `site/styles.css` is a small "clean & calm" system: neutral greys + one accent (`--accent`);
-colour only carries status (`--good/--warn/--bad`, injuries, up/down) and the diverging
-chart pair. Spacing 4/8/12/16/24/32; type 11 label / 13 small / 15 body / 17 title / 28 hero;
+colour only carries status (`--good/--warn/--bad`, injuries, up/down, finish/rank tiers). Spacing 4/8/12/16/24/32; type 11 label / 13 small / 15 body / 17 title / 28 hero;
 flat cards (no nested borders), quiet position labels, small chips. Navigation: five sections
 in a bottom bar (floating pill on wide screens) defined in `SECTIONS` (app.js); sections with
 several panels show a segmented sub-nav (`#subnav`). Hashes are panel ids (#faab, #lab …) and
@@ -190,9 +189,12 @@ Tabs: Home · League · News · FAAB · Trades · Trade Lab · Planner · Brief 
 all-play record, luck = actual wins − all-play expected wins, power rankings
 (z-scores: results so far weight 0.9·n/(n+5), projection 0.9 − that, efficiency 0.1), and
 `data/odds_history.json` (one entry per run day, last 60) for the odds trend sparkline.
-Toggles remember their view in localStorage (`homeView`, `leagueView`). The weekly chart
-draws bars up/down from the median with two validated diverging hues (`--div-pos` /
-`--div-neg`, checked with the dataviz validator in light and dark).
+Toggles remember their view in localStorage (`homeView`, `leagueView`). Weekly scores
+(`weeklyChart` / `weeklyStats` in app.js, no pipeline data beyond league.json) shows each
+team's last 4 weeks as score pills (score + that week's league rank; 1st = solid green,
+top 3 = light green, bottom 3 = red, W/L) and expands to scoring rank, points against per
+week (schedule luck), all-play + luck, consistency (SD vs the league median SD) and every
+game with "would have beaten N of M". The same `.pill` / `.f-*` tier classes as player cards.
 
 ## Trades tab strength views
 
