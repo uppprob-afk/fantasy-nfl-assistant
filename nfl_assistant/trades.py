@@ -256,3 +256,54 @@ def pitches_for_buyers(buyers: list[dict], my_rid: int, rosters: list[dict], pro
                           and proj[p]["position"] == b["position"]), key=lambda p: -proj[p]["ros"])
         out.append({**b, "my_options": options})
     return out
+
+
+# --- season so far -----------------------------------------------------------------
+STRENGTH_KEYS = ("QB", "RB", "WR", "TE", "FLEX")
+
+
+def season_strength(matchups_by_week: dict[int, list[dict]], completed: list[int], slots: list[str],
+                    position: dict[str, str]) -> dict[int, dict]:
+    """Actual points per week by lineup position for every team, from the lineups they
+    really started (Sleeper starters_points), plus hindsight lineup efficiency:
+    actual starters' points / the best lineup they could have started that week."""
+    out: dict[int, dict] = {}
+    for w in completed:
+        for m in matchups_by_week.get(w, []):
+            rid = m["roster_id"]
+            t = out.setdefault(rid, {"weeks": 0, "sum": dict.fromkeys(STRENGTH_KEYS, 0.0),
+                                     "actual": 0.0, "optimal": 0.0})
+            starters, spts = m.get("starters") or [], m.get("starters_points") or []
+            t["weeks"] += 1
+            for slot, pts in zip(slots, spts):
+                key = slot if slot in t["sum"] else ("FLEX" if slot in FLEX_ELIGIBLE else None)
+                if key:
+                    t["sum"][key] += float(pts or 0)
+            t["actual"] += float(sum(float(x or 0) for x in spts))
+            pp = {pid: float(v or 0) for pid, v in (m.get("players_points") or {}).items()}
+            known = [p for p in pp if p in position]
+            best, _ = best_lineup(known, position, pp, slots) if known else (0.0, [])
+            t["optimal"] += max(best, sum(float(x or 0) for x in spts))   # never below what was started
+    result = {}
+    for rid, t in out.items():
+        n = max(t["weeks"], 1)
+        result[rid] = {"weeks": t["weeks"], "per_week": {k: round(v / n, 2) for k, v in t["sum"].items()},
+                       "actual": round(t["actual"] / n, 1), "optimal": round(t["optimal"] / n, 1),
+                       "efficiency": round(t["actual"] / t["optimal"], 3) if t["optimal"] else None}
+    if result:
+        for k in STRENGTH_KEYS:
+            med = median(r["per_week"][k] for r in result.values())
+            for r in result.values():
+                r.setdefault("vs_median", {})[k] = round(r["per_week"][k] - med, 2)
+                r.setdefault("median", {})[k] = round(med, 2)
+    return result
+
+
+def trades_made(transactions: list[dict]) -> dict[int, int]:
+    """Completed trades per roster this season."""
+    out: dict[int, int] = {}
+    for tx in transactions:
+        if tx.get("type") == "trade" and tx.get("status") == "complete":
+            for rid in tx.get("roster_ids") or []:
+                out[rid] = out.get(rid, 0) + 1
+    return out

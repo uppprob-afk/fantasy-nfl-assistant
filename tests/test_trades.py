@@ -154,3 +154,30 @@ def test_pitches_for_buyers(league):
     buyers = [{"roster_id": 3, "manager": "X", "position": "WR", "player": "w3x", "status": "IR"}]
     out = trades.pitches_for_buyers(buyers, 1, league["rosters"], league["proj"], prof)
     assert out[0]["my_options"] == ["w9"]
+
+
+def test_season_strength_actual_and_efficiency():
+    slots = ["QB", "RB", "WR", "FLEX"]
+    position = {"q": "QB", "r": "RB", "r2": "RB", "w": "WR", "w2": "WR"}
+    mb = {1: [{"roster_id": 1, "starters": ["q", "r", "w", "w2"], "starters_points": [20, 10, 15, 5],
+               "players_points": {"q": 20, "r": 10, "r2": 12, "w": 15, "w2": 5}},
+              {"roster_id": 2, "starters": ["q", "r", "w", "w2"], "starters_points": [10, 10, 10, 10],
+               "players_points": {"q": 10, "r": 10, "w": 10, "w2": 10}}],
+          2: [{"roster_id": 1, "starters": ["q", "r", "w", "r2"], "starters_points": [20, 10, 15, 12],
+               "players_points": {"q": 20, "r": 10, "r2": 12, "w": 15, "w2": 5}},
+              {"roster_id": 2, "starters": ["q", "r", "w", "w2"], "starters_points": [10, 10, 10, 10],
+               "players_points": {"q": 10, "r": 10, "w": 10, "w2": 10}}]}
+    s = trades.season_strength(mb, [1, 2], slots, position)
+    me = s[1]
+    assert me["weeks"] == 2 and me["per_week"]["QB"] == 20 and me["per_week"]["FLEX"] == 8.5
+    assert me["actual"] == 53.5 and me["optimal"] == 57.0            # week 1 benched r2 (12) for w2 (5)
+    assert me["efficiency"] == round(107 / 114, 3)
+    assert s[2]["efficiency"] == 1.0
+    assert me["vs_median"]["QB"] == 5.0 and s[2]["vs_median"]["QB"] == -5.0   # median of two = midpoint
+
+
+def test_trades_made_counts_completed_trades():
+    txs = [{"type": "trade", "status": "complete", "roster_ids": [1, 2]},
+           {"type": "trade", "status": "failed", "roster_ids": [1, 3]},
+           {"type": "waiver", "status": "complete", "roster_ids": [1]}]
+    assert trades.trades_made(txs) == {1: 1, 2: 1}

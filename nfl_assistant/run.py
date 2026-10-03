@@ -272,6 +272,20 @@ def roster_limit(league: dict) -> int:
     return sum(1 for s in league["roster_positions"] if s not in ("IR", "TAXI"))
 
 
+def history_view(ctx: dict, managers: dict, slots: list[str]) -> dict:
+    """Season-so-far strength (actual started lineups) and trades made, per team."""
+    position = {pid: p.get("position") for pid, p in ctx["players"].items() if p.get("position")}
+    strength = trades.season_strength(ctx["matchups"], ctx["completed_weeks"], slots, position)
+    txs = [t for week in sorted(ctx["transactions"]) for t in ctx["transactions"][week]]
+    made = trades.trades_made(txs)
+    my_rid = ctx["my_roster"]["roster_id"]
+    teams = [{**managers[rid], **s, "trades": made.get(rid, 0), "is_mine": rid == my_rid}
+             for rid, s in sorted(strength.items(), key=lambda kv: -kv[1]["actual"])]
+    return {"weeks": len(ctx["completed_weeks"]), "teams": teams,
+            "median": next(iter(strength.values()))["median"] if strength else {},
+            "trades_made": {str(k): v for k, v in made.items()}}
+
+
 def build_trades(ctx: dict, managers: dict, proj: dict, weeks: list[int], slots: list[str],
                  scan: dict, now) -> dict:
     players, rosters = ctx["players"], ctx["rosters"]
@@ -319,7 +333,8 @@ def build_trades(ctx: dict, managers: dict, proj: dict, weeks: list[int], slots:
             "slots": slots, "weeks": weeks, "median": next(iter(profiles.values()))["median"],
             "replacement": repl, "teams": teams, "ideas": ideas, "buyers": buyers,
             "buy_low": bs["buy_low"], "sell_high": bs["sell_high"], "values": values,
-            "trade_deadline": trade_deadline,
+            "trade_deadline": trade_deadline, "current_week": ctx["current_week"],
+            "history": history_view(ctx, managers, slots),
             "trades_closed": bool(trade_deadline and ctx["current_week"] > int(trade_deadline))}
 
 

@@ -158,6 +158,15 @@ On the Trades tab, `playerExpand()` renders the same details: trade-idea and buy
 sell-high / buy-low rows are `<details>`; value-table rows (`.tp-row`) insert a
 `tr.detail-row`. Handled by one delegated listener (`wireTradeDetails`).
 
+## Trades tab strength views
+
+`trades.season_strength()` gives actual points per week by lineup position from Sleeper
+`starters` / `starters_points` (aligned with non-bench `roster_positions`), plus hindsight
+efficiency = started points / best lineup from that week's `players_points`.
+`trades.trades_made()` counts completed trades per roster. Both go in `trades.json →
+history`. The site toggles Season so far / Projected / Partners (choice saved in
+localStorage `strengthView`); Partners joins needs/surplus with Playoffs-tab odds.
+
 ## Trade Lab (in-browser engine)
 
 `site/data/lab.js` (from `lab.py`) holds compact per-player weekly projections `w` and
