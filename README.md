@@ -27,6 +27,7 @@ Free to run: public APIs only, no keys, no paid services.
 | **FAAB** | Bid ideas at three levels (bargain / competitive / safe), likely rivals with a bid-to-win range, manager tendencies (style, positions chased, overpaying, budget), a full waiver log with runner-up bids, and market prices. |
 | **Trades** | Rest-of-season player values with range and confidence, value over replacement, mutual-benefit trade ideas with reasoning, buy-low / sell-high, and projected positional strength. Tap any player for the same details as the roster cards. |
 | **Trade Lab** | Build any trade with any team and get a full breakdown: rest-of-season gain for both sides, playoff odds before → after, week-by-week impact (byes included), lineup changes, positional strength, and the players' details. Runs in the browser, instantly. |
+| **Planner** | Forecast any remaining week: swap bench players in, see your projected score vs the best possible and your win chance, and plan waiver pickups (with drops) to see the week-by-week, rest-of-season and playoff-odds impact. Saved on your device. |
 | **Rosters** | Every manager's roster with the same player cards. |
 | **Brief** | `claude_brief.md`: a compact verified summary with a one-tap Copy button. |
 

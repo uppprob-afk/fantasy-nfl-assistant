@@ -163,6 +163,10 @@ same random seasons before/after), `evaluateTrade`. **Any change to the Python v
 or simulation must be mirrored in lab.js.** Verify with
 `uv run --with playwright python tools/lab_parity.py` (values within 0.5, trade gains
 within 0.2, odds within 3 percentage points). The site shows a warning if `selfCheck()` fails.
+The Planner (app.js `renderPlanner`) uses the same engine: this week starts from Sleeper's set
+lineup with finished games locked (`a` = actual points), future weeks from the optimal
+lineup; planned waiver moves apply from `current_week + 1`; lineup edits are stored per week
+and fed to `simulate` as `weekOverrides`. Plans live in localStorage (`plannerState`).
 
 ## Automation
 
