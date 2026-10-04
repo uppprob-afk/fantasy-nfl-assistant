@@ -218,6 +218,20 @@ and scores it (Sleeper points, else nflverse, else 0 = didn't play), plus
 `data/model_history.json` (one entry per week). Both persist via the private repo's data/.
 Site: `site/data/model.*`, `renderModel()`.
 
+**Recency, injuries, weather** (`factors.py`). `recency` (tuned: 1 = all games equal) weights
+this-season games by `recency ** (weeks before the projected week)` (`rate_components` keeps
+`this_games` + `as_of`). Injuries: nflverse `injuries_{season}.csv` (last + this season,
+`run.INJURIES_URL`) → `learn_availability`: share of normal points produced (0 if he sat) per
+status and status|practice (dnp / limited / full), shrunk toward 85/25/0% with 25 cases;
+`availability()` uses it for the current week (practice split once it has 20+ cases);
+this week's practice comes from `current_practice`. Weather: `schedule()` carries roof /
+wind / temp; `learn_weather` gives per-position dome / outdoor / wind (15+ mph) / cold (<= 32F)
+factors vs the player's season average (shrunk, capped 0.85-1.15); `weather_strength` (tuned,
+starts 0) scales them. Forecasts: Open-Meteo (free, no key) for unplayed outdoor home games in
+the next 7 days (`STADIUMS` coordinates; neutral sites skipped), cached 3 h. Both tables travel
+in `params` (`availability`, `weather`) and show on the Model page and in each card's
+"Game day" note.
+
 ## Ask Claude (no API)
 
 The header chat icon and an "Ask Claude" button in every player panel and the Lab summary

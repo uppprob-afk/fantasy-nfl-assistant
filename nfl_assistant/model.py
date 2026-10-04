@@ -15,11 +15,11 @@ Pure functions except the small ledger / history file helpers at the bottom.
 import json
 import math
 from collections import defaultdict
-from itertools import product
 from pathlib import Path
 from statistics import mean
 
 from . import projections as pj
+from .factors import weather_multiplier
 
 # Settings the tuner may try (the defaults are always included).
 GRID = {
@@ -27,6 +27,8 @@ GRID = {
     "prior_weight": (0.3, 0.5, 0.75),
     "baseline_games": (1, 2, 4),
     "matchup": (0.25, 0.5, 0.75),      # applied to both vegas_damping and dvp_damping
+    "recency": (1.0, 0.9, 0.8, 0.7),
+    "weather_strength": (0.0, 0.5, 1.0),
 }
 MIN_GAMES_TO_TUNE = 300       # full games in the backtest before any setting can change
 MIN_IMPROVEMENT = 0.015       # adopt new settings only if they cut the error by 1.5%+
@@ -66,10 +68,11 @@ def backtest_records(rows_prior: list[dict], rows_this: list[dict], snaps: list[
             game = sched.get(w, {}).get(g["team"])
             if not game:
                 continue
-            c = pj.rate_components(prev, season, prior_season, pos, g["team"], bases.get(pos, {}), usage, 1)
+            c = pj.rate_components(prev, season, prior_season, pos, g["team"], bases.get(pos, {}), usage, 1, w)
             source, raw = pj.matchup_raw(pos, game, dvp, avg_imp)
             naive = c["actual"] if c["actual"] is not None else (c["r_prior"] if c["n_prior"] else None)
             cands.append({"week": w, "key": key, "pos": pos, "comp": c, "source": source, "raw": raw,
+                          "game": {k: game.get(k) for k in ("roof", "wind", "temp")},
                           "actual": round(g["pts"], 2), "partial": bool(g.get("partial")), "naive": naive})
         # keep the fantasy-relevant players (by default-settings projection) at each position
         by_pos = defaultdict(list)
@@ -83,8 +86,10 @@ def backtest_records(rows_prior: list[dict], rows_this: list[dict], snaps: list[
 
 def project(rec: dict, params: dict | None) -> tuple[float, float]:
     """(projected points, spread) for a backtest record under `params`."""
-    r = pj.rate_from(rec["comp"], params)
-    return r["rate"] * pj.multiplier_from(rec["pos"], rec["source"], rec["raw"], params), r["sd"]
+    P = pj.params_or_default(params)
+    r = pj.rate_from(rec["comp"], P)
+    wx = weather_multiplier(rec["pos"], rec.get("game"), P["weather"], P["weather_strength"])
+    return r["rate"] * pj.multiplier_from(rec["pos"], rec["source"], rec["raw"], P) * wx, r["sd"]
 
 
 # --- scoring ------------------------------------------------------------------------
@@ -125,23 +130,32 @@ def _mae(records: list[dict], params: dict) -> float:
 
 
 # --- learning -----------------------------------------------------------------------
-def tune(records: list[dict]) -> dict:
-    """Pick settings from the track record. Returns {params, changed, reason, ...}."""
+def _with(params: dict, key: str, value) -> dict:
+    if key == "matchup":
+        return {**params, "vegas_damping": value, "dvp_damping": value}
+    return {**params, key: value}
+
+
+def tune(records: list[dict], base: dict | None = None) -> dict:
+    """Pick settings from the track record. `base` carries the learned injury / weather tables.
+    Returns {params, changed, reason, ...}."""
     full = [r for r in records if not r["partial"]]
-    defaults = pj.params_or_default(None)
+    defaults = pj.params_or_default(base)
     result = {"params": defaults, "changed": [], "games": len(full)}
     if len(full) < MIN_GAMES_TO_TUNE:
         result["reason"] = (f"Not enough games yet to change anything ({len(full)} of {MIN_GAMES_TO_TUNE} "
                             f"needed). Using the starting settings.")
         return result
     base_mae = _mae(full, defaults)
+    # coordinate search: improve one setting at a time, two passes
     best, best_mae = defaults, base_mae
-    for ub, pw, bg, md in product(*GRID.values()):
-        cand = {**defaults, "usage_blend": ub, "prior_weight": pw, "baseline_games": bg,
-                "vegas_damping": md, "dvp_damping": md}
-        m = _mae(full, cand)
-        if m < best_mae - 1e-9:
-            best, best_mae = cand, m
+    for _ in range(2):
+        for key, values in GRID.items():
+            for v in values:
+                cand = _with(best, key, v)
+                m = _mae(full, cand)
+                if m < best_mae - 1e-9:
+                    best, best_mae = cand, m
     params = dict(defaults)
     if best_mae <= base_mae * (1 - MIN_IMPROVEMENT):
         params = {**best}
@@ -176,6 +190,8 @@ LABELS = {
     "baseline_games": "Pull toward the typical player at the position (pseudo-games)",
     "vegas_damping": "Strength of Vegas-line matchup adjustments",
     "dvp_damping": "Strength of opponent-defence matchup adjustments",
+    "recency": "How much each older game this season still counts (1 = all equal)",
+    "weather_strength": "How much of the learned weather / venue effects to apply",
 }
 
 
@@ -210,7 +226,8 @@ def ledger_update(path: Path, proj: dict[str, dict], names: dict[str, str], ids:
         sd = p["sd"] * (x["pts"] / p["rate"]) if p["rate"] else p["sd"]
         led[f"{pid}:{w}"] = {"id": pid, "week": w, "name": names.get(pid, pid), "pos": p["position"],
                              "pts": round(x["pts"], 1), "sd": round(sd, 1), "status": p.get("status"),
-                             "confidence": p["confidence"], "source": x.get("source")}
+                             "confidence": p["confidence"], "source": x.get("source"),
+                             "practice": p.get("practice"), "avail": x.get("avail"), "wx": x.get("wx")}
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(led, indent=0, sort_keys=True) + "\n")
     return led
@@ -253,18 +270,18 @@ def history_update(path: Path, week: int, at: str, tuned: dict, backtest: dict) 
     return hist
 
 
-def learn(records: list[dict]) -> dict:
+def learn(records: list[dict], base: dict | None = None) -> dict:
     """Tune, then check the learned settings on the latest week (held out of the tuning).
     They're used only if they don't do worse than the starting settings on that unseen week
     (allowing 1% noise); otherwise the starting settings stay."""
     weeks = sorted({r["week"] for r in records})
-    tuned = tune(records)
-    defaults = pj.params_or_default(None)
+    tuned = tune(records, base)
+    defaults = pj.params_or_default(base)
     tuned["validation"] = None
     if tuned["changed"] and len(weeks) >= 2:
         train = [r for r in records if r["week"] < weeks[-1]]
         test = [r for r in records if r["week"] == weeks[-1] and not r["partial"]]
-        held = tune(train)
+        held = tune(train, base)
         if test:
             d_mae, t_mae = _mae(test, defaults), _mae(test, held["params"])
             tuned["validation"] = {"week": weeks[-1], "games": len(test), "default_mae": round(d_mae, 3),

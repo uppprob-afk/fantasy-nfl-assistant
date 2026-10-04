@@ -18,6 +18,7 @@ import math
 from collections import defaultdict
 from statistics import mean, median
 
+from .factors import weather_multiplier
 from .nflverse import compute_points, index_rows, match_player, norm_name
 
 TEAM_FROM_NFLVERSE = {"LA": "LAR"}
@@ -44,6 +45,10 @@ OFFENSE_STATUS_OUT = {"IR", "PUP", "Sus", "NA", "DNR", "COV"}
 DEFAULT_PARAMS = {
     "prior_weight": PRIOR_SEASON_WEIGHT, "usage_blend": USAGE_BLEND, "baseline_games": BASELINE_GAMES,
     "vegas_damping": VEGAS_DAMPING, "dvp_damping": DVP_DAMPING,
+    "recency": 1.0,            # each week older a this-season game counts x this much (1 = all equal)
+    "weather_strength": 0.0,   # how much of the learned venue/weather effects to apply (0-1)
+    "availability": None,      # learned injury table (factors.learn_availability); None = fixed defaults
+    "weather": None,           # learned venue/weather factors (factors.learn_weather)
     "bias": {pos: 1.0 for pos in POSITIONS}, "sd_scale": {pos: 1.0 for pos in POSITIONS},
 }
 
@@ -85,7 +90,10 @@ def schedule(games: list[dict], season: str) -> dict[int, dict[str, dict]]:
         if spread not in (None, "") and total not in (None, ""):
             s, t = float(spread), float(total)
             imp_home, imp_away = (t + s) / 2, (t - s) / 2
-        base = {"played": played, "gameday": g.get("gameday")}
+        num = lambda k: float(g[k]) if g.get(k) not in (None, "") else None
+        base = {"played": played, "gameday": g.get("gameday"), "gametime": g.get("gametime"),
+                "roof": g.get("roof") or None, "wind": num("wind"), "temp": num("temp"),
+                "neutral": g.get("location") == "Neutral", "stadium": g.get("stadium")}
         out[week][home] = {**base, "opp": away, "home": True, "implied": imp_home,
                            "opp_implied": imp_away}
         out[week][away] = {**base, "opp": home, "home": False, "implied": imp_away,
@@ -341,11 +349,14 @@ def role_baseline(position: str, depth_order: int | None, baseline: float) -> fl
 
 
 def rate_components(games: list[dict], season: str, prior_season: str, position: str,
-                    current_team: str | None, base: dict, usage: dict, depth_order: int | None = None) -> dict:
-    """Everything the rate formula needs, before any tunable setting is applied."""
+                    current_team: str | None, base: dict, usage: dict, depth_order: int | None = None,
+                    as_of: int | None = None) -> dict:
+    """Everything the rate formula needs, before any tunable setting is applied.
+    as_of = the week being projected (for recency weighting of this season's games)."""
     prior = [g for g in games if g["season"] == prior_season and not g["partial"]]
     this = [g for g in games if g["season"] == season and not g["partial"]]
     xs = [expected_points(g, usage) for g in this]
+    this_games = [(g["week"], g["pts"], x) for g, x in zip(this, xs)]
     xs = [x for x in xs if x is not None]
     return {"position": position, "baseline": role_baseline(position, depth_order, base.get("baseline", 5.0)),
             "cv": base.get("cv", 0.6), "n_prior": min(len(prior), PRIOR_SEASON_CAP), "games_prior": len(prior),
@@ -353,16 +364,24 @@ def rate_components(games: list[dict], season: str, prior_season: str, position:
             "team_changed": bool(prior and current_team and prior[-1]["team"] != current_team),
             "n_this": len(this), "actual": mean(g["pts"] for g in this) if this else None,
             "expected": mean(xs) if xs else None,
-            "partial_weeks": [g["week"] for g in games if g["season"] == season and g["partial"]]}
+            "partial_weeks": [g["week"] for g in games if g["season"] == season and g["partial"]],
+            "this_games": this_games, "as_of": as_of if as_of is not None else max((g["week"] for g in this), default=0) + 1}
 
 
 def rate_from(c: dict, params: dict | None = None) -> dict:
     """Rate, spread and confidence from components and the (possibly learned) settings."""
     P = params_or_default(params)
-    actual, expected = c["actual"], c["expected"]
+    actual, expected, n_eff = c["actual"], c["expected"], c["n_this"]
+    if P["recency"] < 1 and c.get("this_games"):
+        ws = [(P["recency"] ** max(c["as_of"] - wk, 1), pts, x) for wk, pts, x in c["this_games"]]
+        tot = sum(w for w, _, _ in ws)
+        actual = sum(w * pts for w, pts, _ in ws) / tot
+        wx = [(w, x) for w, _, x in ws if x is not None]
+        expected = sum(w * x for w, x in wx) / sum(w for w, _ in wx) if wx else None
+        n_eff = tot / P["recency"]          # effective games: last week's game counts as 1
     r_this = actual if expected is None or actual is None else (1 - P["usage_blend"]) * actual + P["usage_blend"] * expected
     w_prior = P["prior_weight"] * c["n_prior"] * (TEAM_CHANGE_FACTOR if c["team_changed"] else 1)
-    w_this = c["n_this"]
+    w_this = n_eff
     k = P["baseline_games"]
     rate = (k * c["baseline"] + w_prior * c["r_prior"] + w_this * (r_this or 0.0)) / (k + w_prior + w_this)
     rate *= P["bias"].get(c["position"], 1.0)
@@ -370,7 +389,7 @@ def rate_from(c: dict, params: dict | None = None) -> dict:
     sd_game = c["cv"] * max(rate, 3.0)
     se = sd_game / math.sqrt(k + effective)
     sd = math.sqrt(sd_game ** 2 + se ** 2) * P["sd_scale"].get(c["position"], 1.0)
-    if w_this >= 4 and effective >= 8:
+    if c["n_this"] >= 4 and effective >= 8:
         confidence = "high"
     elif effective >= 4:
         confidence = "medium"
@@ -381,9 +400,9 @@ def rate_from(c: dict, params: dict | None = None) -> dict:
 
 def player_rate(games: list[dict], season: str, prior_season: str, position: str,
                 current_team: str | None, base: dict, usage: dict,
-                depth_order: int | None = None, params: dict | None = None) -> dict:
+                depth_order: int | None = None, params: dict | None = None, as_of: int | None = None) -> dict:
     """Rest-of-season points per game for one player, with spread and confidence."""
-    c = rate_components(games, season, prior_season, position, current_team, base, usage, depth_order)
+    c = rate_components(games, season, prior_season, position, current_team, base, usage, depth_order, as_of)
     r = rate_from(c, params)
     return {**r, "games_prior": c["games_prior"], "games_this": c["n_this"],
             "partial_weeks": c["partial_weeks"], "prior_ppg": round(c["r_prior"], 2) if c["games_prior"] else None,
@@ -393,7 +412,8 @@ def player_rate(games: list[dict], season: str, prior_season: str, position: str
 
 
 # --- weekly projection ------------------------------------------------------
-def availability(status: str | None, weeks_ahead: int) -> float:
+def availability(status: str | None, weeks_ahead: int, practice: str | None = None,
+                 table: dict | None = None) -> float:
     """Expected share of a game played, from the current injury designation.
 
     weeks_ahead = 0 is the current/next game. IR-type designations: out at least the
@@ -401,6 +421,12 @@ def availability(status: str | None, weeks_ahead: int) -> float:
     """
     if status in OFFENSE_STATUS_OUT:
         return 0.0 if weeks_ahead < 4 else 0.5
+    if table and weeks_ahead == 0 and status in ("Questionable", "Doubtful", "Out"):
+        hit = table.get(f"{status}|{practice}") if practice else None
+        if hit and hit.get("games", 0) >= 20:
+            return hit["share"]
+        if status in table:
+            return table[status]["share"]
     if status == "Out":
         return 0.0 if weeks_ahead == 0 else (0.75 if weeks_ahead == 1 else 1.0)
     if status == "Doubtful":
@@ -439,8 +465,10 @@ def matchup_multiplier(position: str, game: dict, dvp: dict, avg_implied: float 
 
 def project_weeks(rate: float, position: str, team: str | None, status: str | None,
                   weeks: list[int], first_week: int, sched: dict, dvp: dict,
-                  avg_implied: float | None, params: dict | None = None) -> dict[int, dict]:
-    """week -> {pts, bye, mult, source, avail} for the given (unplayed) weeks."""
+                  avg_implied: float | None, params: dict | None = None,
+                  practice: str | None = None) -> dict[int, dict]:
+    """week -> {pts, bye, mult, source, avail, wx} for the given (unplayed) weeks."""
+    P = params_or_default(params)
     out = {}
     for w in weeks:
         game = sched.get(w, {}).get(team) if team else None
@@ -448,9 +476,12 @@ def project_weeks(rate: float, position: str, team: str | None, status: str | No
             out[w] = {"pts": 0.0, "bye": True}
             continue
         mult, source = matchup_multiplier(position, game, dvp, avg_implied, params)
-        avail = availability(status, w - first_week)
-        out[w] = {"pts": round(rate * mult * avail, 2), "bye": False, "mult": round(mult, 3),
-                  "source": source, "avail": avail, "opp": game["opp"], "home": game["home"]}
+        wxm = weather_multiplier(position, game, P["weather"], P["weather_strength"])
+        avail = availability(status, w - first_week, practice, P["availability"])
+        out[w] = {"pts": round(rate * mult * wxm * avail, 2), "bye": False, "mult": round(mult, 3),
+                  "source": source, "avail": avail, "opp": game["opp"], "home": game["home"],
+                  "wx": {"roof": game.get("roof"), "wind": game.get("wind"), "temp": game.get("temp"),
+                         "forecast": bool(game.get("forecast")), "mult": round(wxm, 3)}}
     return out
 
 
@@ -468,7 +499,8 @@ def average_implied(sched: dict) -> float | None:
 def build(players: dict, candidate_ids: set[str], rows_prior: list[dict], rows_this: list[dict],
           snaps: list[dict], games: list[dict], scoring: dict, season: str,
           weeks: list[int], starters_per_pos: dict[str, int],
-          playoff_weeks: list[int] | None = None, params: dict | None = None) -> dict[str, dict]:
+          playoff_weeks: list[int] | None = None, params: dict | None = None,
+          practice: dict[str, dict] | None = None, forecasts: dict | None = None) -> dict[str, dict]:
     """Projections for every candidate Sleeper player: rate, spread, confidence, weekly points.
 
     weeks = remaining regular-season weeks to project (games already played are skipped
@@ -480,6 +512,9 @@ def build(players: dict, candidate_ids: set[str], rows_prior: list[dict], rows_t
     assign_finishes(logs, dlogs)
     td_rates = td_per_touch(logs, season)
     sched = schedule(games, season)
+    for (w, team), fc in (forecasts or {}).items():     # weather forecasts for upcoming games
+        if team in sched.get(w, {}):
+            sched[w][team].update({**fc, "forecast": True})
     usage = usage_values(logs, prior_season)
     base_logs = {**logs, **{f"DEF:{t}": v for t, v in dlogs.items()}}
     bases = position_baselines(base_logs, prior_season, starters_per_pos)
@@ -494,22 +529,24 @@ def build(players: dict, candidate_ids: set[str], rows_prior: list[dict], rows_t
         pos, team = p.get("position"), p.get("team")
         if pos not in POSITIONS or not team:
             continue
+        nid = None
         if pos == "DEF":
             plogs = dlogs.get(pid, [])
         else:
             nid = match_player(p, by_gsis, by_name)
             plogs = logs.get(nid, []) if nid else []
+        prac = (practice or {}).get(nid, {}).get("practice") if nid else None
         status = p.get("injury_status") or None
         if pos != "DEF":
             mark_partial(plogs, injured=status is not None)
         r = player_rate(plogs, season, prior_season, pos, team, bases.get(pos, {}), usage,
-                        p.get("depth_chart_order"), params)
+                        p.get("depth_chart_order"), params, first_week)
         todo = unplayed_weeks(sched, team, weeks)
-        weekly = project_weeks(r["rate"], pos, team, status, todo, first_week, sched, dvp, avg_imp, params)
+        weekly = project_weeks(r["rate"], pos, team, status, todo, first_week, sched, dvp, avg_imp, params, prac)
         log_this = [{k: g.get(k) for k in LOG_KEYS} for g in plogs if g["season"] == season]
         po = project_weeks(r["rate"], pos, team, status, unplayed_weeks(sched, team, playoff_weeks or []),
                            first_week, sched, dvp, avg_imp, params)
-        r.update({"id": pid, "position": pos, "team": team, "status": status, "weekly": weekly,
+        r.update({"id": pid, "position": pos, "team": team, "status": status, "practice": prac, "weekly": weekly,
                   "log": log_this, "playoff_weeks": po, "pos_td_per_touch": td_rates.get(pos),
                   "ros": round(sum(x["pts"] for x in weekly.values()), 1),
                   "byes": [w for w, x in weekly.items() if x.get("bye")]})
