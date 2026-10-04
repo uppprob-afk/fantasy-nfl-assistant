@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from . import brief, cards, dashboard, faab, lab, league, lineups, nflverse, outlook, projections, scanner, tendencies, trades, waivers
+from . import brief, cards, dashboard, faab, lab, league, lineups, model, nflverse, outlook, projections, scanner, tendencies, trades, waivers
 from .config import ROOT, ConfigError, load_config
 from .output import write_site_data, write_snapshot
 from .players import find_player, ir_allowed_statuses, player_brief, player_name, slim_players
@@ -254,7 +254,20 @@ def starter_counts(teams: int, slots: list[str]) -> dict[str, int]:
             "K": teams * max(slots.count("K"), 1), "DEF": teams * max(slots.count("DEF"), 1)}
 
 
-def build_projections(ctx: dict, nfl: dict) -> tuple[dict, list[int], list[str]]:
+def build_model(ctx: dict, nfl: dict) -> dict:
+    """Backtest the projection model on this season's completed weeks and learn settings."""
+    league = ctx["league"]
+    slots = lineups.lineup_slots(league["roster_positions"])
+    starters = starter_counts(league.get("total_rosters") or 10, slots)
+    records = model.backtest_records(nfl["prior"], nfl["this"], nfl["snaps"], nfl["games"],
+                                     league["scoring_settings"], league["season"], starters, ctx["completed_weeks"])
+    learned = model.learn(records)
+    return {"records": records, "learned": learned,
+            "backtest": model.evaluate(records, learned["params"]),
+            "backtest_default": model.evaluate(records, None)}
+
+
+def build_projections(ctx: dict, nfl: dict, params: dict | None = None) -> tuple[dict, list[int], list[str]]:
     """Projections for rostered players, relevant free agents and every defence."""
     league, players = ctx["league"], ctx["players"]
     slots = lineups.lineup_slots(league["roster_positions"])
@@ -270,7 +283,7 @@ def build_projections(ctx: dict, nfl: dict) -> tuple[dict, list[int], list[str]]
              or (p.get("search_rank") or 10**9) <= 400)}
     proj = projections.build(players, candidates, nfl["prior"], nfl["this"], nfl["snaps"], nfl["games"],
                              league["scoring_settings"], league["season"], weeks, starters,
-                             playoff_weeks(league["settings"]))
+                             playoff_weeks(league["settings"]), params)
     return proj, weeks, slots
 
 
@@ -487,6 +500,36 @@ def build_outlook(ctx: dict, managers: dict, proj: dict, weeks: list[int], slots
             "names": names}
 
 
+# --- model scorecard (backtest + live ledger + what it learned) ----------------------
+def build_model_page(ctx: dict, mdl: dict, proj: dict, points: dict, extra_ids: list[str], now,
+                     data_dir: Path) -> dict:
+    """Save this run's projections to the live ledger, score past ones, record the settings."""
+    players = ctx["players"]
+    rostered = {pid for r in ctx["rosters"] for pid in (r.get("players") or [])}
+    ids = rostered | set(extra_ids)
+    names = {pid: player_name(players.get(pid), pid) for pid in ids}
+    led = model.ledger_update(data_dir / "projection_ledger.json", proj, names, ids)
+    actual: dict[str, dict[int, float]] = {}
+    for e in led.values():
+        pid, w = e["id"], e["week"]
+        if w in (points.get(pid) or {}):
+            actual.setdefault(pid, {})[w] = points[pid][w]
+        elif pid in proj:
+            g = next((x for x in proj[pid]["log"] if x["week"] == w), None)
+            actual.setdefault(pid, {})[w] = g["pts"] if g else 0.0
+    live = model.ledger_score({k: e for k, e in led.items() if e["id"] in actual}, ctx["completed_weeks"], actual)
+    hist = model.history_update(data_dir / "model_history.json", ctx["current_week"], now.isoformat(timespec="minutes"),
+                                mdl["learned"], mdl["backtest"])
+    learned = {k: v for k, v in mdl["learned"].items()}
+    return {"generated_at": now.isoformat(timespec="minutes"), "my_roster_id": ctx["my_roster"]["roster_id"],
+            "my_players": sorted(ctx["my_roster"].get("players") or []),
+            "learned": learned, "defaults": projections.params_or_default(None),
+            "backtest": mdl["backtest"], "backtest_default": mdl["backtest_default"],
+            "live": live, "history": hist,
+            "settings": {"min_games": model.MIN_GAMES_TO_TUNE, "min_improvement": model.MIN_IMPROVEMENT,
+                         "shrink_games": model.SHRINK_GAMES}}
+
+
 # --- waiver targets (ranked by what they add to my team) ----------------------------
 def build_available(ctx: dict, proj: dict, weeks: list[int], slots: list[str], faab_data: dict) -> list[str]:
     """Best available players per position with the points each would add to my team.
@@ -659,7 +702,9 @@ def main() -> int:
                          ROOT / "data" / "news_log.json", now)
     say("Building projections from nflverse stats, snap counts and the schedule...")
     nfl = load_nflverse(cfg, ctx["league"]["season"], cache_dir)
-    proj, proj_weeks, slots = build_projections(ctx, nfl)
+    say("Checking how accurate the projections have been and learning from it...")
+    mdl = build_model(ctx, nfl)
+    proj, proj_weeks, slots = build_projections(ctx, nfl, mdl["learned"]["params"])
     say("Looking for trade ideas...")
     trade_data = build_trades(ctx, managers, proj, proj_weeks, slots, scan, now)
     pool_ids = build_available(ctx, proj, proj_weeks, slots, faab_data)
@@ -678,6 +723,7 @@ def main() -> int:
     write_site_data(site_data, "outlook", outlook_data)
     write_site_data(site_data, "lab", lab_data)
     write_site_data(site_data, "league", league_data)
+    write_site_data(site_data, "model", build_model_page(ctx, mdl, proj, points, pool_ids, now, ROOT / "data"))
     brief_md = brief.build_brief(dash, faab_data, scan, trade_data, outlook_data)
     (site_data / "claude_brief.md").write_text(brief_md, encoding="utf-8")
     write_site_data(site_data, "brief", {"generated_at": now.isoformat(timespec="minutes"), "markdown": brief_md})
