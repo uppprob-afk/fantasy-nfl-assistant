@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from . import brief, cards, dashboard, faab, lab, league, lineups, model, nflverse, outlook, projections, scanner, tendencies, trades, waivers
+from . import brief, cards, dashboard, faab, factors, lab, league, lineups, model, nflverse, outlook, projections, scanner, tendencies, trades, waivers
 from .config import ROOT, ConfigError, load_config
 from .output import write_site_data, write_snapshot
 from .players import find_player, ir_allowed_statuses, player_brief, player_name, slim_players
@@ -243,7 +243,40 @@ def load_nflverse(cfg: dict, season: str, cache_dir: Path) -> dict:
     return {"this": get(stats_url.format(season=season)),
             "prior": get(stats_url.format(season=prior), long),
             "snaps": get(pc["snaps_url"].format(season=prior), long) + get(pc["snaps_url"].format(season=season)),
-            "games": list(csv.DictReader(io.StringIO(nflverse.download_weekly(pc["schedule_url"], cache_dir)))),}
+            "games": list(csv.DictReader(io.StringIO(nflverse.download_weekly(pc["schedule_url"], cache_dir)))),
+            "injuries": _optional_rows(pc.get("injuries_url", INJURIES_URL), [prior, season], cache_dir, long)}
+
+
+INJURIES_URL = "https://github.com/nflverse/nflverse-data/releases/download/injuries/injuries_{season}.csv"
+
+
+def _optional_rows(url: str, seasons: list[str], cache_dir: Path, long_hours: float) -> list[dict]:
+    """Rows for each season; a missing file (e.g. not published yet) is skipped, not fatal."""
+    out = []
+    for i, s in enumerate(seasons):
+        try:
+            out += nflverse.parse_rows(nflverse.download_weekly(url.format(season=s), cache_dir,
+                                                                long_hours if i == 0 else 6))
+        except Exception as exc:  # noqa: BLE001 - optional data
+            say(f"  (skipped {url.format(season=s)}: {exc})")
+    return out
+
+
+def fetch_forecasts(sched: dict, today: str, cache_dir: Path) -> dict:
+    """(week, team) -> {wind, temp, precip} at kickoff for outdoor games in the next 7 days."""
+    out = {}
+    for w, home, day, hour in factors.games_needing_forecast(sched, today):
+        lat, lon = factors.STADIUMS[home]
+        try:
+            payload = json.loads(nflverse.download_weekly(factors.FORECAST_URL.format(lat=lat, lon=lon), cache_dir, 3))
+        except Exception as exc:  # noqa: BLE001 - forecasts are optional
+            say(f"  (no forecast for {home}: {exc})")
+            continue
+        fc = factors.forecast_at(payload, day, hour)
+        if fc:
+            out[(w, home)] = fc
+            out[(w, sched[w][home]["opp"])] = fc
+    return out
 
 
 def starter_counts(teams: int, slots: list[str]) -> dict[str, int]:
@@ -259,15 +292,24 @@ def build_model(ctx: dict, nfl: dict) -> dict:
     league = ctx["league"]
     slots = lineups.lineup_slots(league["roster_positions"])
     starters = starter_counts(league.get("total_rosters") or 10, slots)
+    season = league["season"]
+    prior = str(int(season) - 1)
+    rows = nfl["prior"] + nfl["this"]
+    logs = projections.game_logs(rows, nfl["snaps"], league["scoring_settings"])
+    dlogs = projections.def_logs(rows, nfl["games"], league["scoring_settings"])
+    scheds = {s: projections.schedule(nfl["games"], s) for s in (prior, season)}
+    base = {"availability": factors.learn_availability(nfl.get("injuries") or [], logs),
+            "weather": factors.learn_weather({**logs, **{f"DEF:{t}": v for t, v in dlogs.items()}}, scheds)}
     records = model.backtest_records(nfl["prior"], nfl["this"], nfl["snaps"], nfl["games"],
-                                     league["scoring_settings"], league["season"], starters, ctx["completed_weeks"])
-    learned = model.learn(records)
+                                     league["scoring_settings"], season, starters, ctx["completed_weeks"])
+    learned = model.learn(records, base)
     return {"records": records, "learned": learned,
             "backtest": model.evaluate(records, learned["params"]),
             "backtest_default": model.evaluate(records, None)}
 
 
-def build_projections(ctx: dict, nfl: dict, params: dict | None = None) -> tuple[dict, list[int], list[str]]:
+def build_projections(ctx: dict, nfl: dict, params: dict | None = None, today: str | None = None,
+                      cache_dir: Path | None = None) -> tuple[dict, list[int], list[str]]:
     """Projections for rostered players, relevant free agents and every defence."""
     league, players = ctx["league"], ctx["players"]
     slots = lineups.lineup_slots(league["roster_positions"])
@@ -283,7 +325,10 @@ def build_projections(ctx: dict, nfl: dict, params: dict | None = None) -> tuple
              or (p.get("search_rank") or 10**9) <= 400)}
     proj = projections.build(players, candidates, nfl["prior"], nfl["this"], nfl["snaps"], nfl["games"],
                              league["scoring_settings"], league["season"], weeks, starters,
-                             playoff_weeks(league["settings"]), params)
+                             playoff_weeks(league["settings"]), params,
+                             factors.current_practice(nfl.get("injuries") or [], league["season"], ctx["current_week"]),
+                             fetch_forecasts(projections.schedule(nfl["games"], league["season"]), today, cache_dir)
+                             if today and cache_dir else {})
     return proj, weeks, slots
 
 
@@ -704,7 +749,7 @@ def main() -> int:
     nfl = load_nflverse(cfg, ctx["league"]["season"], cache_dir)
     say("Checking how accurate the projections have been and learning from it...")
     mdl = build_model(ctx, nfl)
-    proj, proj_weeks, slots = build_projections(ctx, nfl, mdl["learned"]["params"])
+    proj, proj_weeks, slots = build_projections(ctx, nfl, mdl["learned"]["params"], now.date().isoformat(), cache_dir)
     say("Looking for trade ideas...")
     trade_data = build_trades(ctx, managers, proj, proj_weeks, slots, scan, now)
     pool_ids = build_available(ctx, proj, proj_weeks, slots, faab_data)

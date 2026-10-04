@@ -114,7 +114,7 @@ def schedule_ahead(p: dict) -> list[dict]:
             x = src[w]
             out.append({"week": w, "playoff": playoff, "bye": bool(x.get("bye")),
                         "pts": round(x.get("pts", 0.0), 1), "opp": x.get("opp"), "home": x.get("home"),
-                        "matchup": None if x.get("bye") else matchup_label(x.get("mult"))})
+                        "matchup": None if x.get("bye") else matchup_label(x.get("mult")), "wx": x.get("wx")})
     return out
 
 
@@ -131,7 +131,7 @@ def next_weeks(p: dict, n: int = 3) -> list[dict]:
         out.append({"week": w, "bye": False, "pts": round(x["pts"], 1),
                     "low": round(max(x["pts"] - sd, 0), 1), "high": round(x["pts"] + sd, 1),
                     "opp": x.get("opp"), "home": x.get("home"), "avail": x.get("avail", 1.0),
-                    "matchup": matchup_label(x.get("mult")), "source": x.get("source")})
+                    "matchup": matchup_label(x.get("mult")), "source": x.get("source"), "wx": x.get("wx")})
     return out
 
 
@@ -202,5 +202,6 @@ def build_card(pid: str, p: dict | None, sleeper_pts: dict[int, float], complete
     card["value"] = {"rate": p["rate"], "sd": p["sd"], "ros": p["ros"], "confidence": p["confidence"],
                      "vor": round(p["ros"] - repl.get(p["position"], 0.0) * n_weeks, 1),
                      "rank": rank, "rank_of": count, "byes": p["byes"], "flag": flags.get(pid),
-                     "prior_ppg": p.get("prior_ppg"), "partial_weeks": p.get("partial_weeks", [])}
+                     "prior_ppg": p.get("prior_ppg"), "partial_weeks": p.get("partial_weeks", []),
+                     "status": p.get("status"), "practice": p.get("practice")}
     return card

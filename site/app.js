@@ -86,6 +86,32 @@
   const pct = (x) => (x == null ? "–" : Math.round(100 * x) + "%");
   const tileHtml = (k, v, sub, cls) => `<div class="tile ${cls || ""}"><div class="k">${k}</div><div class="v">${v}</div>${sub ? `<div class="s">${sub}</div>` : ""}</div>`;
 
+  const PRACTICE = { dnp: "didn't practice", limited: "limited practice", full: "full practice" };
+  function wxText(wx) {
+    if (!wx) return "";
+    if (wx.roof === "dome" || wx.roof === "closed") return "indoors";
+    const bits = [];
+    if (wx.wind != null) bits.push(`${Math.round(wx.wind)} mph wind`);
+    if (wx.temp != null) bits.push(`${Math.round(wx.temp)}°F`);
+    return (wx.roof === "open" ? "open roof" : "outdoors") + (bits.length ? ` · ${bits.join(", ")}${wx.forecast ? " forecast" : ""}` : "");
+  }
+  function gameDayNote(c) {
+    const v = c.value, nx = (c.next3 || []).find((w) => !w.bye);
+    const notes = [];
+    if (v && v.status && ["Questionable", "Doubtful", "Out"].includes(v.status) && nx) {
+      const A = MD && MD.learned && MD.learned.params && MD.learned.params.availability;
+      const row = A && ((v.practice && A[`${v.status}|${v.practice}`] && A[`${v.status}|${v.practice}`].games >= 20 && A[`${v.status}|${v.practice}`]) || A[v.status]);
+      notes.push(`<b>${esc(v.status)}</b>${v.practice ? ` (${PRACTICE[v.practice] || esc(v.practice)})` : ""}: ${row
+        ? `players listed like this have played ${row.played != null ? Math.round(100 * row.played) + "% of the time and" : ""} produced ${Math.round(100 * row.share)}% of their normal points (${row.games} cases), so this week's projection is ${Math.round(100 * (nx.avail ?? 1))}% of normal.`
+        : `this week's projection is ${Math.round(100 * (nx.avail ?? 1))}% of normal.`}`);
+    }
+    if (nx && nx.wx) {
+      const t = wxText(nx.wx), m = nx.wx.mult;
+      if (t) notes.push(`Next game ${t}${m && Math.abs(m - 1) >= 0.01 ? ` (${m > 1 ? "+" : "−"}${Math.round(100 * Math.abs(m - 1))}% for conditions)` : ""}.`);
+    }
+    return notes.length ? `<div class="pd-sec"><div class="pd-h">Game day</div>${notes.map((n) => `<div>${n}</div>`).join("")}</div>` : "";
+  }
+
   function detailPanel(p, c) {
     const v = c.value, u = c.usage, k = c.consistency || {}, o = c.opportunity || {};
     const pos = p.position, ab = POS_ABBR[pos] || pos;
@@ -99,6 +125,8 @@
     if (v) tiles.push(tileHtml("Projected", `${one(v.rate)}<small>/wk</small>`, `${one(Math.max(v.rate - v.sd, 0))}–${one(v.rate + v.sd)}`));
     if (v && v.rank) tiles.push(tileHtml("ROS rank", `${ab}${v.rank}`, `${Math.round(v.ros)} pts · ${v.vor >= 0 ? "+" : ""}${Math.round(v.vor)} vs FA`));
     if (tiles.length) html += `<div class="tiles head">${tiles.join("")}</div>`;
+
+    html += gameDayNote(c);
 
     // consistency & ceiling
     if (k.games) {
@@ -162,7 +190,8 @@
     // schedule ahead
     if (c.schedule && c.schedule.length) {
       const wk = (w) => `<div class="sch ${w.bye ? "bye" : w.matchup && w.matchup !== "neutral" ? "mu-" + w.matchup : ""}">
-        <div class="w">W${w.week}</div><div class="o">${esc(oppLabel(w))}</div><div class="p">${w.bye ? "–" : one(w.pts)}${MU_MARK[w.matchup] || ""}</div></div>`;
+        <div class="w">W${w.week}</div><div class="o">${esc(oppLabel(w))}</div><div class="p">${w.bye ? "–" : one(w.pts)}${MU_MARK[w.matchup] || ""}</div>${
+        w.wx && (w.wx.roof === "dome" || w.wx.roof === "closed") ? `<div class="wxs">indoors</div>` : w.wx && w.wx.wind != null && w.wx.wind >= 15 ? `<div class="wxs">${Math.round(w.wx.wind)} mph</div>` : ""}</div>`;
       const reg = c.schedule.filter((w) => !w.playoff), po = c.schedule.filter((w) => w.playoff);
       html += `<div class="pd-sec"><div class="pd-h">Schedule ahead <span class="subtle">· projected pts, ▲ easy ▼ tough</span></div>
         <div class="sched">${reg.map(wk).join("")}</div>
@@ -1752,6 +1781,26 @@
       ${bd.mae && bt.mae && L.changed && L.changed.length ? `<div class="subtle" style="margin-top:6px">Avg miss with the starting settings: ${num(bd.mae)} → with what it learned: ${num(bt.mae)} (in range ${pctTxt(bd.coverage)} → ${pctTxt(bt.coverage)}).</div>` : ""}
       ${v ? `<div class="subtle" style="margin-top:6px">Checked on week ${esc(v.week)}, which it didn't learn from: ${num(v.default_mae)} → ${num(v.learned_mae)} avg miss, so the changes ${v.passed ? "are switched on" : "were not trusted and are switched off"}.</div>` : ""}
     </div>`;
+    const A = L.params && L.params.availability;
+    if (A) {
+      const rowA = (k, label) => A[k] && A[k].games ? `<tr><td>${label}</td><td>${A[k].played != null ? Math.round(100 * A[k].played) + "%" : "–"}</td><td><b>${Math.round(100 * A[k].share)}%</b></td><td>${A[k].games}</td></tr>` : "";
+      html += `<h2>Injury designations</h2><p class="lead-text">Learned from last season's and this season's official injury reports: how often players
+        with each designation actually played, and the share of their normal points they produced (counting 0 when they sat). Used for this week's projections.</p>
+        <div class="card table-wrap"><table class="named"><thead><tr><th>Listed as</th><th>Played</th><th>Normal pts</th><th>Cases</th></tr></thead><tbody>
+        ${rowA("Questionable|full", "Questionable · full practice")}${rowA("Questionable|limited", "Questionable · limited")}${rowA("Questionable|dnp", "Questionable · didn't practice")}
+        ${rowA("Questionable", "Questionable (all)")}${rowA("Doubtful", "Doubtful")}${rowA("Out", "Out")}</tbody></table></div>
+        <p class="subtle">Started from 85% / 25% / 0%, pulled toward those as if 25 cases agreed. A practice split is used once it has 20+ cases.</p>`;
+    }
+    const WX = L.params && L.params.weather;
+    if (WX) {
+      const f = (x) => { const d = Math.round(100 * (x - 1)); return `<span class="${d > 0 ? "up" : d < 0 ? "down" : "muted"}">${d > 0 ? "+" : ""}${d}%</span>`; };
+      html += `<h2>Weather &amp; venue</h2><p class="lead-text">How each position scores vs its own average indoors, outdoors, in 15+ mph wind and at 32°F or colder
+        (wind and cold compared with calm outdoor games). Forecasts come from Open-Meteo for games in the next 7 days.</p>
+        <div class="card table-wrap"><table class="named"><thead><tr><th>Pos</th><th>Indoors</th><th>Outdoors</th><th>Windy</th><th>Freezing</th></tr></thead><tbody>
+        ${Object.entries(WX).map(([pos, x]) => `<tr><td><b>${esc(pos)}</b></td><td>${f(x.dome)}</td><td>${f(x.outdoor)}</td><td>${f(x.wind)}</td><td>${f(x.cold)}</td></tr>`).join("")}</tbody></table></div>
+        <p class="subtle">Currently applied at <b>${Math.round(100 * (L.params.weather_strength || 0))}%</b> strength: the learner only turns this up when it improves accuracy on this season's games${
+          (L.params.weather_strength || 0) === 0 ? ", which it hasn't yet" : ""}. Recency: each older game counts ${L.params.recency === 1 ? "the same as the latest (no fade yet)" : `${Math.round(100 * L.params.recency)}% as much as the week after it`}.</p>`;
+    }
     if (MD.history && MD.history.length > 1) {
       html += `<details class="recent"><summary>Week by week</summary><div class="card">${MD.history.slice().reverse().map((h) => `<div class="prow" style="display:block">
         <b>Week ${esc(h.week)}</b> <span class="subtle">· avg miss ${num(h.mae)} on ${h.games} games · in range ${pctTxt(h.coverage)}</span>
@@ -1844,6 +1893,9 @@
     if (o.exp_tds != null) opp.push(`${o.tds} TDs vs ~${o.exp_tds} expected from volume`);
     if (u.actual_ppg != null && u.expected_ppg != null) opp.push(`scoring ${one(u.actual_ppg)}/g vs ${one(u.expected_ppg)}/g usage-based`);
     if (opp.length) lines.push("Usage: " + opp.join(", ") + ".");
+    if (v && v.status) lines.push(`Injury: ${v.status}${v.practice ? ", " + (PRACTICE[v.practice] || v.practice) : ""}.`);
+    const nx = (c.next3 || []).find((w) => !w.bye);
+    if (nx && nx.wx && wxText(nx.wx)) lines.push(`Next game conditions: ${wxText(nx.wx)}.`);
     if (c.schedule && c.schedule.length) lines.push("Schedule ahead (projected): " + c.schedule.map((w) => w.bye ? `W${w.week} bye` : `W${w.week}${w.playoff ? " (playoffs)" : ""} ${w.home === false ? "@" : "vs "}${w.opp} ${one(w.pts)}${w.matchup && w.matchup !== "neutral" ? " " + w.matchup : ""}`).join("; "));
     const wv = F && (F.available || []).find((x) => x.id === pid);
     if (wv) {
