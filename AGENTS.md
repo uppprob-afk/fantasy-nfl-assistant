@@ -65,6 +65,7 @@ nfl_assistant/
   tendencies.py           manager FAAB habits + likely rivals / bid-to-win
   cards.py                player cards: last/next 3, finishes, consistency, opportunity, game log, schedule, value
   lab.py                  compact data for the in-browser Trade Lab / Planner (site/lab.js)
+  model.py                self-assessment: backtest, accuracy, learned settings, live ledger
   waivers.py              waiver targets: best available per position, points each adds to my team
   league.py               weekly scores vs median, all-play + luck, power rankings, odds history
   brief.py                Markdown brief for pasting into an AI assistant
@@ -198,6 +199,24 @@ team's last 4 weeks as score pills (score + that week's league rank; 1st = solid
 top 3 = light green, bottom 3 = red, W/L) and expands to scoring rank, points against per
 week (schedule luck), all-play + luck, consistency (SD vs the league median SD) and every
 game with "would have beaten N of M". The same `.pill` / `.f-*` tier classes as player cards.
+
+## Self-learning projections (More → Model)
+
+`projections.py` splits each rate into `rate_components` (data) and `rate_from` (settings);
+matchups into `matchup_raw` and `multiplier_from`. Settings live in `DEFAULT_PARAMS`
+(prior_weight, usage_blend, baseline_games, vegas/dvp damping, per-position `bias` and
+`sd_scale`); `build(..., params)` uses them. `run.build_model` runs before projections:
+`model.backtest_records` rebuilds every completed week's projection for the fantasy-relevant
+players (top 2x league starters per position) from games before that week and records the
+nflverse league-scoring result; `model.learn` = `tune` (grid search over `GRID`, adopted only
+with >= `MIN_GAMES_TO_TUNE` full games and >= `MIN_IMPROVEMENT`; per-position bias and range
+width shrunk with `SHRINK_GAMES` and capped) then a held-out check on the latest week (re-tuned
+without it; switched off if it does worse than defaults by > 1%). Everything is recomputed
+from scratch every run. `build_model_page` saves the live ledger
+(`data/projection_ledger.json`: each player's next-game projection, overwritten until played)
+and scores it (Sleeper points, else nflverse, else 0 = didn't play), plus
+`data/model_history.json` (one entry per week). Both persist via the private repo's data/.
+Site: `site/data/model.*`, `renderModel()`.
 
 ## Ask Claude (no API)
 

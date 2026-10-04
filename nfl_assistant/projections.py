@@ -39,6 +39,21 @@ DVP_SHRINK_GAMES = 8
 DVP_DAMPING = 0.5
 OFFENSE_STATUS_OUT = {"IR", "PUP", "Sus", "NA", "DNR", "COV"}
 
+# Tunable settings (model.tune adjusts them from the season's track record; these are the
+# starting values). bias / sd_scale are per-position multipliers on the rate and spread.
+DEFAULT_PARAMS = {
+    "prior_weight": PRIOR_SEASON_WEIGHT, "usage_blend": USAGE_BLEND, "baseline_games": BASELINE_GAMES,
+    "vegas_damping": VEGAS_DAMPING, "dvp_damping": DVP_DAMPING,
+    "bias": {pos: 1.0 for pos in POSITIONS}, "sd_scale": {pos: 1.0 for pos in POSITIONS},
+}
+
+
+def params_or_default(params: dict | None) -> dict:
+    out = {**DEFAULT_PARAMS, **(params or {})}
+    out["bias"] = {**DEFAULT_PARAMS["bias"], **((params or {}).get("bias") or {})}
+    out["sd_scale"] = {**DEFAULT_PARAMS["sd_scale"], **((params or {}).get("sd_scale") or {})}
+    return out
+
 
 def sleeper_team(team: str | None) -> str | None:
     return TEAM_FROM_NFLVERSE.get(team, team) if team else team
@@ -325,43 +340,56 @@ def role_baseline(position: str, depth_order: int | None, baseline: float) -> fl
     return baseline * table.get(depth_order or 99, ROLE_FACTOR_OTHER)
 
 
-def player_rate(games: list[dict], season: str, prior_season: str, position: str,
-                current_team: str | None, base: dict, usage: dict,
-                depth_order: int | None = None) -> dict:
-    """Rest-of-season points per game for one player, with spread and confidence."""
+def rate_components(games: list[dict], season: str, prior_season: str, position: str,
+                    current_team: str | None, base: dict, usage: dict, depth_order: int | None = None) -> dict:
+    """Everything the rate formula needs, before any tunable setting is applied."""
     prior = [g for g in games if g["season"] == prior_season and not g["partial"]]
     this = [g for g in games if g["season"] == season and not g["partial"]]
-    partial = [g["week"] for g in games if g["season"] == season and g["partial"]]
-    baseline = role_baseline(position, depth_order, base.get("baseline", 5.0))
-
-    r_prior = mean(g["pts"] for g in prior) if prior else 0.0
-    actual = mean(g["pts"] for g in this) if this else None
     xs = [expected_points(g, usage) for g in this]
     xs = [x for x in xs if x is not None]
-    expected = mean(xs) if xs else None
-    r_this = actual if expected is None or actual is None else (1 - USAGE_BLEND) * actual + USAGE_BLEND * expected
+    return {"position": position, "baseline": role_baseline(position, depth_order, base.get("baseline", 5.0)),
+            "cv": base.get("cv", 0.6), "n_prior": min(len(prior), PRIOR_SEASON_CAP), "games_prior": len(prior),
+            "r_prior": mean(g["pts"] for g in prior) if prior else 0.0,
+            "team_changed": bool(prior and current_team and prior[-1]["team"] != current_team),
+            "n_this": len(this), "actual": mean(g["pts"] for g in this) if this else None,
+            "expected": mean(xs) if xs else None,
+            "partial_weeks": [g["week"] for g in games if g["season"] == season and g["partial"]]}
 
-    team_changed = bool(prior and current_team and prior[-1]["team"] != current_team)
-    w_prior = PRIOR_SEASON_WEIGHT * min(len(prior), PRIOR_SEASON_CAP) * (TEAM_CHANGE_FACTOR if team_changed else 1)
-    w_this = len(this)
-    k = BASELINE_GAMES
-    rate = (k * baseline + w_prior * r_prior + w_this * (r_this or 0.0)) / (k + w_prior + w_this)
 
+def rate_from(c: dict, params: dict | None = None) -> dict:
+    """Rate, spread and confidence from components and the (possibly learned) settings."""
+    P = params_or_default(params)
+    actual, expected = c["actual"], c["expected"]
+    r_this = actual if expected is None or actual is None else (1 - P["usage_blend"]) * actual + P["usage_blend"] * expected
+    w_prior = P["prior_weight"] * c["n_prior"] * (TEAM_CHANGE_FACTOR if c["team_changed"] else 1)
+    w_this = c["n_this"]
+    k = P["baseline_games"]
+    rate = (k * c["baseline"] + w_prior * c["r_prior"] + w_this * (r_this or 0.0)) / (k + w_prior + w_this)
+    rate *= P["bias"].get(c["position"], 1.0)
     effective = w_prior + w_this
-    sd_game = base.get("cv", 0.6) * max(rate, 3.0)
+    sd_game = c["cv"] * max(rate, 3.0)
     se = sd_game / math.sqrt(k + effective)
+    sd = math.sqrt(sd_game ** 2 + se ** 2) * P["sd_scale"].get(c["position"], 1.0)
     if w_this >= 4 and effective >= 8:
         confidence = "high"
     elif effective >= 4:
         confidence = "medium"
     else:
         confidence = "low"
-    return {"rate": round(rate, 2), "sd": round(math.sqrt(sd_game ** 2 + se ** 2), 2), "se": round(se, 2),
-            "confidence": confidence, "games_prior": len(prior), "games_this": len(this),
-            "partial_weeks": partial, "prior_ppg": round(r_prior, 2) if prior else None,
-            "actual_ppg": round(actual, 2) if actual is not None else None,
-            "expected_ppg": round(expected, 2) if expected is not None else None,
-            "team_changed": team_changed, "baseline": round(baseline, 2)}
+    return {"rate": round(rate, 2), "sd": round(sd, 2), "se": round(se, 2), "confidence": confidence}
+
+
+def player_rate(games: list[dict], season: str, prior_season: str, position: str,
+                current_team: str | None, base: dict, usage: dict,
+                depth_order: int | None = None, params: dict | None = None) -> dict:
+    """Rest-of-season points per game for one player, with spread and confidence."""
+    c = rate_components(games, season, prior_season, position, current_team, base, usage, depth_order)
+    r = rate_from(c, params)
+    return {**r, "games_prior": c["games_prior"], "games_this": c["n_this"],
+            "partial_weeks": c["partial_weeks"], "prior_ppg": round(c["r_prior"], 2) if c["games_prior"] else None,
+            "actual_ppg": round(c["actual"], 2) if c["actual"] is not None else None,
+            "expected_ppg": round(c["expected"], 2) if c["expected"] is not None else None,
+            "team_changed": c["team_changed"], "baseline": round(c["baseline"], 2)}
 
 
 # --- weekly projection ------------------------------------------------------
@@ -382,23 +410,36 @@ def availability(status: str | None, weeks_ahead: int) -> float:
     return 1.0
 
 
-def matchup_multiplier(position: str, game: dict, dvp: dict, avg_implied: float | None) -> tuple[float, str]:
-    """(multiplier, source). Vegas implied totals when available, else dampened defence-vs-position."""
+def matchup_raw(position: str, game: dict, dvp: dict, avg_implied: float | None) -> tuple[str, float | None]:
+    """(source, raw signal) before damping: Vegas implied-total ratio - 1 (DEF: opponent's,
+    inverted), or defence-vs-position ratio - 1."""
     if game.get("implied") is not None and avg_implied:
         if position == "DEF":
-            m = 1 + (avg_implied - game["opp_implied"]) / avg_implied
-        else:
-            m = 1 + VEGAS_DAMPING * (game["implied"] / avg_implied - 1)
-        return max(0.75, min(1.25, m)), "vegas"
+            return "vegas", (avg_implied - game["opp_implied"]) / avg_implied
+        return "vegas", game["implied"] / avg_implied - 1
     d = dvp.get((game["opp"], position))
-    if d is None:
-        return 1.0, "neutral"
-    return max(0.9, min(1.1, 1 + DVP_DAMPING * (d - 1))), "opponent"
+    return ("neutral", None) if d is None else ("opponent", d - 1)
+
+
+def multiplier_from(position: str, source: str, raw: float | None, params: dict | None = None) -> float:
+    P = params_or_default(params)
+    if source == "vegas":
+        return max(0.75, min(1.25, 1 + (raw if position == "DEF" else P["vegas_damping"] * raw)))
+    if source == "opponent":
+        return max(0.9, min(1.1, 1 + P["dvp_damping"] * raw))
+    return 1.0
+
+
+def matchup_multiplier(position: str, game: dict, dvp: dict, avg_implied: float | None,
+                       params: dict | None = None) -> tuple[float, str]:
+    """(multiplier, source). Vegas implied totals when available, else dampened defence-vs-position."""
+    source, raw = matchup_raw(position, game, dvp, avg_implied)
+    return multiplier_from(position, source, raw, params), source
 
 
 def project_weeks(rate: float, position: str, team: str | None, status: str | None,
                   weeks: list[int], first_week: int, sched: dict, dvp: dict,
-                  avg_implied: float | None) -> dict[int, dict]:
+                  avg_implied: float | None, params: dict | None = None) -> dict[int, dict]:
     """week -> {pts, bye, mult, source, avail} for the given (unplayed) weeks."""
     out = {}
     for w in weeks:
@@ -406,7 +447,7 @@ def project_weeks(rate: float, position: str, team: str | None, status: str | No
         if not game:
             out[w] = {"pts": 0.0, "bye": True}
             continue
-        mult, source = matchup_multiplier(position, game, dvp, avg_implied)
+        mult, source = matchup_multiplier(position, game, dvp, avg_implied, params)
         avail = availability(status, w - first_week)
         out[w] = {"pts": round(rate * mult * avail, 2), "bye": False, "mult": round(mult, 3),
                   "source": source, "avail": avail, "opp": game["opp"], "home": game["home"]}
@@ -427,7 +468,7 @@ def average_implied(sched: dict) -> float | None:
 def build(players: dict, candidate_ids: set[str], rows_prior: list[dict], rows_this: list[dict],
           snaps: list[dict], games: list[dict], scoring: dict, season: str,
           weeks: list[int], starters_per_pos: dict[str, int],
-          playoff_weeks: list[int] | None = None) -> dict[str, dict]:
+          playoff_weeks: list[int] | None = None, params: dict | None = None) -> dict[str, dict]:
     """Projections for every candidate Sleeper player: rate, spread, confidence, weekly points.
 
     weeks = remaining regular-season weeks to project (games already played are skipped
@@ -462,12 +503,12 @@ def build(players: dict, candidate_ids: set[str], rows_prior: list[dict], rows_t
         if pos != "DEF":
             mark_partial(plogs, injured=status is not None)
         r = player_rate(plogs, season, prior_season, pos, team, bases.get(pos, {}), usage,
-                        p.get("depth_chart_order"))
+                        p.get("depth_chart_order"), params)
         todo = unplayed_weeks(sched, team, weeks)
-        weekly = project_weeks(r["rate"], pos, team, status, todo, first_week, sched, dvp, avg_imp)
+        weekly = project_weeks(r["rate"], pos, team, status, todo, first_week, sched, dvp, avg_imp, params)
         log_this = [{k: g.get(k) for k in LOG_KEYS} for g in plogs if g["season"] == season]
         po = project_weeks(r["rate"], pos, team, status, unplayed_weeks(sched, team, playoff_weeks or []),
-                           first_week, sched, dvp, avg_imp)
+                           first_week, sched, dvp, avg_imp, params)
         r.update({"id": pid, "position": pos, "team": team, "status": status, "weekly": weekly,
                   "log": log_this, "playoff_weeks": po, "pos_td_per_touch": td_rates.get(pos),
                   "ros": round(sum(x["pts"] for x in weekly.values()), 1),

@@ -1711,6 +1711,83 @@
   }
 
   // ---------- Brief ----------
+  // ---------- Model: how accurate projections have been, and what the model learned ----------
+  const MD = DATA.model;
+  function renderModel() {
+    const host = $("tab-model");
+    if (!MD) { host.innerHTML = `<div class="empty">No model report yet. Run an update.</div>`; return; }
+    const bt = MD.backtest || {}, bd = MD.backtest_default || {}, L = MD.learned || {}, live = MD.live || {};
+    const pctTxt = (x) => (x == null ? "–" : Math.round(100 * x) + "%");
+    const better = bt.naive_mae ? 1 - bt.mae / bt.naive_mae : null;
+    let html = `<h2>How accurate are the projections?</h2>
+      <p class="lead-text">Every update re-runs the model for each completed week this season using only what was known before kickoff,
+      then compares it with what players actually scored (${bt.games || 0} player-games so far, fantasy-relevant players only, full games).
+      "In range" = the score landed inside the projected range; about 68% is right for a well-calibrated range.</p>`;
+    if (!bt.games) {
+      html += `<div class="card"><div class="empty">No completed weeks to check yet.</div></div>`;
+    } else {
+      html += `<div class="tiles head">
+        ${tileHtml("Avg miss", `${num(bt.mae)}<small> pts</small>`, `per player-game`)}
+        ${tileHtml("vs a simple guess", better == null ? "–" : `${better >= 0 ? "" : "−"}${Math.abs(Math.round(100 * better))}%<small> ${better >= 0 ? "better" : "worse"}</small>`, `guess = season avg so far (${num(bt.naive_mae)})`, better > 0 ? "good" : "warn")}
+        ${tileHtml("In range", pctTxt(bt.coverage), "target ~68%", Math.abs(bt.coverage - 0.68) > 0.08 ? "warn" : "")}
+        ${tileHtml("Bias", `${bt.bias >= 0 ? "+" : ""}${num(bt.bias)}`, bt.bias > 0.5 ? "projects a bit high" : bt.bias < -0.5 ? "projects a bit low" : "about right")}
+      </div>
+      <div class="card table-wrap" style="margin-top:12px"><table class="named"><thead><tr><th>Position</th><th>Games</th><th>Avg miss</th><th>Bias</th><th>In range</th><th class="hide-sm">Simple guess</th></tr></thead>
+        <tbody>${Object.entries(bt.by_position || {}).map(([pos, v]) => `<tr><td><b>${esc(pos)}</b></td><td>${v.games}</td><td>${num(v.mae)}</td>
+          <td>${v.bias >= 0 ? "+" : ""}${num(v.bias)}</td><td>${pctTxt(v.coverage)}</td><td class="hide-sm">${num(v.naive_mae)}</td></tr>`).join("")}</tbody></table></div>
+      <div class="card table-wrap" style="margin-top:12px"><table class="named"><thead><tr><th>Week</th><th>Games</th><th>Avg miss</th><th>In range</th><th class="hide-sm">Simple guess</th></tr></thead>
+        <tbody>${Object.entries(bt.by_week || {}).map(([w, v]) => `<tr><td>Wk ${esc(w)}</td><td>${v.games}</td><td>${num(v.mae)}</td><td>${pctTxt(v.coverage)}</td><td class="hide-sm">${num(v.naive_mae)}</td></tr>`).join("")}</tbody></table></div>`;
+    }
+
+    // what it learned
+    const fmt = (c) => {
+      if (c.key.startsWith("bias.")) { const d = Math.round(100 * (c.to - 1)); return `${esc(c.label)}: ${d > 0 ? d + "% higher" : -d + "% lower"}`; }
+      if (c.key.startsWith("sd.")) { const d = Math.round(100 * (c.to - 1)); return `${esc(c.key.slice(3))} ranges ${d > 0 ? d + "% wider" : -d + "% narrower"}`; }
+      return `${esc(c.label)}: ${c.from} → ${c.to}`;
+    };
+    const v = L.validation;
+    html += `<h2>What it has learned</h2><div class="card card-pad">
+      <div>${esc(L.reason || "")}</div>
+      ${L.changed && L.changed.length ? `<ul class="tight" style="margin-top:8px">${L.changed.map((c) => `<li>${fmt(c)}</li>`).join("")}</ul>` : ""}
+      ${bd.mae && bt.mae && L.changed && L.changed.length ? `<div class="subtle" style="margin-top:6px">Avg miss with the starting settings: ${num(bd.mae)} → with what it learned: ${num(bt.mae)} (in range ${pctTxt(bd.coverage)} → ${pctTxt(bt.coverage)}).</div>` : ""}
+      ${v ? `<div class="subtle" style="margin-top:6px">Checked on week ${esc(v.week)}, which it didn't learn from: ${num(v.default_mae)} → ${num(v.learned_mae)} avg miss, so the changes ${v.passed ? "are switched on" : "were not trusted and are switched off"}.</div>` : ""}
+    </div>`;
+    if (MD.history && MD.history.length > 1) {
+      html += `<details class="recent"><summary>Week by week</summary><div class="card">${MD.history.slice().reverse().map((h) => `<div class="prow" style="display:block">
+        <b>Week ${esc(h.week)}</b> <span class="subtle">· avg miss ${num(h.mae)} on ${h.games} games · in range ${pctTxt(h.coverage)}</span>
+        <div class="subtle">${h.changed.length ? h.changed.map(fmt).join(" · ") : "starting settings"}</div></div>`).join("")}</div></details>`;
+    }
+
+    // live scorecard
+    html += `<h2>Live scorecard</h2><p class="lead-text">What the dashboard actually showed before each game (injury news included), scored once the games are played.
+      Players who didn't play count as 0, because that's what you'd have got.</p>`;
+    if (!live.games) {
+      html += `<div class="card"><div class="empty">Starts filling in after this week's games: each update saves the projections you see, and the next update after kickoff scores them.</div></div>`;
+    } else {
+      const mine = new Set(MD.my_players || []);
+      const rows = (live.rows_last_week || []).filter((r) => mine.has(r.id)).sort((a, b) => b.pts - a.pts);
+      const row = (r) => `<tr><td>${esc(r.name)} <span class="subtle">${esc(r.pos)}</span></td><td>${num(r.pts)}</td><td>${num(r.actual)}</td>
+        <td class="${r.error > 0 ? "down" : "up"}">${r.error > 0 ? "−" : "+"}${num(Math.abs(r.error))}</td><td>${r.inside ? "✓" : ""}</td></tr>`;
+      html += `<div class="tiles head">${tileHtml("Avg miss", `${num(live.mae)}<small> pts</small>`, `${live.games} player-games`)}
+        ${tileHtml("In range", pctTxt(live.coverage), "target ~68%")}${tileHtml("Bias", `${live.bias >= 0 ? "+" : ""}${num(live.bias)}`, "")}</div>
+        ${rows.length ? `<h2 style="font-size:1rem">Your players, week ${esc(live.last_week)}</h2><div class="card table-wrap"><table class="named">
+          <thead><tr><th>Player</th><th>Proj</th><th>Scored</th><th>vs proj</th><th>In range</th></tr></thead><tbody>${rows.map(row).join("")}</tbody></table></div>` : ""}
+        <h2 style="font-size:1rem">Biggest misses, week ${esc(live.last_week)}</h2><div class="card table-wrap"><table class="named">
+          <thead><tr><th>Player</th><th>Proj</th><th>Scored</th><th>vs proj</th><th>In range</th></tr></thead><tbody>${(live.biggest_misses || []).map(row).join("")}</tbody></table></div>`;
+    }
+    html += `<details class="recent"><summary>How the learning works</summary><div class="card card-pad subtle">
+      <p><b>Track record.</b> For every completed week, each fantasy-relevant player's projection is rebuilt with only the games before that week
+      and compared with what he scored (league scoring). Partial games (hurt early) are left out.</p>
+      <p><b>What it can adjust.</b> How much to trust usage vs actual points, last season vs this season, the pull toward a typical player at the
+      position, and how strongly matchups count. It tries a small set of alternatives and switches only if the average miss drops by at least
+      ${Math.round(100 * MD.settings.min_improvement)}% over at least ${MD.settings.min_games} games. It also corrects each position for running high or low and for
+      ranges that are too narrow or wide, pulled toward "no change" as if ${MD.settings.shrink_games} games said so, and capped (±10% points, ranges −25% to +40%).</p>
+      <p><b>Safety check.</b> Learned settings are re-learned without the latest week and tested on it. If they do worse there than the
+      starting settings, they're switched off. Everything is recalculated from scratch each update, so a bad week can't permanently skew it.</p>
+      <p><b>Live scorecard</b> is separate and honest: it scores exactly what the dashboard showed you, injuries and all.</p></div></details>`;
+    host.innerHTML = html;
+  }
+
   const B = DATA.brief;
 
   function renderBrief() {
@@ -1883,7 +1960,7 @@
     league: [["league", "League"]],
     waivers: [["faab", "Bids & FAAB"], ["news", "News"]],
     trades: [["trades", "Ideas"], ["lab", "Trade Lab"]],
-    more: [["planner", "Planner"], ["brief", "Brief"], ["more", "Settings"]],
+    more: [["planner", "Planner"], ["model", "Model"], ["brief", "Brief"], ["more", "Settings"]],
   };
   const lastSub = {};
   function sectionOf(name) {
@@ -2036,7 +2113,7 @@
   }
   showStatus(D.generated_at);
 
-  renderHome(); renderLeague(); renderNews(); renderFaab(); renderTrades(); renderTradeLab(); renderPlanner(); renderBrief(); renderMore();
+  renderHome(); renderLeague(); renderNews(); renderFaab(); renderTrades(); renderTradeLab(); renderPlanner(); renderModel(); renderBrief(); renderMore();
   tidyExplanations(document);
   new MutationObserver(() => tidyExplanations(document.querySelector("main"))).observe(document.querySelector("main"), { childList: true, subtree: true });
   document.querySelectorAll("#tabs button").forEach((b) => b.addEventListener("click", () => selectTab(b.dataset.tab)));
