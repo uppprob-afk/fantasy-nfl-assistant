@@ -62,6 +62,7 @@ nfl_assistant/
   lineups.py              optimal weekly lineups (byes/injuries handled)
   trades.py               trade values (ROS optimal lineups) + mutual-benefit trade ideas
   outlook.py              win chances, start/sit, weekly lineups, playoff simulation
+  teams.py                NFL teams: depth charts, position strength vs league, offence, roles / job security
   tendencies.py           manager FAAB habits + likely rivals / bid-to-win
   cards.py                player cards: last/next 3, finishes, consistency, opportunity, game log, schedule, value
   lab.py                  compact data for the in-browser Trade Lab / Planner (site/lab.js)
@@ -231,6 +232,24 @@ starts 0) scales them. Forecasts: Open-Meteo (free, no key) for unplayed outdoor
 the next 7 days (`STADIUMS` coordinates; neutral sites skipped), cached 3 h. Both tables travel
 in `params` (`availability`, `weather`) and show on the Model page and in each card's
 "Game day" note.
+
+## NFL teams, depth charts and roles (phase 1)
+
+`run.build_teams` → `site/data/teams.*` and `cards[pid].role`. Depth order is Sleeper's
+`depth_chart_order` (WRs are listed per slot, so ties are broken by projection); weekly usage
+from nflverse logs. `teams.weekly_role`: share = carry share (RB), target share (WR/TE) or
+snap % (QB) per game; a game is "left early / limited" if the snap share is under 70% of
+his median this season (this-season normal, so it catches cases the projection's
+`mark_partial` misses). `opportunity_weeks`: weeks where someone ahead on the depth chart
+(who has played this season) left early or didn't play; those weeks are shown with ↑ and
+excluded from the label. `job_security`: Locked in / Starter / Lead role / Rising / Losing
+work (7-point share trend, last 2 normal games vs season) / Committee / One injury away (#2
+behind a 50%+ RB, or #2 QB/TE without a role) / Depth / Unproven. `position_strength`:
+fantasy points per game produced and allowed per position, ranked 1-32 with the median;
+`offence`: plays, pass rate, points, next game's implied total. Site: tap any team code
+(`teamLink`, `data-act="team"`) for the team sheet (`dialog#team-sheet`); League → NFL teams
+table (sortable by position, localStorage `nflSort`); player panels show a Role section.
+Phase 2 (planned): volume x share x efficiency projections with learned injury inheritance.
 
 ## Freshness
 
