@@ -86,6 +86,70 @@
   const pct = (x) => (x == null ? "–" : Math.round(100 * x) + "%");
   const tileHtml = (k, v, sub, cls) => `<div class="tile ${cls || ""}"><div class="k">${k}</div><div class="v">${v}</div>${sub ? `<div class="s">${sub}</div>` : ""}</div>`;
 
+  // ---------- NFL teams: links, role section, team sheet ----------
+  const TM = DATA.teams;
+  const teamLink = (t) => (TM && t && TM.depth && TM.depth[t]
+    ? `<button type="button" class="tlink" data-act="team" data-team="${esc(t)}" title="${esc((TM.names || {})[t] || t)} depth chart">${esc(t)}</button>` : esc(t || ""));
+  const LABEL_CLS = { "Locked in": "balanced", "Starter": "balanced", "Lead role": "balanced", "Rising": "balanced",
+    "Committee": "q", "One injury away": "ok-style", "Losing work": "lopsided", "Depth": "", "Unproven": "", "Backup": "" };
+  const roleChip = (label) => `<span class="chip ${LABEL_CLS[label] || ""}">${esc(label)}</span>`;
+  const KIND_TXT = { carry: "of RB carries", target: "of targets", snap: "of snaps" };
+  function roleSection(c) {
+    const r = c.role;
+    if (!r) return "";
+    const ordinalPos = r.order ? `${esc(r.pos)}${r.order}` : esc(r.pos);
+    const weeks = (r.weeks || []).slice(-6).map((w) => `<span class="pill ${w.opportunity ? "f-start" : w.partial ? "none" : "f-mid"}" title="Week ${w.week}${
+        w.partial ? ": left early / limited" : w.opportunity ? ": someone ahead of him left early or sat" : ""}"><b>${w.share == null ? "–" : Math.round(100 * w.share) + "%"}${w.partial ? "*" : w.opportunity ? "↑" : ""}</b><i>W${w.week}${w.snap != null ? " · " + Math.round(100 * w.snap) + "% sn" : ""}</i></span>`).join("");
+    return `<div class="pd-sec"><div class="pd-h">Role · ${teamLink(r.team)} depth chart</div>
+      <div>${roleChip(r.label)} <b>${ordinalPos}</b>${r.ahead && r.ahead.length ? ` behind ${r.ahead.map(esc).join(", ")}` : ""}${r.behind && r.behind.length ? ` · ahead of ${r.behind.map(esc).join(", ")}` : ""}</div>
+      <div class="subtle" style="margin:4px 0 8px">${esc(r.reason)}</div>
+      ${weeks ? `<div class="pd-h" style="margin-bottom:4px">Share ${KIND_TXT[r.kind] || ""} by week</div><div class="role-weeks">${weeks}</div>
+      <div class="subtle">* left early or limited snaps · ↑ someone ahead of him left early or sat (an opportunity, not his normal role). Normal-role weeks drive the label.</div>` : ""}</div>`;
+  }
+
+  function teamSheet(t) {
+    const S = TM.strength, O = (TM.offence || {})[t] || {}, D2 = TM.depth[t] || {};
+    const tier = (rank) => (rank <= 8 ? "f-start" : rank > 24 ? "f-bust" : "f-mid");
+    const ord = (n) => (n ? ordinal(n) : "–");
+    const rows = ["QB", "RB", "WR", "TE", "K", "DEF"].filter((pos) => S[pos]).map((pos) => {
+      const x = S[pos], ppg = x.ppg[t], rk = x.rank[t], al = x.allowed[t], ark = x.allowed_rank[t];
+      const vs = ppg != null && x.median != null ? ppg - x.median : null;
+      return `<tr><td><b>${pos}</b></td><td>${ppg != null ? num(ppg) : "–"}<div class="subtle" style="font-size:11px">${vs != null ? `${vs >= 0 ? "+" : ""}${num(vs)} vs median` : ""}</div></td>
+        <td><span class="fin ${rk ? tier(rk) : ""}">${ord(rk)}</span></td>
+        <td>${pos === "DEF" || al == null ? "–" : num(al)}</td><td>${pos === "DEF" || !ark ? "–" : `<span class="fin ${tier(ark)}">${ord(ark)}</span>`}</td></tr>`;
+    }).join("");
+    const owner = (o) => (o == null ? `<span class="subtle">free agent</span>` : o === D.me.team_name ? `<b>you</b>` : esc(o));
+    const depth = ["QB", "RB", "WR", "TE", "K"].filter((pos) => D2[pos] && D2[pos].length).map((pos) => `<div class="pd-h" style="margin-top:14px">${pos}</div>
+      <div class="dc">${D2[pos].map((r) => `<div class="dc-row"><span class="dc-o">${r.order || "–"}</span>
+        <div class="dc-n"><div><b>${esc(r.name)}</b>${r.status ? ` <span class="chip ${r.status === "Questionable" ? "q" : "inj"}">${esc(r.status)}</span>` : ""} ${roleChip(r.label)}</div>
+          <div class="subtle">${r.share != null && r.kind ? `${Math.round(100 * r.share)}% ${KIND_TXT[r.kind]}` : ""}${r.ppg != null ? `${r.share != null && r.kind ? " · " : ""}${num(r.ppg)} pts/g` : ""} · ${owner(r.owner)}</div></div></div>`).join("")}</div>`).join("");
+    return `<div class="subtle">${O.points_pg != null ? `<b>${num(O.points_pg)}</b> pts/g (${ord(O.ranks && O.ranks.points_pg)})` : ""}${
+        O.plays_pg != null ? ` · <b>${num(O.plays_pg)}</b> plays/g (${ord(O.ranks && O.ranks.plays_pg)})` : ""}${
+        O.pass_rate != null ? ` · pass rate ${Math.round(100 * O.pass_rate)}%` : ""}${
+        O.next_opp ? ` · week ${esc(TM.week)}: ${O.next_home ? "vs" : "@"} ${esc(O.next_opp)}${O.implied_next ? `, expected ${num(O.implied_next)} pts` : ""}` : ""}</div>
+      <h2 style="font-size:1rem;margin-top:14px">Fantasy production by position</h2>
+      <div class="card table-wrap"><table class="named"><thead><tr><th>Pos</th><th>Scores /g</th><th>Rank</th><th>Allows</th><th>Rank</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <p class="subtle">Points per game this season (league scoring) produced by the position group, ranked 1–32. "Allows" = what their defence gives up to that position (1st = allows the most, so the best matchup).</p>
+      <h2 style="font-size:1rem">Depth chart</h2>${depth}`;
+  }
+  function openTeam(t) {
+    if (!TM || !TM.depth[t]) return;
+    $("team-title").textContent = `${(TM.names || {})[t] || t}`;
+    $("team-body").innerHTML = teamSheet(t);
+    const d = $("team-sheet");
+    if (d.showModal) d.showModal(); else d.setAttribute("open", "");
+  }
+  function teamsTable(sortPos) {
+    const S = TM.strength, keys = Object.keys(TM.depth).sort();
+    const sorted = keys.slice().sort((a, b) => (S[sortPos].rank[a] || 99) - (S[sortPos].rank[b] || 99));
+    const cell = (pos, t) => { const r = S[pos] && S[pos].rank[t]; return r ? `<span class="fin ${r <= 8 ? "f-start" : r > 24 ? "f-bust" : "f-mid"}">${r}</span>` : "–"; };
+    return `<div class="card table-wrap"><table class="named"><thead><tr><th>Team</th><th>QB</th><th>RB</th><th>WR</th><th>TE</th><th class="hide-xs">Pts/g</th></tr></thead>
+      <tbody>${sorted.map((t) => `<tr class="team-row" data-act="team" data-team="${esc(t)}"><td class="team-cell"><div class="t">${esc(t)}</div><div class="m">${esc((TM.names || {})[t] || "")}</div></td>
+        <td>${cell("QB", t)}</td><td>${cell("RB", t)}</td><td>${cell("WR", t)}</td><td>${cell("TE", t)}</td>
+        <td class="hide-xs">${TM.offence[t] && TM.offence[t].points_pg != null ? num(TM.offence[t].points_pg) : "–"}</td></tr>`).join("")}</tbody></table></div>
+      <p class="subtle">League rank (1–32) of each team's fantasy points per game at the position this season. Tap a team for its depth chart.</p>`;
+  }
+
   const PRACTICE = { dnp: "didn't practice", limited: "limited practice", full: "full practice" };
   function wxText(wx) {
     if (!wx) return "";
@@ -127,6 +191,7 @@
     if (tiles.length) html += `<div class="tiles head">${tiles.join("")}</div>`;
 
     html += gameDayNote(c);
+    html += roleSection(c);
 
     // consistency & ceiling
     if (k.games) {
@@ -232,7 +297,7 @@
       <span class="slot ${esc(cls)}">${esc(label)}</span>
       <div class="pmain">
         <div class="pname">${esc(p.name)}${injuryChip(p)}${irNote}${checkChip(p)}</div>
-        <div class="pmeta">${esc(p.team)}${rank}${v ? ` · ${esc(v.confidence)} conf` : ""}${v && v.flag && !isHeld(p.id) ? ` · <span class="flag">${esc(v.flag)}</span>` : ""}${isHeld(p.id) ? ` · <span class="held">held</span>` : ""}</div>
+        <div class="pmeta">${teamLink(p.team)}${rank}${v ? ` · ${esc(v.confidence)} conf` : ""}${v && v.flag && !isHeld(p.id) ? ` · <span class="flag">${esc(v.flag)}</span>` : ""}${isHeld(p.id) ? ` · <span class="held">held</span>` : ""}</div>
         ${reason}
       </div>
       <div class="pnums proj">${v ? `<div class="big">${one(v.rate)}</div><div class="small">proj/wk</div>` : ""}</div>
@@ -314,7 +379,7 @@
     return `<details class="wv" data-pid="${esc(p.id)}"><summary class="wv-sum">
         <div class="wv-head">
           <div class="pname">${esc(p.name)}${injuryChip(p)} <span class="chip ${fitCls}">${fitLabel}</span>${p.trending ? ` <span class="chip warm" title="Sleeper-wide adds, last 48h">trending</span>` : ""}</div>
-          <div class="pmeta">${esc(p.position)} · ${esc(p.team)}${p.pos_rank ? ` · ${esc(p.position)}${p.pos_rank} rest of season` : ""} · ${num(p.proj_rate)}/wk proj · ${esc(p.proj_confidence)} conf</div>
+          <div class="pmeta">${esc(p.position)} · ${teamLink(p.team)}${p.pos_rank ? ` · ${esc(p.position)}${p.pos_rank} rest of season` : ""} · ${num(p.proj_rate)}/wk proj · ${esc(p.proj_confidence)} conf</div>
           <div class="wv-impact">${impact}${cut}</div>
         </div>
         <div class="bid-amt">${s.bid == null ? "–" : money(s.bid)}<small>bid</small></div>
@@ -470,7 +535,7 @@
       ? `<div class="act">Bid idea: <b>${money(n.suggestion.bid)}</b> · <span class="subtle">${esc(n.suggestion.reason)}</span></div>` : "";
     return `<div class="news">
       <div class="tag ${esc(tagCls)}">${esc(tag)}${sect}</div>
-      <div><span class="pname">${esc(n.name)}</span>${injuryChip(n)} <span class="pmeta">${esc(n.position)} · ${esc(n.team)}${who}${stats}</span></div>
+      <div><span class="pname">${esc(n.name)}</span>${injuryChip(n)} <span class="pmeta">${esc(n.position)} · ${teamLink(n.team)}${who}${stats}</span></div>
       <div class="txt">${esc(n.text)}</div>${action}${bid}${n.rivals && F && F.tendencies ? rivalsBlock(n) : ""}
       ${n.id && actionButtons(n.id) ? `<div class="acts">${actionButtons(n.id)}</div>` : ""}
     </div>`;
@@ -524,7 +589,7 @@
     const c = CARDS[p.id];
     if (!c) return `<div class="empty">No details for this player yet.</div>`;
     return `<div class="xp-head"><div><span class="pname">${esc(p.name)}</span>${injuryChip(p)}
-        <div class="pmeta">${esc(p.position)} · ${esc(p.team)}${p.manager ? ` · ${esc(p.manager)}` : ""}</div></div>
+        <div class="pmeta">${esc(p.position)} · ${teamLink(p.team)}${p.manager ? ` · ${esc(p.manager)}` : ""}</div></div>
       <div class="pnums proj">${c.value ? `<div class="big">${one(c.value.rate)}</div><div class="small">proj/wk</div>` : ""}</div></div>
       ${pills(c, p.position)}${detailPanel(p, c)}`;
   }
@@ -1068,7 +1133,7 @@
 
   function renderLeague() {
     const view = store.get("leagueView", "standings");
-    let html = segHtml("league-seg", [["standings", "Standings"], ["race", "Playoff race"], ["power", "Power"]], view)
+    let html = segHtml("league-seg", [["standings", "Standings"], ["race", "Playoff race"], ["power", "Power"]].concat(TM ? [["nfl", "NFL teams"]] : []), view)
       + `<div id="league-body"></div>`;
     html += weeklyChart();
     if (O) html += `<h2>Week ${esc(O.week)} matchups</h2>${O.matchups.map(matchupCard).join("")}`;
@@ -1083,6 +1148,12 @@
 
     const draw = (v) => {
       const body = $("league-body");
+      if (v === "nfl" && TM) {
+        const pos = store.get("nflSort", "RB");
+        body.innerHTML = segHtml("nfl-sort", [["QB", "QB"], ["RB", "RB"], ["WR", "WR"], ["TE", "TE"]], pos) + `<div id="nfl-table" style="margin-top:12px">${teamsTable(pos)}</div>`;
+        wireSeg("nfl-sort", "nflSort", (p2) => { $("nfl-table").innerHTML = teamsTable(p2); });
+        return;
+      }
       if (v === "race" && O) {
         const P = O.playoffs;
         const seed = {};
@@ -1893,6 +1964,7 @@
     if (o.exp_tds != null) opp.push(`${o.tds} TDs vs ~${o.exp_tds} expected from volume`);
     if (u.actual_ppg != null && u.expected_ppg != null) opp.push(`scoring ${one(u.actual_ppg)}/g vs ${one(u.expected_ppg)}/g usage-based`);
     if (opp.length) lines.push("Usage: " + opp.join(", ") + ".");
+    if (c.role) lines.push(`Role: ${c.role.pos}${c.role.order || ""} for ${c.role.team}${c.role.ahead && c.role.ahead.length ? " behind " + c.role.ahead.join(", ") : ""} - ${c.role.label} (${c.role.reason}) Weekly share: ${(c.role.weeks || []).map((w) => `W${w.week} ${w.share == null ? "-" : Math.round(100 * w.share) + "%"}${w.partial ? " (left early)" : w.opportunity ? " (opportunity: player ahead left/sat)" : ""}`).join(", ")}.`);
     if (v && v.status) lines.push(`Injury: ${v.status}${v.practice ? ", " + (PRACTICE[v.practice] || v.practice) : ""}.`);
     const nx = (c.next3 || []).find((w) => !w.bye);
     if (nx && nx.wx && wxText(nx.wx)) lines.push(`Next game conditions: ${wxText(nx.wx)}.`);
@@ -2159,6 +2231,7 @@
     else if (act === "plan-add") planPickup(pid);
     else if (act === "hold") toggleHold(pid);
     else if (act === "ask") openAsk(b.dataset.kind, pid);
+    else if (act === "team") openTeam(b.dataset.team);
     else if (act === "improve") runImprove();
     else if (act === "apply-edit") {
       const e = IMPROVE.edits.concat(IMPROVE.closest || [])[Number(b.dataset.i)];

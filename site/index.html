@@ -30,6 +30,11 @@
       </div>
     </div>
   </header>
+  <dialog id="team-sheet" aria-labelledby="team-title">
+    <form method="dialog" class="ask-box"><div class="ask-top"><h2 id="team-title">Team</h2>
+      <button class="icon-btn" value="close" aria-label="Close" formnovalidate>✕</button></div>
+      <div id="team-body"></div></form>
+  </dialog>
   <dialog id="ask" aria-labelledby="ask-title">
     <form method="dialog" class="ask-box" id="ask-form">
       <div class="ask-top"><h2 id="ask-title">Ask Claude</h2><button class="icon-btn" value="close" aria-label="Close" formnovalidate>✕</button></div>
@@ -83,6 +88,7 @@
   <script src="lab.js"></script>
   <script src="data/brief.js"></script>
   <script src="data/model.js"></script>
+  <script src="data/teams.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

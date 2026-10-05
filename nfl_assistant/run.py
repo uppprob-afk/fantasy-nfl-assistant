@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from . import brief, cards, dashboard, faab, factors, lab, league, lineups, model, nflverse, outlook, projections, scanner, tendencies, trades, waivers
+from . import brief, cards, dashboard, faab, factors, lab, league, lineups, model, nflverse, outlook, projections, scanner, teams, tendencies, trades, waivers
 from .config import ROOT, ConfigError, load_config
 from .output import write_site_data, write_snapshot
 from .players import find_player, ir_allowed_statuses, player_brief, player_name, slim_players
@@ -545,6 +545,29 @@ def build_outlook(ctx: dict, managers: dict, proj: dict, weeks: list[int], slots
             "names": names}
 
 
+# --- NFL teams: depth charts, position strength, roles ------------------------------
+def build_teams(ctx: dict, nfl: dict, proj: dict, managers: dict, now) -> tuple[dict, dict]:
+    """(teams page data, Sleeper id -> role) for all 32 teams."""
+    league, players = ctx["league"], ctx["players"]
+    season = league["season"]
+    rows = nfl["prior"] + nfl["this"]
+    logs = projections.game_logs(rows, nfl["snaps"], league["scoring_settings"])
+    dlogs = projections.def_logs(rows, nfl["games"], league["scoring_settings"])
+    sched = projections.schedule(nfl["games"], season)
+    _, by_gsis, by_name = nflverse.index_rows(rows)
+    relevant = {pid: p for pid, p in players.items() if p.get("team") and p.get("position") in teams.POSITIONS}
+    ids = {pid: nid for pid, p in relevant.items() if (nid := nflverse.match_player(p, by_gsis, by_name))}
+    owners = {pid: managers[r["roster_id"]]["team_name"] for r in ctx["rosters"] for pid in (r.get("players") or [])}
+    totals = teams.team_week_totals(logs, season)
+    depth, roles = teams.build(relevant, logs, ids, season, owners, proj)
+    names = {t: player_name(players.get(t), t) for t in depth}
+    next_week = min((w for w in sched if w >= ctx["current_week"]
+                     and any(not g.get("played") for g in sched[w].values())), default=ctx["current_week"])
+    return ({"generated_at": now.isoformat(timespec="minutes"), "week": next_week, "names": names,
+             "offence": teams.offence(totals, nfl["games"], sched, season, next_week),
+             "strength": teams.position_strength(totals, dlogs, sched, season), "depth": depth}, roles)
+
+
 # --- model scorecard (backtest + live ledger + what it learned) ----------------------
 def build_model_page(ctx: dict, mdl: dict, proj: dict, points: dict, extra_ids: list[str], now,
                      data_dir: Path) -> dict:
@@ -754,6 +777,11 @@ def main() -> int:
     trade_data = build_trades(ctx, managers, proj, proj_weeks, slots, scan, now)
     pool_ids = build_available(ctx, proj, proj_weeks, slots, faab_data)
     dash["cards"] = build_cards(ctx, proj, points, proj_weeks, nfl, trade_data, pool_ids)
+    say("Building NFL depth charts and team strength...")
+    teams_data, roles = build_teams(ctx, nfl, proj, managers, now)
+    for pid, card in dash["cards"].items():
+        if pid in roles:
+            card["role"] = {k: v for k, v in roles[pid].items() if k not in ("id", "owner", "proj")}
     say("Projecting matchups and simulating the season...")
     outlook_data = build_outlook(ctx, managers, proj, proj_weeks, slots, now)
     lab_data = build_lab(ctx, managers, proj, proj_weeks, slots, outlook_data, trade_data)
@@ -768,6 +796,7 @@ def main() -> int:
     write_site_data(site_data, "outlook", outlook_data)
     write_site_data(site_data, "lab", lab_data)
     write_site_data(site_data, "league", league_data)
+    write_site_data(site_data, "teams", teams_data)
     write_site_data(site_data, "model", build_model_page(ctx, mdl, proj, points, pool_ids, now, ROOT / "data"))
     brief_md = brief.build_brief(dash, faab_data, scan, trade_data, outlook_data)
     (site_data / "claude_brief.md").write_text(brief_md, encoding="utf-8")
