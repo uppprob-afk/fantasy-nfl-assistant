@@ -19,6 +19,7 @@ from pathlib import Path
 from statistics import mean
 
 from . import projections as pj
+from . import roles
 from .factors import weather_multiplier
 
 # Settings the tuner may try (the defaults are always included).
@@ -29,6 +30,7 @@ GRID = {
     "matchup": (0.25, 0.5, 0.75),      # applied to both vegas_damping and dvp_damping
     "recency": (1.0, 0.9, 0.8, 0.7),
     "weather_strength": (0.0, 0.5, 1.0),
+    "role_blend": (0.0, 0.25, 0.5, 0.75),
 }
 MIN_GAMES_TO_TUNE = 300       # full games in the backtest before any setting can change
 MIN_IMPROVEMENT = 0.015       # adopt new settings only if they cut the error by 1.5%+
@@ -46,6 +48,7 @@ def backtest_records(rows_prior: list[dict], rows_this: list[dict], snaps: list[
     prior_season = str(int(season) - 1)
     logs = pj.game_logs(rows_prior + rows_this, snaps, scoring)
     dlogs = pj.def_logs(rows_prior + rows_this, games, scoring)
+    roles.mark_opportunity(logs)
     sched = pj.schedule(games, season)
     usage = pj.usage_values(logs, prior_season)
     base_logs = {**logs, **{f"DEF:{t}": v for t, v in dlogs.items()}}
@@ -56,6 +59,7 @@ def backtest_records(rows_prior: list[dict], rows_this: list[dict], snaps: list[
     for w in weeks:
         before = {k: [g for g in v if g["season"] != season or g["week"] < w] for k, v in logs.items()}
         dvp = pj.defence_vs_position(before, sched, season)
+        volume = roles.team_volume(logs, season, before_week=w)
         cands = []
         for key, plogs in everyone.items():
             g = next((x for x in plogs if x["season"] == season and x["week"] == w), None)
@@ -69,6 +73,7 @@ def backtest_records(rows_prior: list[dict], rows_this: list[dict], snaps: list[
             if not game:
                 continue
             c = pj.rate_components(prev, season, prior_season, pos, g["team"], bases.get(pos, {}), usage, 1, w)
+            c["role"] = roles.role_components(prev, season, pos, g["team"], volume, usage)
             source, raw = pj.matchup_raw(pos, game, dvp, avg_imp)
             naive = c["actual"] if c["actual"] is not None else (c["r_prior"] if c["n_prior"] else None)
             cands.append({"week": w, "key": key, "pos": pos, "comp": c, "source": source, "raw": raw,
@@ -192,6 +197,7 @@ LABELS = {
     "dvp_damping": "Strength of opponent-defence matchup adjustments",
     "recency": "How much each older game this season still counts (1 = all equal)",
     "weather_strength": "How much of the learned weather / venue effects to apply",
+    "role_blend": "Weight on the role projection (team volume x share x efficiency)",
 }
 
 

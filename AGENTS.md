@@ -57,6 +57,7 @@ nfl_assistant/
   players.py              names, injury, IR eligibility, name lookup
   dashboard.py            standings, rosters, season points
   faab.py                 waiver log, clearing prices, market prices, bid ideas
+  roles.py                opportunity games, team volume x share x efficiency, learned share inheritance
   scanner.py              diff vs previous snapshot (injuries, depth, teams, drops)
   projections.py          rest-of-season projection engine (rate, spread, confidence, weekly)
   lineups.py              optimal weekly lineups (byes/injuries handled)
@@ -249,7 +250,20 @@ fantasy points per game produced and allowed per position, ranked 1-32 with the 
 `offence`: plays, pass rate, points, next game's implied total. Site: tap any team code
 (`teamLink`, `data-act="team"`) for the team sheet (`dialog#team-sheet`); League → NFL teams
 table (sortable by position, localStorage `nflSort`); player panels show a Role section.
-Phase 2 (planned): volume x share x efficiency projections with learned injury inheritance.
+Phase 2 (`roles.py`, in projections): `mark_opportunity` flags RB/WR/TE games where a teammate
+with a higher median share (2+ full games) sat or left early; they're excluded from the
+player's this-season rate and role shares. `mark_partial` now judges snaps against this
+season's median once there are 3+ games. `role_components` = team carries/targets per game
+(`team_volume`, shrunk 2 games) x normal carry/target share x points per carry/target
+(shrunk 40 carries / 25 targets); `rate_from` blends it in by `role_blend` (tuned, starts 0)
+x n/(n+2). `learn_take` (last + this season): share of a missing regular's work the next man
+down gets (`take`) and all teammates below him combined (`group`), shrunk with 15 events.
+`projections.apply_inheritance`: for every week a player's availability < 1, his shares flow
+down only (to lower-share teammates): next man `take`, others `group - take` by share; extra
+points added to that week (`weekly[w].inherit`) and `contingency` = rate if the top-share
+teammate misses a full game. `teams.opportunities` lists next-game boosts >= 2.5 pts (News).
+Shown: Role section (if X misses), team sheet, waiver tiles (handcuff), Game day note,
+Model page (who inherits the work).
 
 ## Freshness
 
