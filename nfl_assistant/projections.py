@@ -360,7 +360,7 @@ def rate_components(games: list[dict], season: str, prior_season: str, position:
     """Everything the rate formula needs, before any tunable setting is applied.
     as_of = the week being projected (for recency weighting of this season's games)."""
     prior = [g for g in games if g["season"] == prior_season and not g["partial"]]
-    this = [g for g in games if g["season"] == season and not g["partial"] and not g.get("opp")]
+    this = [g for g in games if g["season"] == season and not g["partial"] and not g.get("opp_game")]
     xs = [expected_points(g, usage) for g in this]
     this_games = [(g["week"], g["pts"], x) for g, x in zip(this, xs)]
     xs = [x for x in xs if x is not None]

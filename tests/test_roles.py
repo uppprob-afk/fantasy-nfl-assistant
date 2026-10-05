@@ -16,8 +16,8 @@ def chicago():
 def test_opportunity_game_when_player_ahead_leaves_early():
     logs = chicago()
     roles.mark_opportunity(logs)
-    assert [x["opp"] for x in logs["mona"]] == [False, False, False, True]
-    assert not any(x["opp"] for x in logs["swift"])
+    assert [x["opp_game"] for x in logs["mona"]] == [False, False, False, True]
+    assert not any(x["opp_game"] for x in logs["swift"])
 
 
 def test_role_components_skip_opportunity_games():
@@ -73,3 +73,11 @@ def test_mark_partial_uses_this_seasons_normal():
     games = [{"season": "2025", "pct": 0.5} for _ in range(8)] + [{"season": "2026", "pct": p} for p in (.68, .69, .57, .35)]
     pj.mark_partial(games)
     assert games[-1]["partial"] and not games[-2]["partial"]
+
+
+def test_mark_opportunity_keeps_the_opponent_field():
+    logs = chicago()
+    for x in logs["mona"]:
+        x["opp"] = "DET"
+    roles.mark_opportunity(logs)
+    assert all(x["opp"] == "DET" for x in logs["mona"]) and logs["mona"][3]["opp_game"]

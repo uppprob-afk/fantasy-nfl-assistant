@@ -33,7 +33,7 @@
   }
 
   // ---------- player row: last 3 vs next 3, tap for details ----------
-  const CARDS = (D && D.cards) || {};
+  const CARDS = DATA.cards || (D && D.cards) || {};
 
   // ---------- holds (stashed players) and quick actions ----------
   let HOLDS = new Set((() => { try { return JSON.parse(localStorage.getItem("holds") || "[]"); } catch (e) { return []; } })());
@@ -48,7 +48,7 @@
         <button type="button" class="mini ${isHeld(pid) ? "on" : ""}" data-act="hold" data-pid="${esc(pid)}"
           title="Held players are never suggested for trades, cuts or drops">${isHeld(pid) ? "Held ✓" : "Hold (stash)"}</button>`;
     }
-    if (o === null) return `<button type="button" class="mini" data-act="plan-add" data-pid="${esc(pid)}">Plan pickup</button>`;
+    if (o === null) return "";
     return `<button type="button" class="mini" data-act="trade-for" data-pid="${esc(pid)}">Trade for in Lab</button>`;
   }
   const one = (n) => (n == null ? "–" : Number(n).toFixed(1));
@@ -141,6 +141,120 @@
     $("team-body").innerHTML = teamSheet(t);
     const d = $("team-sheet");
     if (d.showModal) d.showModal(); else d.setAttribute("open", "");
+  }
+  // ---------- Players: search every projected player with filters ----------
+  const ROLE_FILTERS = ["Locked in", "Starter", "Lead role", "Rising", "Losing work", "Committee", "One injury away", "Depth"];
+  const SORTS = [["proj", "Projected /wk"], ["ros", "Rest of season"], ["last3", "Last 3 avg"], ["next3", "Next 3 proj"],
+    ["gain", "Gain to my team"], ["handcuff", "If starter misses"], ["share", "Share of team work"]];
+  let SEARCH = null;     // loaded on first render (store isn't set up yet at this point)
+  let PLAYER_INDEX = null;
+  function playerIndex() {
+    if (PLAYER_INDEX) return PLAYER_INDEX;
+    const L = DATA.lab, avail = {}, opp = {};
+    (F && F.available || []).forEach((x) => { avail[x.id] = x; });
+    (TM && TM.opportunities || []).forEach((o) => { opp[o.id] = o; });
+    const sell = new Set((T && T.sell_high || []).map((r) => r.id)), buy = new Set((T && T.buy_low || []).map((r) => r.id));
+    PLAYER_INDEX = Object.entries(L.players).map(([id, r]) => {
+      const c = CARDS[id] || {}, v = c.value || {}, role = c.role || {}, a = avail[id];
+      const ownerName = r.o == null ? null : (L.rosters[String(r.o)] || {}).team_name;
+      return { id, name: r.n, position: r.p, team: r.t, injury_status: r.s || null, rate: r.r, ros: r.ros, owner: r.o, ownerName,
+        last3: c.last3_avg, next3: c.next3_avg, label: role.label || null, share: role.share,
+        handcuff: role.contingency && v.rate != null ? role.contingency.rate - v.rate : null, ifOut: role.contingency && role.contingency.if_out,
+        gain: a ? a.gain_per_week : null, fit: a ? a.fit : null, bid: a && a.suggestion ? a.suggestion.bid : null, trending: !!(a && a.trending),
+        opp: opp[id] || null, sell: sell.has(id), buy: buy.has(id), search: `${r.n} ${r.t}`.toLowerCase() };
+    });
+    return PLAYER_INDEX;
+  }
+  const FLAG_DEFS = [
+    ["handcuff", "Handcuff value", (p) => p.handcuff != null && p.handcuff >= 2],
+    ["opportunity", "Opportunity this week", (p) => !!p.opp],
+    ["upgrade", "Upgrades my team", (p) => p.fit === "upgrade" || p.fit === "depth"],
+    ["sell", "Sell-high", (p) => p.sell], ["buy", "Buy-low", (p) => p.buy],
+    ["held", "Held", (p) => isHeld(p.id)], ["trending", "Trending", (p) => p.trending],
+  ];
+  function searchResults() {
+    const S2 = SEARCH, me = myRid(), q = S2.q.trim().toLowerCase();
+    let rows = playerIndex().filter((p) =>
+      (!q || p.search.includes(q)) && (S2.pos === "ALL" || p.position === S2.pos) &&
+      (S2.own === "all" || (S2.own === "mine" ? p.owner === me : S2.own === "fa" ? p.owner == null : p.owner != null && p.owner !== me)) &&
+      (!S2.team || p.team === S2.team) && (!S2.roles.length || S2.roles.includes(p.label)) &&
+      (S2.status === "any" || (S2.status === "healthy" ? !p.injury_status : S2.status === "q" ? p.injury_status === "Questionable"
+        : ["Out", "Doubtful", "IR", "PUP", "Sus", "NA"].includes(p.injury_status))) &&
+      S2.flags.every((f) => FLAG_DEFS.find((d) => d[0] === f)[2](p)));
+    const key = { proj: (p) => p.rate, ros: (p) => p.ros, last3: (p) => p.last3, next3: (p) => p.next3, gain: (p) => p.gain,
+      handcuff: (p) => p.handcuff, share: (p) => p.share }[S2.sort];
+    rows.sort((a, b) => (key(b) ?? -1e9) - (key(a) ?? -1e9));
+    return rows;
+  }
+  function searchRow(p) {
+    const c = CARDS[p.id];
+    const extra = [];
+    if (p.ownerName) extra.push(p.owner === myRid() ? "your team" : esc(p.ownerName)); else extra.push("free agent");
+    if (p.label) extra.push(esc(p.label));
+    if (p.handcuff != null && p.handcuff >= 2) extra.push(`~${num(p.rate + p.handcuff)} if ${esc(p.ifOut)} misses`);
+    if (p.opp) extra.push(`+${num(p.opp.gain)} this week`);
+    if (p.gain != null && p.fit !== "none") extra.push(`+${num(p.gain)}/wk for you · bid $${p.bid}`);
+    const row = c ? playerRow({ id: p.id, name: p.name, position: p.position, team: p.team, injury_status: p.injury_status }, p.position)
+      : `<div class="prow"><span class="slot">${esc(p.position)}</span><div><div class="pname">${esc(p.name)}</div><div class="pmeta">${teamLink(p.team)}</div></div>
+          <div class="pnums"><div class="big">${num(p.rate)}</div><div class="small">proj/wk</div></div></div>`;
+    return row.replace(/(<div class="pmain">[\s\S]*?<div class="pmeta">)/, `$1<span class="sr-extra">${extra.join(" · ")}</span><br>`);
+  }
+  function drawSearch() {
+    const rows = searchResults();
+    $("ps-count").textContent = `${rows.length} player${rows.length === 1 ? "" : "s"}`;
+    const shown = rows.slice(0, SEARCH.limit);
+    $("ps-results").innerHTML = `<div class="stack">${shown.map(searchRow).join("") || `<div class="empty">No players match. Loosen a filter.</div>`}</div>
+      ${rows.length > shown.length ? `<button type="button" class="btn secondary" id="ps-more" style="width:100%">Show ${Math.min(40, rows.length - shown.length)} more</button>` : ""}`;
+    const more = $("ps-more");
+    if (more) more.addEventListener("click", () => { SEARCH.limit += 40; drawSearch(); });
+  }
+  function renderPlayers() {
+    const host = $("tab-players");
+    SEARCH = SEARCH || Object.assign({ q: "", pos: "ALL", own: "all", team: "", roles: [], status: "any", flags: [], sort: "proj" },
+      store.get("playerSearch", {}), { limit: 40 });
+    if (!DATA.lab) { host.innerHTML = `<div class="empty">No player data yet. Run an update.</div>`; return; }
+    const teamsList = [...new Set(Object.values(DATA.lab.players).map((r) => r.t).filter(Boolean))].sort();
+    const chip = (group, val, label, on) => `<button type="button" class="mini ${on ? "on" : ""}" data-ps="${group}" data-v="${esc(val)}">${esc(label)}</button>`;
+    const nFilters = (SEARCH.team ? 1 : 0) + SEARCH.roles.length + (SEARCH.status !== "any" ? 1 : 0) + SEARCH.flags.length;
+    host.innerHTML = `<h2>Players</h2>
+      <input id="ps-q" type="search" placeholder="Search name or team (e.g. Monangai, CHI)" value="${esc(SEARCH.q)}" autocomplete="off">
+      <div class="ps-row">${segHtml("ps-pos", [["ALL", "All"], ["QB", "QB"], ["RB", "RB"], ["WR", "WR"], ["TE", "TE"], ["K", "K"], ["DEF", "DEF"]], SEARCH.pos)}</div>
+      <div class="ps-row">${segHtml("ps-own", [["all", "Everyone"], ["fa", "Free agents"], ["mine", "My team"], ["others", "Other teams"]], SEARCH.own)}</div>
+      <details class="ps-filters" ${nFilters ? "open" : ""}><summary>More filters${nFilters ? ` (${nFilters})` : ""}</summary>
+        <div class="pd-h" style="margin-top:12px">Situation</div><div class="acts">${FLAG_DEFS.map(([k, label]) => chip("flags", k, label, SEARCH.flags.includes(k))).join("")}</div>
+        <div class="pd-h" style="margin-top:12px">Role</div><div class="acts">${ROLE_FILTERS.map((r) => chip("roles", r, r, SEARCH.roles.includes(r))).join("")}</div>
+        <div class="pd-h" style="margin-top:12px">Health</div><div class="acts">${[["any", "Any"], ["healthy", "Healthy"], ["q", "Questionable"], ["out", "Out / IR"]].map(([k, l]) => chip("status", k, l, SEARCH.status === k)).join("")}</div>
+        <div class="ps-selects"><label>NFL team <select id="ps-team"><option value="">All teams</option>${teamsList.map((t) => `<option ${t === SEARCH.team ? "selected" : ""}>${esc(t)}</option>`).join("")}</select></label>
+          <button type="button" class="btn secondary" id="ps-reset">Clear filters</button></div>
+      </details>
+      <div class="ps-bar"><span class="subtle" id="ps-count"></span>
+        <label class="subtle">Sort <select id="ps-sort">${SORTS.map(([k, l]) => `<option value="${k}" ${k === SEARCH.sort ? "selected" : ""}>${l}</option>`).join("")}</select></label></div>
+      <div id="ps-results"></div>`;
+    const save = () => { SEARCH.limit = 40; store.set("playerSearch", Object.assign({}, SEARCH, { limit: 40 })); drawSearch(); };
+    $("ps-q").addEventListener("input", (e) => { SEARCH.q = e.target.value; save(); });
+    wireSeg("ps-pos", "_psPos", (v) => { SEARCH.pos = v; save(); });
+    wireSeg("ps-own", "_psOwn", (v) => { SEARCH.own = v; save(); });
+    $("ps-team").addEventListener("change", (e) => { SEARCH.team = e.target.value; save(); });
+    $("ps-sort").addEventListener("change", (e) => { SEARCH.sort = e.target.value; save(); });
+    $("ps-reset").addEventListener("click", () => { Object.assign(SEARCH, { team: "", roles: [], status: "any", flags: [] }); store.set("playerSearch", SEARCH); renderPlayers(); });
+    host.querySelectorAll("[data-ps]").forEach((b) => b.addEventListener("click", () => {
+      const g2 = b.dataset.ps, v = b.dataset.v;
+      if (g2 === "status") SEARCH.status = v;
+      else { const arr = SEARCH[g2]; const i = arr.indexOf(v); if (i >= 0) arr.splice(i, 1); else arr.push(v); }
+      store.set("playerSearch", SEARCH);
+      host.querySelectorAll(`[data-ps="${g2}"]`).forEach((x) => x.classList.toggle("on", g2 === "status" ? x.dataset.v === SEARCH.status : SEARCH[g2].includes(x.dataset.v)));
+      SEARCH.limit = 40; drawSearch();
+    }));
+    drawSearch();
+  }
+  function renderNFL() {
+    const host = $("tab-nfl");
+    if (!TM) { host.innerHTML = `<div class="empty">No team data yet. Run an update.</div>`; return; }
+    const pos = store.get("nflSort", "RB");
+    host.innerHTML = `<h2>NFL teams</h2><p class="lead-text">Each team's fantasy production by position this season, ranked 1–32. Tap a team for its
+      depth chart, roles, "if the starter misses" values and what its defence allows.</p>
+      ${segHtml("nfl-sort", [["QB", "QB"], ["RB", "RB"], ["WR", "WR"], ["TE", "TE"]], pos)}<div id="nfl-table" style="margin-top:12px">${teamsTable(pos)}</div>`;
+    wireSeg("nfl-sort", "nflSort", (p2) => { $("nfl-table").innerHTML = teamsTable(p2); });
   }
   function teamsTable(sortPos) {
     const S = TM.strength, keys = Object.keys(TM.depth).sort();
@@ -303,7 +417,7 @@
       <span class="slot ${esc(cls)}">${esc(label)}</span>
       <div class="pmain">
         <div class="pname">${esc(p.name)}${injuryChip(p)}${irNote}${checkChip(p)}</div>
-        <div class="pmeta">${teamLink(p.team)}${rank}${v ? ` · ${esc(v.confidence)} conf` : ""}${v && v.flag && !isHeld(p.id) ? ` · <span class="flag">${esc(v.flag)}</span>` : ""}${isHeld(p.id) ? ` · <span class="held">held</span>` : ""}</div>
+        <div class="pmeta">${teamLink(p.team)}${rank}${v && v.flag && !isHeld(p.id) ? ` · <span class="flag">${esc(v.flag)}</span>` : ""}${isHeld(p.id) ? ` · <span class="held">held</span>` : ""}</div>
         ${reason}
       </div>
       <div class="pnums proj">${v ? `<div class="big">${one(v.rate)}</div><div class="small">proj/wk</div>` : ""}</div>
@@ -312,11 +426,11 @@
   }
 
   function rosterCards(r) {
-    let html = `<h2>Starters</h2><div class="card">${r.starters.map((p) => playerRow(p, p.slot)).join("")}</div>`;
-    html += `<h2>Bench</h2><div class="card">${
+    let html = `<h2>Starters</h2><div class="stack">${r.starters.map((p) => playerRow(p, p.slot)).join("")}</div>`;
+    html += `<h2>Bench</h2><div class="stack">${
       r.bench.length ? r.bench.map((p) => playerRow(p, "BN")).join("") : `<div class="empty">No bench players.</div>`}</div>`;
     html += `<h2>IR <span class="muted" style="font-weight:400;font-size:.85rem">(${r.ir.length}/${r.ir_slots} used)</span></h2>
-      <div class="card">${r.ir.length ? r.ir.map((p) => playerRow(p, "IR")).join("") : `<div class="empty">IR slot empty.</div>`}</div>`;
+      <div class="stack">${r.ir.length ? r.ir.map((p) => playerRow(p, "IR")).join("") : `<div class="empty">IR slot empty.</div>`}</div>`;
     return html;
   }
 
@@ -385,7 +499,7 @@
     return `<details class="wv" data-pid="${esc(p.id)}"><summary class="wv-sum">
         <div class="wv-head">
           <div class="pname">${esc(p.name)}${injuryChip(p)} <span class="chip ${fitCls}">${fitLabel}</span>${p.trending ? ` <span class="chip warm" title="Sleeper-wide adds, last 48h">trending</span>` : ""}</div>
-          <div class="pmeta">${esc(p.position)} · ${teamLink(p.team)}${p.pos_rank ? ` · ${esc(p.position)}${p.pos_rank} rest of season` : ""} · ${num(p.proj_rate)}/wk proj · ${esc(p.proj_confidence)} conf</div>
+          <div class="pmeta">${esc(p.position)} · ${teamLink(p.team)}${p.pos_rank ? ` · ${esc(p.position)}${p.pos_rank} rest of season` : ""} · ${num(p.proj_rate)}/wk proj</div>
           <div class="wv-impact">${impact}${cut}</div>
           ${c && c.role && c.role.contingency && c.value && c.role.contingency.rate - c.value.rate >= 2 ? `<div class="wv-impact">Handcuff: <b>~${num(c.role.contingency.rate)}</b>/wk if ${esc(c.role.contingency.if_out)} misses</div>` : ""}
         </div>
@@ -415,7 +529,7 @@
     } else {
       rows = all.filter((p) => p.position === view).slice().sort((a, b) => b.ros - a.ros);
     }
-    return note + `<div class="card">${rows.map(waiverCard).join("") || `<div class="empty">No available ${esc(view)}s with projections.</div>`}</div>`;
+    return note + `<div class="stack">${rows.map(waiverCard).join("") || `<div class="empty">No available ${esc(view)}s with projections.</div>`}</div>`;
   }
 
   function tendencyCard(t) {
@@ -451,13 +565,13 @@
       ${segHtml("faab-pos", [["best", "Best for you"], ["QB", "QB"], ["RB", "RB"], ["WR", "WR"], ["TE", "TE"], ["K", "K"], ["DEF", "DEF"]], store.get("faabPos", "best"))}
       <div id="faab-list"></div>`;
     const ideas = (F.targets || []).map(bidCard).join("");
-    if (ideas) html += `<h2>My targets</h2><div class="card">${ideas}</div>`;
+    if (ideas) html += `<h2>My targets</h2><div class="stack">${ideas}</div>`;
     // manager tendencies
     if (F.tendencies) {
       html += `<h2>Manager tendencies</h2><p class="lead-text">Everyone's bidding habits this season. Counts, not percentages, because
         samples are small. A style is only given after ${esc(F.tendencies.min_bids_for_style)}+ bids.
         You're waiver #${esc(F.tendencies.my_waiver_position ?? "–")}, so you win tied bids against anyone with a higher number.</p>
-        <div class="card">${F.tendencies.profiles.map(tendencyCard).join("")}</div>
+        <div class="stack">${F.tendencies.profiles.map(tendencyCard).join("")}</div>
         <details class="recent"><summary>How rivals are predicted</summary><div class="card card-pad subtle">
         <p><b>Likely</b> rival: the player would start for them next week by more than 1 point (from their projected optimal lineup,
         byes included), they've been active, and they have at least $5 left. Hot players also count anyone they'd improve.
@@ -549,7 +663,7 @@
   }
 
   function newsSection(title, items, empty) {
-    return `<h2>${title}</h2><div class="card">${
+    return `<h2>${title}</h2><div class="stack">${
       items.length ? items.map((n) => newsItem(n)).join("") : `<div class="empty">${empty}</div>`}</div>`;
   }
 
@@ -564,7 +678,7 @@
     if (TM && TM.opportunities && TM.opportunities.length) {
       html += `<h2>Opportunities this week</h2><p class="lead-text">Players whose next game is projected higher because a teammate ahead of them is out
         or doubtful (his share passes down the depth chart, as learned from past absences).</p>
-        <div class="card">${TM.opportunities.map((o) => `<div class="news"><div class="tag better">Opportunity · ${esc(o.pos)}</div>
+        <div class="stack">${TM.opportunities.map((o) => `<div class="news"><div class="tag better">Opportunity · ${esc(o.pos)}</div>
           <div><span class="pname">${esc(o.name)}</span> <span class="pmeta">${esc(o.pos)} · ${teamLink(o.team)} · ${o.owner ? esc(o.owner) : "free agent"}</span></div>
           <div class="txt">${o.from.map(esc).join(" and ")} out → projects <b>${num(o.pts)}</b> in week ${esc(o.week)} (normally ${num(o.normal)}, +${num(o.gain)}).</div>
           <div class="acts">${actionButtons(o.id)}</div></div>`).join("")}</div>`;
@@ -579,11 +693,11 @@
     const older = (S.recent || []).filter((n) => n.seen !== S.generated_at);
     if (older.length) {
       html += `<details class="recent"><summary>Earlier this week (${older.length})</summary>
-        <div class="card">${older.map((n) => newsItem(n, true)).join("")}</div></details>`;
+        <div class="stack">${older.map((n) => newsItem(n, true)).join("")}</div></details>`;
     }
     $("tab-news").innerHTML = html;
     const count = S.my_players.length + S.other_starters.length + S.free_agents.length;
-    if (count) document.querySelector('#tabs button[data-tab="waivers"]').insertAdjacentHTML("beforeend", `<span class="badge">${count}</span>`);
+    if (count) document.querySelector('#tabs button[data-tab="moves"]').insertAdjacentHTML("beforeend", `<span class="badge">${count}</span>`);
   }
 
   // ---------- Trades ----------
@@ -679,19 +793,19 @@
     const heldIn = (t) => t.give.some((p) => isHeld(p.id)) || ((t.my_moves || {}).drop || []).some(isHeld);
     const ideas = T.ideas.filter((t) => !heldIn(t));
     const hiddenIdeas = T.ideas.length - ideas.length;
-    html += `<div class="card">${ideas.length ? ideas.map(tradeCard).join("") : `<div class="empty">No mutually beneficial trades found right now.</div>`}</div>`;
+    html += `<div class="stack">${ideas.length ? ideas.map(tradeCard).join("") : `<div class="empty">No mutually beneficial trades found right now.</div>`}</div>`;
     if (hiddenIdeas) html += `<p class="subtle">${hiddenIdeas} idea${hiddenIdeas === 1 ? "" : "s"} hidden because they'd offer or cut a player you're holding.</p>`;
 
     html += `<h2>Sell high</h2><p class="lead-text">Your players scoring well above what their usage and track record support.</p>
-      <div class="card">${T.sell_high.filter((r) => !isHeld(r.id)).length ? T.sell_high.filter((r) => !isHeld(r.id)).map((r) => buySellRow(r, "Worth shopping while the numbers look great.")).join("")
+      <div class="stack">${T.sell_high.filter((r) => !isHeld(r.id)).length ? T.sell_high.filter((r) => !isHeld(r.id)).map((r) => buySellRow(r, "Worth shopping while the numbers look great.")).join("")
         : `<div class="empty">None of your players are clearly overperforming.</div>`}</div>`;
     html += `<h2>Buy low</h2><p class="lead-text">Other teams' players scoring well below their projection. Their managers may undervalue them.</p>
-      <div class="card">${T.buy_low.length ? T.buy_low.map((r) => buySellRow(r, "Could be cheaper now than they're worth.")).join("")
+      <div class="stack">${T.buy_low.length ? T.buy_low.map((r) => buySellRow(r, "Could be cheaper now than they're worth.")).join("")
         : `<div class="empty">No clear buy-low targets.</div>`}</div>`;
 
     html += `<h2>Motivated buyers</h2>`;
     if (T.buyers.length) {
-      html += `<div class="card">${T.buyers.map((b) => `<div class="trade has-detail">
+      html += `<div class="stack">${T.buyers.map((b) => `<div class="trade has-detail">
         <div><span class="pname">${esc(b.manager)}</span> <span class="pmeta">just lost ${esc(b.position)} ${esc(b.player)} (${esc(b.status)})</span></div>
         <div class="subtle" style="margin-top:4px">${b.my_options.length
           ? `Players you could pitch: ${b.my_options.filter((p) => !isHeld(p.id)).map((p) => `<button type="button" class="tp tp-chip" data-pid="${esc(p.id)}">${esc(p.name)}
@@ -1106,7 +1220,7 @@
     const tier = (rank, n) => (rank === 1 ? "f-boom" : rank <= 3 ? "f-start" : rank > n - 3 ? "f-bust" : "f-mid");
     const pill = (rid, g) => {
       const r = W.rankOf[g.week][rid], n = W.teamsIn[g.week];
-      return `<span class="pill ${tier(r, n)}" title="Week ${g.week}: ${num(g.pts)}, ${ordinal(r)} of ${n}${g.result ? " · " + g.result : ""}"><b>${num(g.pts)}</b><i>${ordinal(r)}${g.result ? " · " + g.result : ""}</i></span>`;
+      return `<span class="pill ${tier(r, n)}" title="Week ${g.week}: ${num(g.pts)}, ${ordinal(r)} of ${n}${g.result ? " · " + g.result : ""}"><b>${num(g.pts)}</b><i>W${g.week} · ${ordinal(r)}${g.result ? " " + g.result : ""}</i></span>`;
     };
     const order = D.standings.map((s) => String(s.roster_id));
     const rows = order.filter((rid) => W.st[rid]).map((rid) => {
@@ -1143,12 +1257,12 @@
     return `<h2>Weekly scores</h2>
       <p class="lead-text">Each pill is a week's score and where it ranked in the league that week (green = top 3, red = bottom 3), with the result.
         Tap a team for every game, how many teams each score would have beaten, points against (schedule luck) and consistency.</p>
-      <div class="card ws-card"><div class="ws-weeks" style="grid-template-columns:repeat(${show.length}, minmax(0, 1fr))">${show.map((w) => `<span>Wk ${w}</span>`).join("")}</div>${rows}</div>`;
+      <div class="stack ws-card">${rows}</div>`;
   }
 
   function renderLeague() {
     const view = store.get("leagueView", "standings");
-    let html = segHtml("league-seg", [["standings", "Standings"], ["race", "Playoff race"], ["power", "Power"]].concat(TM ? [["nfl", "NFL teams"]] : []), view)
+    let html = segHtml("league-seg", [["standings", "Standings"], ["race", "Playoff race"], ["power", "Power"]], view)
       + `<div id="league-body"></div>`;
     html += weeklyChart();
     if (O) html += `<h2>Week ${esc(O.week)} matchups</h2>${O.matchups.map(matchupCard).join("")}`;
@@ -1163,12 +1277,6 @@
 
     const draw = (v) => {
       const body = $("league-body");
-      if (v === "nfl" && TM) {
-        const pos = store.get("nflSort", "RB");
-        body.innerHTML = segHtml("nfl-sort", [["QB", "QB"], ["RB", "RB"], ["WR", "WR"], ["TE", "TE"]], pos) + `<div id="nfl-table" style="margin-top:12px">${teamsTable(pos)}</div>`;
-        wireSeg("nfl-sort", "nflSort", (p2) => { $("nfl-table").innerHTML = teamsTable(p2); });
-        return;
-      }
       if (v === "race" && O) {
         const P = O.playoffs;
         const seed = {};
@@ -1435,7 +1543,7 @@
       <p class="subtle">${o.anyAcceptable
         ? "Deals of similar value where you don't lose points and they gain, fairest first."
         : "Nothing of similar value helps both teams right now. These come closest: they don't cost you, but the other team would lose a little, so expect to negotiate."}</p>
-      <div class="card">${o.offers.map((x, i) => {
+      <div class="stack">${o.offers.map((x, i) => {
         const cls = x.gainThem <= 0 ? "lopsided" : x.balance.startsWith("balanced") ? "balanced" : x.balance.startsWith("favours you") ? "favours" : "lopsided";
         const label = x.gainThem <= 0 ? "close — needs a sweetener" : x.balance;
         const shape = `${x.give.length}-for-${x.get.length}`;
@@ -1523,28 +1631,6 @@
     window.scrollTo(0, 0);
   }
 
-  function defaultDrop(pids) {
-    const L = DATA.lab, E = engine(), P = L.players;
-    const size = pids.filter((p) => !(L.rosters[String(L.my_roster_id)].reserve || []).includes(p)).length;
-    if (size < L.roster_size) return null;
-    const isKD = (p) => (P[p].p === "K" || P[p].p === "DEF" ? 1 : 0);
-    const cands = pids.filter((p) => P[p] && !isHeld(p)).sort((a, b) => (isKD(a) - isKD(b)) || (E.vor(a) - E.vor(b)));
-    return cands[0] || null;
-  }
-
-  function planPickup(pid) {
-    const L = DATA.lab;
-    if (!plan || !L.weeks.includes(plan.week)) plan = planDefaults();
-    if (!plan.moves.some((m) => m.add === pid)) {
-      plan.moves.push({ add: pid, drop: defaultDrop(planRoster(L.current_week + 1)) });
-      plan.lineups = {};
-    }
-    plan.week = L.weeks.includes(L.current_week + 1) ? L.current_week + 1 : plan.week;
-    store.set("plannerState", plan);
-    selectTab("planner");
-    renderPlanner();
-  }
-
   function toggleHold(pid) {
     if (HOLDS.has(pid)) HOLDS.delete(pid); else HOLDS.add(pid);
     store.set("holds", [...HOLDS]);
@@ -1552,277 +1638,9 @@
     // Re-draw, keeping open player panels open and the page where it was.
     const open = [...document.querySelectorAll("#tab-home details.prow-d[open]")].map((d) => d.dataset.pid);
     const y = window.scrollY;
-    renderHome(); renderTrades(); renderTradeLab(); renderPlanner();
+    renderHome(); renderTrades(); renderTradeLab();
     open.forEach((id) => { const d = document.querySelector(`#tab-home details.prow-d[data-pid="${CSS.escape(id)}"]`); if (d) d.open = true; });
     window.scrollTo(0, y);
-  }
-
-  // ---------- Planner ----------
-  const FLEXP = { FLEX: ["RB", "WR", "TE"], WRRB_FLEX: ["RB", "WR"], REC_FLEX: ["WR", "TE"], SUPER_FLEX: ["QB", "RB", "WR", "TE"] };
-  let plan = store.get("plannerState", null);
-
-  function planDefaults() {
-    const L = DATA.lab;
-    return { week: L.weeks.includes(L.current_week + 1) ? L.current_week + 1 : L.weeks[0], moves: [], lineups: {} };
-  }
-
-  function phiJs(z) {   // standard normal CDF
-    const t = 1 / (1 + 0.2316419 * Math.abs(z));
-    const d = 0.3989423 * Math.exp(-z * z / 2);
-    const p = d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274))));
-    return z > 0 ? 1 - p : p;
-  }
-
-  function planRoster(week) {
-    const L = DATA.lab, E = engine();
-    let pids = E.rosterOf(L.my_roster_id);
-    if (week > L.current_week) {
-      plan.moves.forEach((m) => { pids = pids.filter((p) => p !== m.drop); if (!pids.includes(m.add)) pids.push(m.add); });
-    }
-    return pids;
-  }
-
-  function eligible(slot, pid) {
-    const pos = DATA.lab.players[pid] && DATA.lab.players[pid].p;
-    return (FLEXP[slot] || [slot]).includes(pos);
-  }
-
-  /* The lineup shown for a week: saved edits if still valid, else Sleeper's set lineup
-     (this week) or the best projected lineup (future weeks). Returns pids aligned with slots. */
-  function planLineup(week) {
-    const L = DATA.lab, E = engine();
-    const pids = planRoster(week);
-    const w = L.weeks.indexOf(week);
-    const saved = plan.lineups[String(week)];
-    if (saved && saved.length === L.slots.length
-        && saved.every((pid, i) => !pid || (pids.includes(pid) && eligible(L.slots[i], pid)))
-        && new Set(saved.filter(Boolean)).size === saved.filter(Boolean).length) return saved.slice();
-    if (week === L.current_week && L.this_week[String(L.my_roster_id)]) {
-      const set = L.this_week[String(L.my_roster_id)].starters.map((p) => (p && p !== "0" && pids.includes(p) ? p : null));
-      if (set.length === L.slots.length) return set;
-    }
-    const best = E.lineup(pids, w).lineup;
-    const out = L.slots.map(() => null);
-    const used = new Set();
-    best.forEach(([slot, pid]) => {
-      const i = L.slots.findIndex((s, j) => s === slot && !out[j]);
-      if (i >= 0) { out[i] = pid; used.add(pid); }
-    });
-    return out;
-  }
-
-  function weekPts(pid, week) {
-    const L = DATA.lab, r = L.players[pid], w = L.weeks.indexOf(week);
-    if (!r) return { pts: 0, v: 0, locked: false };
-    if (week === L.current_week && r.a != null) return { pts: r.a, v: 0, locked: true };
-    return { pts: r.w[w], v: r.v[w], locked: false };
-  }
-
-  function lineupStats(lineup, week) {
-    let mean = 0, v = 0;
-    lineup.forEach((pid) => { if (pid) { const x = weekPts(pid, week); mean += x.pts; v += x.v; } });
-    return { mean, sd: Math.sqrt(v) };
-  }
-
-  /* Best lineup for the week, keeping players whose games are already over in place. */
-  function bestLineup(week) {
-    const L = DATA.lab;
-    const pids = planRoster(week);
-    const current = planLineup(week);
-    const out = L.slots.map((s, i) => (current[i] && weekPts(current[i], week).locked ? current[i] : null));
-    const used = new Set(out.filter(Boolean));
-    const pool = pids.filter((p) => !used.has(p) && !weekPts(p, week).locked)
-      .sort((a, b) => weekPts(b, week).pts - weekPts(a, week).pts);
-    const order = L.slots.map((s, i) => [s, i]).sort((a, b) => ((a[0] in FLEXP) - (b[0] in FLEXP)) || a[1] - b[1]);
-    order.forEach(([slot, i]) => {
-      if (out[i]) return;
-      const pick = pool.find((p) => !used.has(p) && eligible(slot, p));
-      if (pick) { out[i] = pick; used.add(pick); }
-    });
-    return out;
-  }
-
-  function opponentFor(week) {
-    const L = DATA.lab, me = L.my_roster_id;
-    const g = (L.schedule[String(week)] || []).find(([a, b]) => a === me || b === me);
-    return g ? String(g[0] === me ? g[1] : g[0]) : null;
-  }
-
-  function renderPlanner() {
-    const host = $("tab-planner");
-    const L = DATA.lab, E = engine();
-    if (!L || !E) { host.innerHTML = `<div class="empty">Planner needs the latest data. Run an update.</div>`; return; }
-    if (!plan || !L.weeks.includes(plan.week)) plan = Object.assign(planDefaults(), plan && { moves: plan.moves || [], lineups: {} });
-    const P = L.players, me = String(L.my_roster_id), conf = L.confidence;
-    // drop moves that no longer make sense (player gone from free agency or my roster)
-    const base = E.rosterOf(me);
-    plan.moves = plan.moves.filter((m) => P[m.add] && P[m.add].o == null && (!m.drop || base.includes(m.drop)));
-    store.set("plannerState", plan);
-
-    const week = plan.week, w = L.weeks.indexOf(week);
-    const lineup = planLineup(week);
-    const roster = planRoster(week);
-    const stats = lineupStats(lineup, week);
-    const best = lineupStats(bestLineup(week), week);
-    const opp = opponentFor(week);
-    let oppStats = null;
-    if (opp) {
-      oppStats = week === L.current_week && L.this_week[opp] ? { mean: L.this_week[opp].mean, sd: L.this_week[opp].sd }
-        : (() => { const lu = E.lineup(E.rosterOf(opp), w); return { mean: lu.total, sd: lu.sd }; })();
-    }
-    const winP = oppStats ? phiJs((stats.mean - oppStats.mean) / Math.sqrt(stats.sd ** 2 + oppStats.sd ** 2 || 1)) : null;
-    const left = best.mean - stats.mean;
-
-    const chips = L.weeks.map((wk) => `<button type="button" data-w="${wk}" aria-pressed="${wk === week}">${wk === L.current_week ? "This wk" : `Wk ${wk}`}</button>`).join("");
-    let html = `<h2>Planner</h2><p class="lead-text">Forecast your lineup for any week: swap bench players in, or plan waiver
-      pickups and see the effect on the week, the season and your playoff odds. Your plan is saved on this device.</p>
-      <div class="weekchips" id="pl-weeks">${chips}</div>`;
-
-    html += `<div class="card card-pad">
-      <div class="trade-head"><div class="pname">Week ${week}${opp ? ` vs ${esc(L.rosters[opp].team_name)}` : ""}</div>${winP != null ? `<span class="chip ${winP >= 0.5 ? "balanced" : "lopsided"}">${pctText(winP, conf)} to win</span>` : ""}</div>
-      <div class="stats" style="margin:8px 0 4px">
-        <div class="stat"><div class="v">${num(stats.mean)}</div><div class="l">Your lineup</div></div>
-        <div class="stat"><div class="v">${num(best.mean)}</div><div class="l">Best possible</div></div>
-        <div class="stat"><div class="v">${oppStats ? num(oppStats.mean) : "–"}</div><div class="l">Opponent</div></div>
-      </div>
-      <div class="subtle">Likely ${num(Math.max(stats.mean - stats.sd, 0), 0)}–${num(stats.mean + stats.sd, 0)}.
-        ${left > 0.5 ? `<b style="color:var(--warn)">${num(left)} pts left on the bench.</b> <button type="button" class="btn secondary" id="pl-best" style="padding:4px 10px;font-size:.8rem">Use best lineup</button>`
-          : "This is your best projected lineup."}
-        ${week === L.current_week ? " Players whose games are over are locked." : ""}</div></div>`;
-
-    // lineup slots
-    const inLineup = new Set(lineup.filter(Boolean));
-    html += `<h2>Lineup</h2><div class="card">${L.slots.map((slot, i) => {
-      const pid = lineup[i];
-      const x = pid ? weekPts(pid, week) : null;
-      const options = roster.filter((p) => eligible(slot, p) && !weekPts(p, week).locked)
-        .sort((a, b) => weekPts(b, week).pts - weekPts(a, week).pts)
-        .map((p) => `<option value="${esc(p)}" ${p === pid ? "selected" : ""}>${esc(P[p].n)} · ${num(weekPts(p, week).pts)}${P[p].op[w] === "BYE" ? " (bye)" : ""}</option>`).join("");
-      const opTxt = pid ? (P[pid].op[w] || "") : "";
-      return `<div class="prow pl-row"><span class="slot ${esc(slot)}">${esc(slot)}</span>
-        <div>${x && x.locked ? `<div class="pname">${esc(P[pid].n)} <span class="subtle">final</span></div>`
-          : `<select class="pl-slot" data-i="${i}" aria-label="${esc(slot)} slot">${pid ? "" : `<option value="">Empty</option>`}${options}</select>`}
-          <div class="pmeta">${pid ? `${esc(P[pid].p)} · ${esc(P[pid].t)}${opTxt ? ` · ${opTxt === "BYE" ? "<b style='color:var(--bad)'>BYE</b>" : esc(opTxt)}` : ""}${P[pid].s ? ` · <span style="color:var(--warn)">${esc(P[pid].s)}</span>` : ""}` : "No eligible player"}</div></div>
-        <div class="pnums"><div class="big">${x ? num(x.pts) : "–"}</div></div></div>`;
-    }).join("")}</div>`;
-
-    const bench = roster.filter((p) => !inLineup.has(p)).sort((a, b) => weekPts(b, week).pts - weekPts(a, week).pts);
-    html += `<h2>Bench</h2><div class="card">${bench.map((p) => {
-      const x = weekPts(p, week), added = plan.moves.some((m) => m.add === p) && week > L.current_week;
-      return `<div class="prow"><span class="slot BN">BN</span><div><div class="pname">${esc(P[p].n)}${added ? ` <span class="chip ok-style">planned add</span>` : ""}</div>
-        <div class="pmeta">${esc(P[p].p)} · ${esc(P[p].t)}${P[p].op[w] ? ` · ${esc(P[p].op[w])}` : ""}${P[p].s ? ` · ${esc(P[p].s)}` : ""}</div></div>
-        <div class="pnums"><div class="big">${x.locked ? num(x.pts) : num(x.pts)}</div><div class="small">${x.locked ? "final" : "proj"}</div></div></div>`;
-    }).join("") || `<div class="empty">No bench players.</div>`}</div>`;
-
-    // waiver planning
-    const size = base.filter((p) => !(L.rosters[me].reserve || []).includes(p)).length + plan.moves.filter((m) => !m.drop).length;
-    html += `<h2>Plan waiver pickups</h2>
-      <p class="lead-text">Moves apply from week ${L.current_week + 1}, after waivers process. ${size < L.roster_size ? `You have ${L.roster_size - size} open roster spot(s).` : "Your roster is full, so each add needs a drop."}</p>`;
-    if (plan.moves.length) {
-      html += `<div class="card">${plan.moves.map((m, i) => `<div class="prow" style="grid-template-columns:minmax(0,1fr) auto">
-        <div><span style="color:var(--good)">+ ${esc(P[m.add].n)}</span> <span class="pmeta">${esc(P[m.add].p)} · ${num(P[m.add].r)}/wk</span>
-          ${m.drop ? `<br><span class="muted">− ${esc(P[m.drop].n)}</span> <span class="pmeta">${num(P[m.drop].r)}/wk</span>` : ""}</div>
-        <button type="button" class="btn secondary pl-undo" data-i="${i}" style="padding:4px 10px;font-size:.8rem">Remove</button></div>`).join("")}</div>`;
-    }
-    const fas = Object.keys(P).filter((p) => P[p].o == null && !plan.moves.some((m) => m.add === p));
-    html += `<div class="pl-search"><input type="search" id="pl-q" placeholder="Search free agents" aria-label="Search free agents">
-      <div class="weekchips" id="pl-pos">${["All", "QB", "RB", "WR", "TE", "K", "DEF"].map((x) => `<button type="button" data-pos="${x}" aria-pressed="${x === "All"}">${x}</button>`).join("")}</div></div>
-      <div class="card" id="pl-fas"></div>`;
-
-    // season impact
-    const moved = plan.moves.length > 0;
-    const edited = Object.keys(plan.lineups).length > 0;
-    if (moved || edited) {
-      const rows = [];
-      let total = 0;
-      L.weeks.forEach((wk, j) => {
-        const b0 = E.lineup(E.rosterOf(me), j).total;
-        const p1 = wk > L.current_week ? E.lineup(planRoster(wk), j).total : b0;
-        total += p1 - b0;
-        rows.push({ wk, b0, p1, d: p1 - b0 });
-      });
-      const odds0 = E.simulate({}, { n: 3000 });
-      const over = {};
-      Object.keys(plan.lineups).forEach((wk) => {
-        const s = lineupStats(planLineup(Number(wk)), Number(wk));
-        if (Number(wk) !== L.current_week) over[`${me}|${wk}`] = s;
-      });
-      const odds1 = E.simulate({ [me]: planRoster(L.current_week + 1) }, { n: 3000, weekOverrides: over });
-      const d = Math.round(100 * (odds1[me].odds - odds0[me].odds));
-      html += `<h2>Season impact</h2><div class="card card-pad">
-        <div class="odds-row"><span>Rest of season</span><span class="${total > 0 ? "up" : total < 0 ? "down" : ""}"><b>${total > 0 ? "+" : ""}${num(total)}</b> pts (best lineups)</span></div>
-        <div class="odds-row"><span>Playoff odds</span><span><b>${pctText(odds0[me].odds, conf)}</b> → <b>${pctText(odds1[me].odds, conf)}</b>
-          <span class="${d > 0 ? "up" : d < 0 ? "down" : "muted"}">(${d > 0 ? "+" : ""}${d})</span></span></div>
-        <div class="subtle">Your saved lineup edits are included in the odds. Bracketed number = change in percentage points.</div></div>
-        <div class="card table-wrap"><table class="named"><thead><tr><th>Week</th><th>Now</th><th>Plan</th><th>Δ</th></tr></thead><tbody>${
-        rows.map((r) => `<tr><td>Wk ${r.wk}</td><td>${num(r.b0)}</td><td>${num(r.p1)}</td>${deltaCell(r.d)}</tr>`).join("")}</tbody></table></div>`;
-    }
-    html += `<div class="lab-actions"><button type="button" class="btn secondary" id="pl-reset">Reset plan</button>
-      <span class="subtle">Clears planned pickups and lineup edits.</span></div>
-      <details class="recent"><summary>How the Planner works</summary><div class="card card-pad subtle">
-      <p>Projections are the same as everywhere else in the dashboard (byes and injury designations included). This week starts
-      from your actual Sleeper lineup; future weeks start from your best projected lineup.</p>
-      <p>Win chance compares your lineup's projected score and spread with your opponent's (their actual lineup this week,
-      their best projected lineup in later weeks). Planned pickups count from next week. Nothing here changes your real
-      Sleeper team.</p></div></details>`;
-    host.innerHTML = html;
-
-    // wiring
-    host.querySelectorAll("#pl-weeks button").forEach((b) => b.addEventListener("click", () => { plan.week = Number(b.dataset.w); renderPlanner(); }));
-    host.querySelectorAll(".pl-slot").forEach((sel) => sel.addEventListener("change", () => {
-      const i = Number(sel.dataset.i), pid = sel.value;
-      const cur = planLineup(week);
-      const j = cur.indexOf(pid);
-      const prev = cur[i];
-      cur[i] = pid || null;
-      if (j >= 0 && j !== i) cur[j] = prev && eligible(L.slots[j], prev) ? prev : null;
-      plan.lineups[String(week)] = cur;
-      store.set("plannerState", plan);
-      renderPlanner();
-    }));
-    const bestBtn = $("pl-best");
-    if (bestBtn) bestBtn.addEventListener("click", () => { plan.lineups[String(week)] = bestLineup(week); store.set("plannerState", plan); renderPlanner(); });
-    host.querySelectorAll(".pl-undo").forEach((b) => b.addEventListener("click", () => { plan.moves.splice(Number(b.dataset.i), 1); renderPlanner(); }));
-    $("pl-reset").addEventListener("click", () => { plan = planDefaults(); plan.week = week; store.set("plannerState", plan); renderPlanner(); });
-
-    let posFilter = "All";
-    const drawFAs = () => {
-      const q = ($("pl-q").value || "").toLowerCase();
-      const list = fas.filter((p) => (posFilter === "All" || P[p].p === posFilter) && (!q || P[p].n.toLowerCase().includes(q)))
-        .sort((a, b) => P[b].r - P[a].r).slice(0, 15);
-      // weakest skill players first (so the default drop is the least valuable); K/DEF last
-      const isKD = (p) => (P[p].p === "K" || P[p].p === "DEF" ? 1 : 0);
-      const dropOpts = planRoster(L.current_week + 1).slice()
-        .sort((a, b) => (isHeld(a) - isHeld(b)) || (isKD(a) - isKD(b)) || (E.vor(a) - E.vor(b)))
-        .map((p) => `<option value="${esc(p)}">${esc(P[p].n)} (${esc(P[p].p)} · ${num(P[p].r)}/wk)${isHeld(p) ? " · held" : ""}</option>`).join("");
-      $("pl-fas").innerHTML = list.map((p) => `<div class="fa-row"><div class="prow" style="grid-template-columns:44px minmax(0,1fr) auto">
-        <span class="slot ${esc(P[p].p)}">${esc(P[p].p)}</span>
-        <div><div class="pname">${esc(P[p].n)}${P[p].s ? ` <span class="chip ${P[p].s === "Questionable" ? "q" : "inj"}">${esc(P[p].s)}</span>` : ""}</div>
-          <div class="pmeta">${esc(P[p].t)} · <b>${num(P[p].r)}</b>/wk · ROS ${num(P[p].ros, 0)} · ${esc(P[p].c)} conf${P[p].b.length ? ` · bye ${P[p].b.join(", ")}` : ""}</div>
-          <div class="pmeta">Next: ${L.weeks.slice(Math.max(w, L.weeks.indexOf(L.current_week + 1)), Math.max(w, L.weeks.indexOf(L.current_week + 1)) + 3)
-            .map((wk) => { const k = L.weeks.indexOf(wk); return `wk ${wk} ${P[p].op[k] === "BYE" ? "bye" : num(P[p].w[k])}`; }).join(" · ")}</div></div>
-        <button type="button" class="btn secondary fa-add" data-pid="${esc(p)}" style="padding:4px 10px;font-size:.8rem">Add</button></div>
-        <div class="fa-drop" hidden><label class="subtle">Drop</label><select class="fa-drop-sel">${size < L.roster_size ? `<option value="">Nobody (open spot)</option>` : ""}${dropOpts}</select>
-          <button type="button" class="btn fa-confirm" data-pid="${esc(p)}" style="padding:6px 12px;font-size:.82rem">Plan it</button></div></div>`).join("")
-        || `<div class="empty">No free agents match.</div>`;
-      $("pl-fas").querySelectorAll(".fa-add").forEach((b) => b.addEventListener("click", () => {
-        const box = b.closest(".fa-row").querySelector(".fa-drop"); box.hidden = !box.hidden;
-      }));
-      $("pl-fas").querySelectorAll(".fa-confirm").forEach((b) => b.addEventListener("click", () => {
-        const drop = b.parentElement.querySelector(".fa-drop-sel").value || null;
-        plan.moves.push({ add: b.dataset.pid, drop });
-        plan.lineups = {};          // lineups change with the roster; start from best again
-        store.set("plannerState", plan);
-        renderPlanner();
-      }));
-    };
-    $("pl-q").addEventListener("input", drawFAs);
-    host.querySelectorAll("#pl-pos button").forEach((b) => b.addEventListener("click", () => {
-      posFilter = b.dataset.pos;
-      host.querySelectorAll("#pl-pos button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
-      drawFAs();
-    }));
-    drawFAs();
   }
 
   // ---------- Brief ----------
@@ -2083,6 +1901,7 @@
   }
   function setupAsk() {
     $("ask-btn").addEventListener("click", () => openAsk());
+    $("settings-btn").addEventListener("click", () => selectTab("more"));
     $("ask-q").addEventListener("input", refreshAskPreview);
     $("ask-chips").addEventListener("click", (e) => {
       const c = e.target.closest("[data-chip]");
@@ -2107,13 +1926,15 @@
   }
 
   // ---------- shell ----------
-  // Five sections in the bottom bar; some hold sub-tabs switched by a segmented control.
+  // Five sections in the bottom bar (settings sits behind the header gear); some hold
+  // sub-tabs switched by a segmented control.
   const SECTIONS = {
     home: [["home", "Home"]],
     league: [["league", "League"]],
-    waivers: [["faab", "Bids & FAAB"], ["news", "News"]],
-    trades: [["trades", "Ideas"], ["lab", "Trade Lab"]],
-    more: [["planner", "Planner"], ["model", "Model"], ["brief", "Brief"], ["more", "Settings"]],
+    players: [["players", "Players"]],
+    moves: [["faab", "Waivers"], ["news", "News"], ["trades", "Trades"], ["lab", "Lab"], ["nfl", "Teams"]],
+    model: [["model", "Model"]],
+    settings: [["more", "Settings"], ["brief", "Brief"]],
   };
   const lastSub = {};
   function sectionOf(name) {
@@ -2257,7 +2078,6 @@
     if (act === "trade-for") openInLab(ownerOf(pid), [], [pid], { suggest: true });
     else if (act === "shop") openInLab((labState && labState.partner) || Object.keys(DATA.lab.rosters).find((t) => Number(t) !== myRid()), [pid], [], { suggest: true, shopAll: true });
     else if (act === "pitch") openInLab(b.dataset.partner, [pid], [], { suggest: true });
-    else if (act === "plan-add") planPickup(pid);
     else if (act === "hold") toggleHold(pid);
     else if (act === "ask") openAsk(b.dataset.kind, pid);
     else if (act === "team") openTeam(b.dataset.team);
@@ -2282,7 +2102,7 @@
     return;
   }
   $("team-name").textContent = D.me.team_name;
-  $("subtitle").innerHTML = `${esc(D.league.name)} · Week ${esc(D.league.current_week)} · <span id="updated-at"></span>`;
+  $("subtitle").innerHTML = `<span class="lg-name">${esc(D.league.name)} · </span>Week ${esc(D.league.current_week)} · <span id="updated-at"></span>`;
   showUpdated();
   setInterval(showUpdated, 60000);
   const warnings = [].concat(D.warnings || [], (F && F.warnings) || []);
@@ -2291,12 +2111,13 @@
   }
   showStatus(D.generated_at);
 
-  renderHome(); renderLeague(); renderNews(); renderFaab(); renderTrades(); renderTradeLab(); renderPlanner(); renderModel(); renderBrief(); renderMore();
+  renderHome(); renderLeague(); renderNews(); renderFaab(); renderTrades(); renderTradeLab(); renderNFL(); renderPlayers(); renderModel(); renderBrief(); renderMore();
   tidyExplanations(document);
   new MutationObserver(() => tidyExplanations(document.querySelector("main"))).observe(document.querySelector("main"), { childList: true, subtree: true });
   document.querySelectorAll("#tabs button").forEach((b) => b.addEventListener("click", () => selectTab(b.dataset.tab)));
   // old bookmarks: My Team / Standings / Matchups / Playoffs / Rosters moved into Home and League
-  const MOVED = { team: "home", matchups: "home", standings: "league", playoffs: "league", rosters: "league" };
+  const MOVED = { team: "home", matchups: "home", standings: "league", playoffs: "league", rosters: "league",
+    planner: "home", waivers: "faab" };
   const initial = MOVED[location.hash.slice(1)] || location.hash.slice(1);
   const known = Object.values(SECTIONS).flat().map(([t]) => t).concat(Object.keys(SECTIONS));
   selectTab(known.includes(initial) ? initial : "home");
