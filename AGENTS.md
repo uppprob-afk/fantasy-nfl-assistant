@@ -232,6 +232,12 @@ the next 7 days (`STADIUMS` coordinates; neutral sites skipped), cached 3 h. Bot
 in `params` (`availability`, `weather`) and show on the Model page and in each card's
 "Game day" note.
 
+## Freshness
+
+The header subtitle shows "Updated <relative time>" (`showUpdated`, refreshed every minute;
+amber when older than 1 day on an NFL game day in US Eastern time (Thu / Sun / Mon), else
+4 days). The ↻ button only reloads; new data comes from scheduled or manual pipeline runs.
+
 ## Ask Claude (no API)
 
 The header chat icon and an "Ask Claude" button in every player panel and the Lab summary
