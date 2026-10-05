@@ -131,7 +131,8 @@ def next_weeks(p: dict, n: int = 3) -> list[dict]:
         out.append({"week": w, "bye": False, "pts": round(x["pts"], 1),
                     "low": round(max(x["pts"] - sd, 0), 1), "high": round(x["pts"] + sd, 1),
                     "opp": x.get("opp"), "home": x.get("home"), "avail": x.get("avail", 1.0),
-                    "matchup": matchup_label(x.get("mult")), "source": x.get("source"), "wx": x.get("wx")})
+                    "matchup": matchup_label(x.get("mult")), "source": x.get("source"), "wx": x.get("wx"),
+                    "inherit": x.get("inherit")})
     return out
 
 

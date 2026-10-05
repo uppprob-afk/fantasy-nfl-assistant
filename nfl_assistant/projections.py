@@ -18,6 +18,7 @@ import math
 from collections import defaultdict
 from statistics import mean, median
 
+from . import roles
 from .factors import weather_multiplier
 from .nflverse import compute_points, index_rows, match_player, norm_name
 
@@ -49,6 +50,8 @@ DEFAULT_PARAMS = {
     "weather_strength": 0.0,   # how much of the learned venue/weather effects to apply (0-1)
     "availability": None,      # learned injury table (factors.learn_availability); None = fixed defaults
     "weather": None,           # learned venue/weather factors (factors.learn_weather)
+    "role_blend": 0.0,         # weight on the role projection (team volume x share x efficiency)
+    "inherit": None,           # learned share of a missing teammate's work the next man gets
     "bias": {pos: 1.0 for pos in POSITIONS}, "sd_scale": {pos: 1.0 for pos in POSITIONS},
 }
 
@@ -178,7 +181,10 @@ def mark_partial(games: list[dict], injured: bool = False) -> None:
         g["partial"] = False
     if len(pcts) < 3:
         return
-    normal = median(pcts)
+    # judge against this season's normal once there are 3+ games (roles change year to year)
+    latest = games[-1]["season"] if games else None
+    this = [g["pct"] for g in games if g["season"] == latest and g["pct"] is not None]
+    normal = median(this) if len(this) >= 3 else median(pcts)
     if normal < 0.3:
         return  # part-time player: snap share too noisy to judge
     low = [g["pct"] is not None and g["pct"] < PARTIAL_SNAP_RATIO * normal for g in games]
@@ -354,7 +360,7 @@ def rate_components(games: list[dict], season: str, prior_season: str, position:
     """Everything the rate formula needs, before any tunable setting is applied.
     as_of = the week being projected (for recency weighting of this season's games)."""
     prior = [g for g in games if g["season"] == prior_season and not g["partial"]]
-    this = [g for g in games if g["season"] == season and not g["partial"]]
+    this = [g for g in games if g["season"] == season and not g["partial"] and not g.get("opp")]
     xs = [expected_points(g, usage) for g in this]
     this_games = [(g["week"], g["pts"], x) for g, x in zip(this, xs)]
     xs = [x for x in xs if x is not None]
@@ -384,6 +390,10 @@ def rate_from(c: dict, params: dict | None = None) -> dict:
     w_this = n_eff
     k = P["baseline_games"]
     rate = (k * c["baseline"] + w_prior * c["r_prior"] + w_this * (r_this or 0.0)) / (k + w_prior + w_this)
+    role = c.get("role")
+    if role and P["role_blend"] > 0:
+        w_role = P["role_blend"] * role["n"] / (role["n"] + 2)
+        rate = (1 - w_role) * rate + w_role * role["rate"]
     rate *= P["bias"].get(c["position"], 1.0)
     effective = w_prior + w_this
     sd_game = c["cv"] * max(rate, 3.0)
@@ -400,11 +410,13 @@ def rate_from(c: dict, params: dict | None = None) -> dict:
 
 def player_rate(games: list[dict], season: str, prior_season: str, position: str,
                 current_team: str | None, base: dict, usage: dict,
-                depth_order: int | None = None, params: dict | None = None, as_of: int | None = None) -> dict:
+                depth_order: int | None = None, params: dict | None = None, as_of: int | None = None,
+                role: dict | None = None) -> dict:
     """Rest-of-season points per game for one player, with spread and confidence."""
     c = rate_components(games, season, prior_season, position, current_team, base, usage, depth_order, as_of)
+    c["role"] = role
     r = rate_from(c, params)
-    return {**r, "games_prior": c["games_prior"], "games_this": c["n_this"],
+    return {**r, "role": role, "games_prior": c["games_prior"], "games_this": c["n_this"],
             "partial_weeks": c["partial_weeks"], "prior_ppg": round(c["r_prior"], 2) if c["games_prior"] else None,
             "actual_ppg": round(c["actual"], 2) if c["actual"] is not None else None,
             "expected_ppg": round(c["expected"], 2) if c["expected"] is not None else None,
@@ -509,6 +521,7 @@ def build(players: dict, candidate_ids: set[str], rows_prior: list[dict], rows_t
     prior_season = str(int(season) - 1)
     logs = game_logs(rows_prior + rows_this, snaps, scoring)
     dlogs = def_logs(rows_prior + rows_this, games, scoring)
+    roles.mark_opportunity(logs)
     assign_finishes(logs, dlogs)
     td_rates = td_per_touch(logs, season)
     sched = schedule(games, season)
@@ -516,6 +529,7 @@ def build(players: dict, candidate_ids: set[str], rows_prior: list[dict], rows_t
         if team in sched.get(w, {}):
             sched[w][team].update({**fc, "forecast": True})
     usage = usage_values(logs, prior_season)
+    volume = roles.team_volume(logs, season)
     base_logs = {**logs, **{f"DEF:{t}": v for t, v in dlogs.items()}}
     bases = position_baselines(base_logs, prior_season, starters_per_pos)
     dvp = defence_vs_position(logs, sched, season)
@@ -539,19 +553,71 @@ def build(players: dict, candidate_ids: set[str], rows_prior: list[dict], rows_t
         status = p.get("injury_status") or None
         if pos != "DEF":
             mark_partial(plogs, injured=status is not None)
+        role = roles.role_components(plogs, season, pos, team, volume, usage)
         r = player_rate(plogs, season, prior_season, pos, team, bases.get(pos, {}), usage,
-                        p.get("depth_chart_order"), params, first_week)
+                        p.get("depth_chart_order"), params, first_week, role)
         todo = unplayed_weeks(sched, team, weeks)
         weekly = project_weeks(r["rate"], pos, team, status, todo, first_week, sched, dvp, avg_imp, params, prac)
         log_this = [{k: g.get(k) for k in LOG_KEYS} for g in plogs if g["season"] == season]
         po = project_weeks(r["rate"], pos, team, status, unplayed_weeks(sched, team, playoff_weeks or []),
                            first_week, sched, dvp, avg_imp, params)
-        r.update({"id": pid, "position": pos, "team": team, "status": status, "practice": prac, "weekly": weekly,
+        r.update({"id": pid, "name": p.get("full_name") or pid, "position": pos, "team": team, "status": status,
+                  "practice": prac, "weekly": weekly,
                   "log": log_this, "playoff_weeks": po, "pos_td_per_touch": td_rates.get(pos),
                   "ros": round(sum(x["pts"] for x in weekly.values()), 1),
                   "byes": [w for w, x in weekly.items() if x.get("bye")]})
         out[pid] = r
+    apply_inheritance(out, volume, params)
     return out
+
+
+def apply_inheritance(proj: dict[str, dict], volume: dict, params: dict | None) -> None:
+    """When a teammate at the same position is out (availability < 1 in a week), hand his
+    normal share to the others (learned split) and add the extra points to their week.
+    Also store each player's "if the man ahead misses" rate as r["contingency"]."""
+    P = params_or_default(params)
+    take = {pos: (P["inherit"] or {}).get(pos, {}).get("take", roles.DEFAULT_TAKE[pos]) for pos in roles.SHARE_KEY}
+    group_take = {pos: (P["inherit"] or {}).get(pos, {}).get("group", roles.DEFAULT_GROUP[pos]) for pos in roles.SHARE_KEY}
+    groups = defaultdict(list)
+    for pid, r in proj.items():
+        if r.get("role") and r["position"] in roles.SHARE_KEY:
+            groups[(r["team"], r["position"])].append(pid)
+    for (team, pos), pids in groups.items():
+        if len(pids) < 2 or team not in volume:
+            continue
+        v = volume[team]
+        def extra_pts(pid, dc, dt):
+            ro = proj[pid]["role"]
+            return (v["carries"] * dc * ro["e_car"] + v["targets"] * dt * ro["e_tgt"]) * P["bias"].get(pos, 1.0)
+        member = lambda pid, avail: {"id": pid, "pos": pos, "avail": avail, "car_share": proj[pid]["role"]["car_share"],
+                                     "tgt_share": proj[pid]["role"]["tgt_share"]}
+        weeks = {w for pid in pids for w in list(proj[pid]["weekly"]) + list(proj[pid].get("playoff_weeks") or {})}
+        for w in sorted(weeks):
+            src = lambda pid: proj[pid]["weekly"].get(w) or (proj[pid].get("playoff_weeks") or {}).get(w)
+            rows = {pid: src(pid) for pid in pids if src(pid) and not src(pid).get("bye")}
+            group = [member(pid, x.get("avail", 1.0)) for pid, x in rows.items()]
+            for a in group:
+                if a["avail"] >= 1:
+                    continue
+                for pid, (dc, dt) in roles.redistribute(group, a, take[pos], group_take[pos]).items():
+                    x = rows[pid]
+                    add = extra_pts(pid, dc, dt) * x.get("mult", 1.0) * (x.get("wx") or {}).get("mult", 1.0) * x.get("avail", 1.0)
+                    if add >= 0.05:
+                        x["pts"] = round(x["pts"] + add, 2)
+                        x.setdefault("inherit", []).append({"from": proj[a["id"]]["name"], "pts": round(add, 1)})
+        # contingency: if the teammate with the biggest share misses a whole game
+        key = "car_share" if pos == "RB" else "tgt_share"
+        lead = max(pids, key=lambda pid: proj[pid]["role"][key])
+        if proj[lead]["role"][key] < roles.REGULAR[pos]:
+            continue
+        gained = roles.redistribute([member(pid, 1.0) for pid in pids if pid != lead] + [member(lead, 0.0)],
+                                    member(lead, 0.0), take[pos], group_take[pos])
+        for pid, (dc, dt) in gained.items():
+            proj[pid]["contingency"] = {"if_out": proj[lead]["name"], "id": lead,
+                                        "rate": round(proj[pid]["rate"] + extra_pts(pid, dc, dt), 1)}
+    for r in proj.values():
+        if r.get("weekly"):
+            r["ros"] = round(sum(x["pts"] for x in r["weekly"].values()), 1)
 
 
 def replacement_rates(proj: dict[str, dict], rostered: set[str], top_n: int = 3) -> dict[str, float]:

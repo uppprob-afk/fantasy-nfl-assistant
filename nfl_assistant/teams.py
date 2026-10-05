@@ -206,10 +206,29 @@ def build(players: dict, logs: dict[str, list[dict]], nflverse_id: dict[str, str
                        "owner": owners.get(pid), "ppg": round(mean(w["pts"] for w in weeks if not w["partial"]), 1)
                        if any(not w["partial"] for w in weeks) else None,
                        "share": round(mean(normal), 3) if normal else None, "kind": SHARE_KIND.get(pos),
-                       "proj": (proj.get(pid) or {}).get("rate"), "label": sec["label"], "reason": sec["reason"]}
+                       "proj": (proj.get(pid) or {}).get("rate"), "label": sec["label"], "reason": sec["reason"],
+                       "contingency": (proj.get(pid) or {}).get("contingency")}
                 out_rows.append(row)
                 roles[pid] = {**row, "team": team, "pos": pos, "weeks": weeks,
                               "ahead": [players[a].get("full_name") for a in pids[:i]][-2:],
                               "behind": [players[b].get("full_name") for b in pids[i + 1:i + 3]]}
             depth[team][pos] = out_rows[: max(DEPTH_SHOWN.get(pos, 3), sum(1 for r in out_rows if r["order"]))][:6]
     return depth, roles
+
+
+def opportunities(proj: dict[str, dict], owners: dict[str, str], min_gain: float = 2.5) -> list[dict]:
+    """Players whose next game is boosted because a teammate is out (biggest boost first)."""
+    out = []
+    for pid, p in proj.items():
+        nxt = next(((w, x) for w, x in sorted(p.get("weekly", {}).items()) if not x.get("bye")), None)
+        if not nxt or not nxt[1].get("inherit"):
+            continue
+        w, x = nxt
+        gain = sum(i["pts"] for i in x["inherit"])
+        if gain < min_gain:
+            continue
+        out.append({"id": pid, "name": p.get("name", pid), "team": p["team"], "pos": p["position"], "week": w,
+                    "from": [i["from"] for i in x["inherit"]], "gain": round(gain, 1), "pts": round(x["pts"], 1),
+                    "normal": round(x["pts"] - gain, 1), "owner": owners.get(pid)})
+    out.sort(key=lambda o: -o["gain"])
+    return out

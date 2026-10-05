@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from . import brief, cards, dashboard, faab, factors, lab, league, lineups, model, nflverse, outlook, projections, scanner, teams, tendencies, trades, waivers
+from . import brief, cards, dashboard, faab, factors, lab, league, lineups, model, nflverse, outlook, projections, roles, scanner, teams, tendencies, trades, waivers
 from .config import ROOT, ConfigError, load_config
 from .output import write_site_data, write_snapshot
 from .players import find_player, ir_allowed_statuses, player_brief, player_name, slim_players
@@ -299,7 +299,8 @@ def build_model(ctx: dict, nfl: dict) -> dict:
     dlogs = projections.def_logs(rows, nfl["games"], league["scoring_settings"])
     scheds = {s: projections.schedule(nfl["games"], s) for s in (prior, season)}
     base = {"availability": factors.learn_availability(nfl.get("injuries") or [], logs),
-            "weather": factors.learn_weather({**logs, **{f"DEF:{t}": v for t, v in dlogs.items()}}, scheds)}
+            "weather": factors.learn_weather({**logs, **{f"DEF:{t}": v for t, v in dlogs.items()}}, scheds),
+            "inherit": roles.learn_take(logs)}
     records = model.backtest_records(nfl["prior"], nfl["this"], nfl["snaps"], nfl["games"],
                                      league["scoring_settings"], season, starters, ctx["completed_weeks"])
     learned = model.learn(records, base)
@@ -565,7 +566,8 @@ def build_teams(ctx: dict, nfl: dict, proj: dict, managers: dict, now) -> tuple[
                      and any(not g.get("played") for g in sched[w].values())), default=ctx["current_week"])
     return ({"generated_at": now.isoformat(timespec="minutes"), "week": next_week, "names": names,
              "offence": teams.offence(totals, nfl["games"], sched, season, next_week),
-             "strength": teams.position_strength(totals, dlogs, sched, season), "depth": depth}, roles)
+             "strength": teams.position_strength(totals, dlogs, sched, season), "depth": depth,
+             "opportunities": teams.opportunities(proj, owners)}, roles)
 
 
 # --- model scorecard (backtest + live ledger + what it learned) ----------------------
@@ -782,6 +784,8 @@ def main() -> int:
     for pid, card in dash["cards"].items():
         if pid in roles:
             card["role"] = {k: v for k, v in roles[pid].items() if k not in ("id", "owner", "proj")}
+        if pid in proj and proj[pid].get("contingency") and card.get("role"):
+            card["role"]["contingency"] = proj[pid]["contingency"]
     say("Projecting matchups and simulating the season...")
     outlook_data = build_outlook(ctx, managers, proj, proj_weeks, slots, now)
     lab_data = build_lab(ctx, managers, proj, proj_weeks, slots, outlook_data, trade_data)

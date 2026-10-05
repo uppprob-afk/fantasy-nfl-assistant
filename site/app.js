@@ -103,6 +103,8 @@
     return `<div class="pd-sec"><div class="pd-h">Role · ${teamLink(r.team)} depth chart</div>
       <div>${roleChip(r.label)} <b>${ordinalPos}</b>${r.ahead && r.ahead.length ? ` behind ${r.ahead.map(esc).join(", ")}` : ""}${r.behind && r.behind.length ? ` · ahead of ${r.behind.map(esc).join(", ")}` : ""}</div>
       <div class="subtle" style="margin:4px 0 8px">${esc(r.reason)}</div>
+      ${r.contingency && c.value && r.contingency.rate - c.value.rate >= 1 ? `<div class="tile good" style="margin-bottom:8px"><div class="k">If ${esc(r.contingency.if_out)} misses</div>
+        <div class="v">~${num(r.contingency.rate)}<small>/wk</small></div><div class="s">normally ${num(c.value.rate)} · his share passes down the depth chart (learned from past absences)</div></div>` : ""}
       ${weeks ? `<div class="pd-h" style="margin-bottom:4px">Share ${KIND_TXT[r.kind] || ""} by week</div><div class="role-weeks">${weeks}</div>
       <div class="subtle">* left early or limited snaps · ↑ someone ahead of him left early or sat (an opportunity, not his normal role). Normal-role weeks drive the label.</div>` : ""}</div>`;
   }
@@ -122,7 +124,8 @@
     const depth = ["QB", "RB", "WR", "TE", "K"].filter((pos) => D2[pos] && D2[pos].length).map((pos) => `<div class="pd-h" style="margin-top:14px">${pos}</div>
       <div class="dc">${D2[pos].map((r) => `<div class="dc-row"><span class="dc-o">${r.order || "–"}</span>
         <div class="dc-n"><div><b>${esc(r.name)}</b>${r.status ? ` <span class="chip ${r.status === "Questionable" ? "q" : "inj"}">${esc(r.status)}</span>` : ""} ${roleChip(r.label)}</div>
-          <div class="subtle">${r.share != null && r.kind ? `${Math.round(100 * r.share)}% ${KIND_TXT[r.kind]}` : ""}${r.ppg != null ? `${r.share != null && r.kind ? " · " : ""}${num(r.ppg)} pts/g` : ""} · ${owner(r.owner)}</div></div></div>`).join("")}</div>`).join("");
+          <div class="subtle">${r.share != null && r.kind ? `${Math.round(100 * r.share)}% ${KIND_TXT[r.kind]}` : ""}${r.ppg != null ? `${r.share != null && r.kind ? " · " : ""}${num(r.ppg)} pts/g` : ""} · ${owner(r.owner)}</div>
+          ${r.contingency && r.proj != null && r.contingency.rate - r.proj >= 1.5 ? `<div class="subtle">If ${esc(r.contingency.if_out)} misses: <b>~${num(r.contingency.rate)}</b>/wk (from ${num(r.proj)})</div>` : ""}</div></div>`).join("")}</div>`).join("");
     return `<div class="subtle">${O.points_pg != null ? `<b>${num(O.points_pg)}</b> pts/g (${ord(O.ranks && O.ranks.points_pg)})` : ""}${
         O.plays_pg != null ? ` · <b>${num(O.plays_pg)}</b> plays/g (${ord(O.ranks && O.ranks.plays_pg)})` : ""}${
         O.pass_rate != null ? ` · pass rate ${Math.round(100 * O.pass_rate)}%` : ""}${
@@ -168,6 +171,9 @@
       notes.push(`<b>${esc(v.status)}</b>${v.practice ? ` (${PRACTICE[v.practice] || esc(v.practice)})` : ""}: ${row
         ? `players listed like this have played ${row.played != null ? Math.round(100 * row.played) + "% of the time and" : ""} produced ${Math.round(100 * row.share)}% of their normal points (${row.games} cases), so this week's projection is ${Math.round(100 * (nx.avail ?? 1))}% of normal.`
         : `this week's projection is ${Math.round(100 * (nx.avail ?? 1))}% of normal.`}`);
+    }
+    if (nx && nx.inherit && nx.inherit.length) {
+      notes.push(`<b>+${num(nx.inherit.reduce((a, x) => a + x.pts, 0))}</b> this week with ${nx.inherit.map((x) => esc(x.from)).join(" and ")} likely out: his work passes down the depth chart.`);
     }
     if (nx && nx.wx) {
       const t = wxText(nx.wx), m = nx.wx.mult;
@@ -381,6 +387,7 @@
           <div class="pname">${esc(p.name)}${injuryChip(p)} <span class="chip ${fitCls}">${fitLabel}</span>${p.trending ? ` <span class="chip warm" title="Sleeper-wide adds, last 48h">trending</span>` : ""}</div>
           <div class="pmeta">${esc(p.position)} · ${teamLink(p.team)}${p.pos_rank ? ` · ${esc(p.position)}${p.pos_rank} rest of season` : ""} · ${num(p.proj_rate)}/wk proj · ${esc(p.proj_confidence)} conf</div>
           <div class="wv-impact">${impact}${cut}</div>
+          ${c && c.role && c.role.contingency && c.value && c.role.contingency.rate - c.value.rate >= 2 ? `<div class="wv-impact">Handcuff: <b>~${num(c.role.contingency.rate)}</b>/wk if ${esc(c.role.contingency.if_out)} misses</div>` : ""}
         </div>
         <div class="bid-amt">${s.bid == null ? "–" : money(s.bid)}<small>bid</small></div>
         ${c ? `<div class="wv-pills">${pills(c, p.position)}</div>` : ""}
@@ -553,6 +560,14 @@
       html += `<div class="alert">First scan: a baseline was saved. From the next run on, this tab shows what changed since the previous run.</div>`;
     } else {
       html += `<p class="lead-text" style="margin-top:12px">New since the last run (${esc(new Date(S.baseline).toLocaleString())}). Old news isn't repeated.</p>`;
+    }
+    if (TM && TM.opportunities && TM.opportunities.length) {
+      html += `<h2>Opportunities this week</h2><p class="lead-text">Players whose next game is projected higher because a teammate ahead of them is out
+        or doubtful (his share passes down the depth chart, as learned from past absences).</p>
+        <div class="card">${TM.opportunities.map((o) => `<div class="news"><div class="tag better">Opportunity · ${esc(o.pos)}</div>
+          <div><span class="pname">${esc(o.name)}</span> <span class="pmeta">${esc(o.pos)} · ${teamLink(o.team)} · ${o.owner ? esc(o.owner) : "free agent"}</span></div>
+          <div class="txt">${o.from.map(esc).join(" and ")} out → projects <b>${num(o.pts)}</b> in week ${esc(o.week)} (normally ${num(o.normal)}, +${num(o.gain)}).</div>
+          <div class="acts">${actionButtons(o.id)}</div></div>`).join("")}</div>`;
     }
     html += newsSection("My players", S.my_players, "Nothing new on your roster.");
     html += newsSection("Other teams' starters", S.other_starters, "No changes to other teams' starters.");
@@ -1872,6 +1887,17 @@
         <p class="subtle">Currently applied at <b>${Math.round(100 * (L.params.weather_strength || 0))}%</b> strength: the learner only turns this up when it improves accuracy on this season's games${
           (L.params.weather_strength || 0) === 0 ? ", which it hasn't yet" : ""}. Recency: each older game counts ${L.params.recency === 1 ? "the same as the latest (no fade yet)" : `${Math.round(100 * L.params.recency)}% as much as the week after it`}.</p>`;
     }
+    const IH = L.params && L.params.inherit;
+    if (IH) {
+      html += `<h2>Who inherits the work</h2><p class="lead-text">Learned from every game last season and this season where a regular (RB with 35%+ of carries,
+        WR 15%+ / TE 12%+ of targets) missed time or left early: how much of his share went to the next man down the pecking order, and to all the
+        teammates below him combined. The rest went to call-ups and other positions. Used for "if the starter misses" values and opportunity alerts.</p>
+        <div class="card table-wrap"><table class="named"><thead><tr><th>Pos</th><th>Next man</th><th>All below</th><th>Cases</th></tr></thead><tbody>
+        ${Object.entries(IH).map(([pos, x]) => `<tr><td><b>${esc(pos)}</b></td><td>${Math.round(100 * x.take)}%</td><td>${Math.round(100 * x.group)}%</td><td>${x.events}</td></tr>`).join("")}</tbody></table></div>
+        <p class="subtle">Role projection (team volume × share × efficiency) is blended in at <b>${Math.round(100 * (L.params.role_blend || 0))}%</b>: the learner
+        only uses it when it improves accuracy on this season's games${(L.params.role_blend || 0) === 0 ? ", which it hasn't yet" : ""}. Games where a player ahead of someone sat or left early
+        are left out of that player's normal rate.</p>`;
+    }
     if (MD.history && MD.history.length > 1) {
       html += `<details class="recent"><summary>Week by week</summary><div class="card">${MD.history.slice().reverse().map((h) => `<div class="prow" style="display:block">
         <b>Week ${esc(h.week)}</b> <span class="subtle">· avg miss ${num(h.mae)} on ${h.games} games · in range ${pctTxt(h.coverage)}</span>
@@ -1965,6 +1991,9 @@
     if (u.actual_ppg != null && u.expected_ppg != null) opp.push(`scoring ${one(u.actual_ppg)}/g vs ${one(u.expected_ppg)}/g usage-based`);
     if (opp.length) lines.push("Usage: " + opp.join(", ") + ".");
     if (c.role) lines.push(`Role: ${c.role.pos}${c.role.order || ""} for ${c.role.team}${c.role.ahead && c.role.ahead.length ? " behind " + c.role.ahead.join(", ") : ""} - ${c.role.label} (${c.role.reason}) Weekly share: ${(c.role.weeks || []).map((w) => `W${w.week} ${w.share == null ? "-" : Math.round(100 * w.share) + "%"}${w.partial ? " (left early)" : w.opportunity ? " (opportunity: player ahead left/sat)" : ""}`).join(", ")}.`);
+    if (c.role && c.role.contingency) lines.push(`If ${c.role.contingency.if_out} misses: ~${c.role.contingency.rate} pts/wk (learned share inheritance).`);
+    const nxi = (c.next3 || []).find((w) => !w.bye);
+    if (nxi && nxi.inherit && nxi.inherit.length) lines.push(`This week includes +${nxi.inherit.reduce((a, x) => a + x.pts, 0).toFixed(1)} because ${nxi.inherit.map((x) => x.from).join(" and ")} is likely out.`);
     if (v && v.status) lines.push(`Injury: ${v.status}${v.practice ? ", " + (PRACTICE[v.practice] || v.practice) : ""}.`);
     const nx = (c.next3 || []).find((w) => !w.bye);
     if (nx && nx.wx && wxText(nx.wx)) lines.push(`Next game conditions: ${wxText(nx.wx)}.`);
