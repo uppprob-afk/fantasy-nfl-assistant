@@ -41,11 +41,11 @@ def _median_share(games: list[dict], sk: str) -> float:
 
 
 def mark_opportunity(logs: dict[str, list[dict]]) -> None:
-    """Set g["opp"] on every RB / WR / TE game: True when a teammate with a higher normal
+    """Set g["opp_game"] on every RB / WR / TE game: True when a teammate with a higher normal
     share at the position (and 2+ full games that season) sat or left early that week."""
     for games in logs.values():
         for g in games:
-            g["opp"] = False
+            g["opp_game"] = False
     for (season, team, pos), players in _groups(logs).items():
         sk = SHARE_KEY[pos]
         med = {k: _median_share(v, sk) for k, v in players.items()}
@@ -57,7 +57,7 @@ def mark_opportunity(logs: dict[str, list[dict]]) -> None:
                 for a in ahead:
                     ga = weeks[a].get(g["week"])
                     if ga is None or ga.get("partial"):
-                        g["opp"] = True
+                        g["opp_game"] = True
                         break
 
 
@@ -85,7 +85,7 @@ def role_components(games: list[dict], season: str, position: str, team: str | N
     """Normal-role shares, efficiency and the resulting points per game (None if no role data)."""
     if position not in SHARE_KEY or not team or team not in volume:
         return None
-    this = [g for g in games if g["season"] == season and not g.get("partial") and not g.get("opp")]
+    this = [g for g in games if g["season"] == season and not g.get("partial") and not g.get("opp_game")]
     if not this:
         return None
     u = usage.get(position) or {}

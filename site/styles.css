@@ -41,7 +41,7 @@ body {
   padding-bottom: calc(var(--nav-h) + 24px + env(safe-area-inset-bottom));
 }
 h1, h2, h3 { margin: 0; line-height: 1.25; letter-spacing: -.01em; }
-h2 { font-size: 17px; font-weight: 650; margin: 28px 0 10px; display: flex; align-items: center; gap: 8px; }
+h2 { font-size: 17px; font-weight: 650; margin: 32px 0 12px; display: flex; align-items: center; gap: 8px; }
 h2 .muted { font-weight: 450; font-size: 13px; }
 p { margin: 0 0 8px; }
 b, strong { font-weight: 650; }
@@ -63,6 +63,7 @@ button { -webkit-tap-highlight-color: transparent; }
 .topbar-inner { max-width: 760px; margin: 0 auto; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .topbar h1 { font-size: 17px; font-weight: 700; }
 .sub { margin: 1px 0 0; font-size: 12px; }
+@media (max-width: 480px) { .lg-name { display: none; } }
 #updated-at.stale { color: var(--warn); font-weight: 600; }
 .top-actions { display: flex; gap: 6px; align-items: center; }
 .icon-btn, .theme-btn {
@@ -256,7 +257,7 @@ details.prow-d[open] > summary { background: var(--surface-2); }
 .pl-avg { text-align: right; font-weight: 650; font-size: 15px; line-height: 1.1; }
 .pl-avg small { display: block; font-size: 10px; font-weight: 500; color: var(--muted); }
 .pill { display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 0;
-  border-radius: 10px; padding: 5px 4px; background: var(--surface-2); line-height: 1.15; }
+  border-radius: 9px; padding: 4px 4px; background: var(--surface-2); line-height: 1.15; }
 .pill b { font-size: 14px; font-weight: 650; white-space: nowrap; }
 .pill i { font-style: normal; font-size: 10.5px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .pill.none { background: transparent; box-shadow: inset 0 0 0 1px var(--border); }
@@ -367,6 +368,30 @@ tr.detail-row .card { background: var(--surface); border: 1px solid var(--border
 .vsg-slot { text-align: center; font-size: 10.5px; font-weight: 700; letter-spacing: .04em; color: var(--muted); }
 .vsg-total { background: var(--surface-2); }
 .vsg-total .vsg-pts { font-size: 15px; }
+
+/* ---------- player search ---------- */
+#ps-q { width: 100%; box-sizing: border-box; font: inherit; font-size: 16px; padding: 12px 14px; border-radius: var(--r-md);
+  border: 1px solid var(--border); background: var(--surface); color: var(--text); margin-bottom: 10px; }
+.ps-row { margin-bottom: 8px; }
+.ps-filters { margin: 4px 0 10px; }
+.ps-filters > summary { cursor: pointer; font-weight: 600; color: var(--accent); font-size: 14px; list-style: none; }
+.ps-selects { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+.ps-selects select, .ps-bar select { margin: 0 0 0 6px; padding: 6px 8px; font-size: 14px; }
+.ps-selects .btn { padding: 8px 14px; font-size: 13.5px; }
+.ps-bar { display: flex; justify-content: space-between; align-items: center; margin: 6px 0 10px; }
+.sr-extra { color: var(--text-2); }
+
+/* ---------- tile stacks: one rounded tile per item, space between ---------- */
+.stack { display: grid; gap: 10px; margin-bottom: 12px; }
+.stack > * { background: var(--surface); border: 1px solid var(--border) !important; border-radius: var(--r-lg); overflow: hidden; }
+.stack > details[open] { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)) !important;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, .02), 0 6px 18px -12px rgba(0, 0, 0, .35); }
+.stack > details[open] > summary { background: transparent !important; }
+.stack > details > .pd { background: var(--surface-2); margin: 0 10px 10px; border-radius: var(--r-md); padding: 16px 14px; }
+.stack > details > .pd + .pd { margin-top: -4px; }
+.stack .tile { background: var(--surface); }
+.stack > .mine-bg { background: color-mix(in srgb, var(--accent-soft) 70%, var(--surface)); }
+.stack > .empty { background: var(--surface); }
 
 /* ---------- lists: trades, bids, news, logs ---------- */
 .trade, .bid-card, .news, .log-row { padding: 14px 16px; border-top: 1px solid var(--border); }

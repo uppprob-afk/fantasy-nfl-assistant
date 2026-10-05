@@ -778,10 +778,11 @@ def main() -> int:
     say("Looking for trade ideas...")
     trade_data = build_trades(ctx, managers, proj, proj_weeks, slots, scan, now)
     pool_ids = build_available(ctx, proj, proj_weeks, slots, faab_data)
-    dash["cards"] = build_cards(ctx, proj, points, proj_weeks, nfl, trade_data, pool_ids)
+    # cards for every projected player (rostered, waiver pool and the rest) - player search uses them
+    all_cards = build_cards(ctx, proj, points, proj_weeks, nfl, trade_data, list(set(pool_ids) | set(proj)))
     say("Building NFL depth charts and team strength...")
     teams_data, roles = build_teams(ctx, nfl, proj, managers, now)
-    for pid, card in dash["cards"].items():
+    for pid, card in all_cards.items():
         if pid in roles:
             card["role"] = {k: v for k, v in roles[pid].items() if k not in ("id", "owner", "proj")}
         if pid in proj and proj[pid].get("contingency") and card.get("role"):
@@ -801,6 +802,7 @@ def main() -> int:
     write_site_data(site_data, "lab", lab_data)
     write_site_data(site_data, "league", league_data)
     write_site_data(site_data, "teams", teams_data)
+    write_site_data(site_data, "cards", all_cards)
     write_site_data(site_data, "model", build_model_page(ctx, mdl, proj, points, pool_ids, now, ROOT / "data"))
     brief_md = brief.build_brief(dash, faab_data, scan, trade_data, outlook_data)
     (site_data / "claude_brief.md").write_text(brief_md, encoding="utf-8")

@@ -66,7 +66,7 @@ nfl_assistant/
   teams.py                NFL teams: depth charts, position strength vs league, offence, roles / job security
   tendencies.py           manager FAAB habits + likely rivals / bid-to-win
   cards.py                player cards: last/next 3, finishes, consistency, opportunity, game log, schedule, value
-  lab.py                  compact data for the in-browser Trade Lab / Planner (site/lab.js)
+  lab.py                  compact data for the in-browser Trade Lab (site/lab.js)
   model.py                self-assessment: backtest, accuracy, learned settings, live ledger
   waivers.py              waiver targets: best available per position, points each adds to my team
   league.py               weekly scores vs median, all-play + luck, power rankings, odds history
@@ -179,18 +179,22 @@ sell-high / buy-low rows are `<details>`; value-table rows (`.tp-row`) insert a
 
 `site/styles.css` is a small "clean & calm" system: neutral greys + one accent (`--accent`);
 colour only carries status (`--good/--warn/--bad`, injuries, up/down, finish/rank tiers). Spacing 4/8/12/16/24/32; type 11 label / 13 small / 15 body / 17 title / 28 hero;
-flat cards (no nested borders), quiet position labels, small chips. Navigation: five sections
-in a bottom bar (floating pill on wide screens) defined in `SECTIONS` (app.js); sections with
-several panels show a segmented sub-nav (`#subnav`). Hashes are panel ids (#faab, #lab …) and
+flat cards (no nested borders), quiet position labels, small chips. Lists of players, waiver
+options, news, trades and offers are `.stack`s: one rounded tile per item with a 10px gap (no
+dividers), and an opened tile's details sit in a shaded inset panel inside it, so tiles are
+easy to tell apart. Navigation: five sections in a bottom bar (Home · League · Players ·
+Moves · Model; floating pill on wide screens) defined in `SECTIONS` (app.js); Moves =
+Waivers · News · Trades · Lab · Teams; Settings + Brief sit behind the header gear
+(`settings` section, no bar button). Sections with several panels show a segmented sub-nav (`#subnav`). Hashes are panel ids (#faab, #lab …) and
 `hashchange` is handled. Any `<p class="lead-text">` directly after an `<h2>` is turned into
 an ⓘ toggle by `tidyExplanations()` (MutationObserver), so keep explanations in that shape.
-Theme (Auto / Light / Dark) lives in More → Settings. Matchup cards include a side-by-side
+Theme (Auto / Light / Dark) lives in Settings (header gear). Matchup cards include a side-by-side
 lineup (`sideBySide`) for every matchup.
 
 ## Home and League tabs
 
-Tabs: Home · League · News · FAAB · Trades · Trade Lab · Planner · Brief (old #team /
-#matchups map to Home; #standings / #playoffs / #rosters to League). `league.py` →
+Panels: home, league, players, faab, news, trades, lab, nfl, model, more, brief (old #team /
+#matchups map to Home; #standings / #playoffs / #rosters to League; #planner (removed) to Home; #waivers to #faab). `league.py` →
 `site/data/league.*`: weekly scores + per-week league median (Sleeper matchup points),
 all-play record, luck = actual wins − all-play expected wins, power rankings
 (z-scores: results so far weight 0.9·n/(n+5), projection 0.9 − that, efficiency 0.1), and
@@ -202,7 +206,7 @@ top 3 = light green, bottom 3 = red, W/L) and expands to scoring rank, points ag
 week (schedule luck), all-play + luck, consistency (SD vs the league median SD) and every
 game with "would have beaten N of M". The same `.pill` / `.f-*` tier classes as player cards.
 
-## Self-learning projections (More → Model)
+## Self-learning projections (Model tab)
 
 `projections.py` splits each rate into `rate_components` (data) and `rate_from` (settings);
 matchups into `matchup_raw` and `multiplier_from`. Settings live in `DEFAULT_PARAMS`
@@ -248,7 +252,7 @@ work (7-point share trend, last 2 normal games vs season) / Committee / One inju
 behind a 50%+ RB, or #2 QB/TE without a role) / Depth / Unproven. `position_strength`:
 fantasy points per game produced and allowed per position, ranked 1-32 with the median;
 `offence`: plays, pass rate, points, next game's implied total. Site: tap any team code
-(`teamLink`, `data-act="team"`) for the team sheet (`dialog#team-sheet`); League → NFL teams
+(`teamLink`, `data-act="team"`) for the team sheet (`dialog#team-sheet`); Moves → Teams
 table (sortable by position, localStorage `nflSort`); player panels show a Role section.
 Phase 2 (`roles.py`, in projections): `mark_opportunity` flags RB/WR/TE games where a teammate
 with a higher median share (2+ full games) sat or left early; they're excluded from the
@@ -264,6 +268,17 @@ points added to that week (`weekly[w].inherit`) and `contingency` = rate if the 
 teammate misses a full game. `teams.opportunities` lists next-game boosts >= 2.5 pts (News).
 Shown: Role section (if X misses), team sheet, waiver tiles (handcuff), Game day note,
 Model page (who inherits the work).
+
+## Players (search)
+
+`renderPlayers` searches every projected player (`DATA.lab.players`, ~530) joined with their
+card (`site/data/cards.*`: cards for all projected players, written separately from
+dashboard.json), waiver analysis (`F.available`), opportunities (`TM.opportunities`) and
+trade flags. Filters: text (name / team), position, availability (everyone / free agents /
+mine / other teams), NFL team, role labels, health, situation flags (`FLAG_DEFS`: handcuff
+value >= 2 pts, opportunity this week, upgrades my team, sell-high, buy-low, held, trending);
+sorts (`SORTS`). State in localStorage `playerSearch`; 40 results at a time. Rows are
+`playerRow` tiles with an extra summary line (owner, role, handcuff, opportunity, waiver gain).
 
 ## Freshness
 
@@ -325,12 +340,8 @@ fairest), or the closest if none. "Apply" loads that version.
 Lab page order: picker → result (summary card with verdict, gains and Why; then players
 in the deal, odds, lineup, week by week, strength) → suggested offers (the loaded one is
 marked "Showing above"; the summary card links down to the rest).
-Sub-tabs that share their section's name (`trades` = Ideas, `more` = Settings) are
-selected with `selectTab(name, true)` so they don't jump back to the last sub-tab.
-The Planner (app.js `renderPlanner`) uses the same engine: this week starts from Sleeper's set
-lineup with finished games locked (`a` = actual points), future weeks from the optimal
-lineup; planned waiver moves apply from `current_week + 1`; lineup edits are stored per week
-and fed to `simulate` as `weekOverrides`. Plans live in localStorage (`plannerState`).
+Sub-tabs that share their section's name are selected with `selectTab(name, true)` so they
+don't jump back to the last sub-tab. (The Planner was removed: unused.)
 
 **Suggested offers and quick actions.** `suggestOffers({get | give, partner})` in lab.js
 searches 1-for-1, 2-for-1, 1-for-2 and 2-for-2 deals around the fixed player (buy: my
@@ -341,16 +352,14 @@ where they gain, ranked by min(my gain, their gain), boosted when it fills a lin
 (`leagueProfiles` needs). If none exist it shows up to 3 near-misses (they'd lose < 3 pts),
 labelled as needing a sweetener. Max 2 per team, throw-in duplicates dropped. app.js has one delegated click handler for
 `[data-act]` buttons: `trade-for` / `shop` / `pitch` open the Lab with offers already
-searched (`openInLab(..., {suggest, shopAll})`), `plan-add` adds a pickup to the Planner
-(`planPickup`, default drop = weakest non-held player when the roster is full), and `hold`
-toggles a stash. `actionButtons(pid)` picks the buttons from the owner in `DATA.lab`
+searched (`openInLab(..., {suggest, shopAll})`), `hold` toggles a stash, `team` opens a
+team sheet and `ask` opens Ask Claude. `actionButtons(pid)` picks the buttons from the owner in `DATA.lab`
 (mine / another team / free agent) and is used in player detail panels, FAAB cards and News.
 
 **Holds (stashes).** localStorage `holds` (per device). Held players are passed to the
 engine (`setHolds`) so they're never offered or cut in Lab maths; trade ideas that give or
 drop one are hidden (with a count), they're left out of sell-high and "players you could
-pitch", the sell-high flag is replaced by a "held" tag, and the Planner never picks them as
-the default drop. Python output is unaffected (parity runs with no holds).
+pitch", and the sell-high flag is replaced by a "held" tag. Python output is unaffected (parity runs with no holds).
 
 ## Automation
 
