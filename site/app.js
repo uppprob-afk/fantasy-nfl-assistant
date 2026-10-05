@@ -2114,6 +2114,28 @@
     }
   }
 
+  // "Updated 3h ago" in the header; amber when stale (over a day on an NFL game day, else 4 days)
+  function agoText(ms) {
+    const m = Math.round(ms / 60000);
+    if (m < 1) return "just now";
+    if (m < 60) return `${m} min ago`;
+    const h = Math.round(m / 60);
+    if (h < 24) return `${h}h ago`;
+    const d = Math.floor(h / 24);
+    return d === 1 ? "yesterday" : `${d} days ago`;
+  }
+  function showUpdated() {
+    const el = $("updated-at");
+    if (!el || !D || !D.generated_at) return;
+    const at = new Date(D.generated_at), age = Date.now() - at.getTime();
+    let gameDay = false;
+    try { gameDay = ["Thu", "Sun", "Mon"].includes(new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: "America/New_York" }).format(new Date())); } catch (e) { /* old browser */ }
+    const stale = age > (gameDay ? 1 : 4) * 86400000;
+    el.textContent = `Updated ${agoText(age)}`;
+    el.className = stale ? "stale" : "";
+    el.title = at.toLocaleString();
+  }
+
   async function showStatus(generatedAt) {
     const notes = [];
     if (await isOffline()) {
@@ -2158,7 +2180,9 @@
     return;
   }
   $("team-name").textContent = D.me.team_name;
-  $("subtitle").textContent = `${D.league.name} · Week ${D.league.current_week} · ${D.me.label}`;
+  $("subtitle").innerHTML = `${esc(D.league.name)} · Week ${esc(D.league.current_week)} · <span id="updated-at"></span>`;
+  showUpdated();
+  setInterval(showUpdated, 60000);
   const warnings = [].concat(D.warnings || [], (F && F.warnings) || []);
   if (warnings.length) {
     $("warnings").innerHTML = `<div class="alert"><strong>Warnings</strong><ul>${warnings.map((w) => `<li>${esc(w)}</li>`).join("")}</ul></div>`;
