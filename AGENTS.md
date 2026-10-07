@@ -83,7 +83,7 @@ tests/                    pytest + tests/fixtures/ (neutral sample data)
 
 - Public Sleeper API only (`https://api.sleeper.app/v1/...`, no auth): `state/nfl`,
   `league/{id}`, `/rosters`, `/users`, `/matchups/{week}`, `/transactions/{week}`,
-  `/traded_picks`, `players/nfl`, `players/nfl/trending/add|drop`.
+  `players/nfl`, `players/nfl/trending/add|drop`.
 - `players/nfl` (~15MB) at most once per run, cached 1h in `data/cache/`.
 - **Displayed fantasy points come only from matchups `players_points` / `starters_points`.**
   Never use Sleeper's undocumented stats or projections endpoints. One labelled exception:
@@ -371,6 +371,22 @@ with that team (`lab-team`), Ask Claude (`kind: "team"`, `teamText`).
 - Settings → Glossary (`GLOSSARY`, `renderGlossary`, searchable); every ⓘ explanation ends with
   a "Glossary →" link. Settings shows the update time as "X ago (date)".
 
+## Security
+
+- No league data, IDs, names or credentials in this repo (or its history); commits use the
+  noreply email. League config/data live in the private repo; secrets only in GitHub secrets.
+- Everything rendered with `innerHTML` goes through `esc()` (escapes `& < > " '`); team names,
+  usernames and player names are untrusted (other managers choose them). Ask Claude text is
+  set with `textContent`. Keep it that way; the hostile-name test plants `<img onerror>` /
+  `<svg onload>` names and opens every screen.
+- `site/_headers` (Cloudflare): strict CSP (`script-src 'self'`, no third-party anything,
+  `frame-ancestors 'none'`), nosniff, no-referrer, X-Frame-Options DENY, Permissions-Policy.
+  So: no inline scripts or `on…=` attributes; add listeners in app.js. Inline `style=`
+  attributes are allowed.
+- GitHub Actions are pinned to commit SHAs (version in a comment); workflow permissions are
+  least-privilege (Pages / id-token only on the deploy job). Python: `yaml.safe_load`, no
+  shell / eval / pickle; dependencies checked with `uv run --with pip-audit pip-audit`.
+
 ## Freshness
 
 The header subtitle shows "Updated <relative time>" (`showUpdated`, refreshed every minute;
@@ -435,7 +451,7 @@ Sub-tabs that share their section's name are selected with `selectTab(name, true
 don't jump back to the last sub-tab. (The Planner was removed: unused.)
 
 **Explore trades (current Suggest button).** `exploreTrades({give, get, partner})` in lab.js
-replaces the strict win-win search for the Lab button (suggestOffers remains for reference).
+powers the Lab's suggest button (the old strict win-win search was removed).
 Modes: get only (buy), give only (shop; all teams when opened via Shop), nothing (any deal with
 the selected team: 1-1, 2-1, 1-2, 2-2), both (variations: every improveTrade edit of my trade
 plus other ways to get their main player / move mine). Kept if total ROS ratio 0.4-2.5, my
@@ -447,14 +463,7 @@ perceived = best player + 0.35 x the rest on this season's points per game) and 
 sorts (`OFFER_SORTS`), filters by shape / team, shows 12 at a time with a variety rule (a
 player appears at most 3 times before others), and each offer can Load or Load + Optimise.
 
-**Suggested offers and quick actions.** `suggestOffers({get | give, partner})` in lab.js
-searches 1-for-1, 2-for-1, 1-for-2 and 2-for-2 deals around the fixed player (buy: my
-tradeable players, plus one of theirs alongside the target; shop: their players, plus one of
-mine as a second piece; one partner or all teams). Only like-for-like packages are scored
-(total `ros` within 0.67-1.5x). It never suggests a deal that lowers my value; it keeps deals
-where they gain, ranked by min(my gain, their gain), boosted when it fills a lineup gap
-(`leagueProfiles` needs). If none exist it shows up to 3 near-misses (they'd lose < 3 pts),
-labelled as needing a sweetener. Max 2 per team, throw-in duplicates dropped. app.js has one delegated click handler for
+**Quick actions.** app.js has one delegated click handler for
 `[data-act]` buttons: `trade-for` / `shop` / `pitch` open the Lab with offers already
 searched (`openInLab(..., {suggest, shopAll})`), `hold` toggles a stash, `team` opens a
 team sheet and `ask` opens Ask Claude. `actionButtons(pid)` picks the buttons from the owner in `DATA.lab`

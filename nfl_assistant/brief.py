@@ -229,7 +229,7 @@ def build_brief(dash: dict, faab_data: dict, scan: dict, trade_data: dict, outlo
             f"I could offer {opts}.")
     myteam = next((t for t in trade_data.get("teams", []) if t["is_mine"]), None)
     if myteam:
-        add(f"- My projected strength vs median (pts/week): " + ", ".join(f"{k} {v:+.1f}" for k, v in myteam["vs_median"].items())
+        add("- My projected strength vs median (pts/week): " + ", ".join(f"{k} {v:+.1f}" for k, v in myteam["vs_median"].items())
             + f"; needs {', '.join(myteam['needs']) or 'none'}; spare {', '.join(myteam['surplus']) or 'none'}")
     add("")
     warnings = dash.get("warnings", []) + faab_data.get("warnings", [])

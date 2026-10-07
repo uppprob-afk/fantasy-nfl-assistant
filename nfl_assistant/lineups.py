@@ -33,18 +33,3 @@ def best_lineup(pids: list[str], position: dict[str, str], pts: dict[str, float]
             assigned.append((slot, pick))
     return round(sum(pts[p] for _, p in assigned), 2), assigned
 
-
-def weekly_lineups(pids: list[str], proj: dict[str, dict], weeks: list[int],
-                   slots: list[str]) -> dict[int, dict]:
-    """week -> {total, lineup: [(slot, pid)], empty: [slots nobody can fill]}."""
-    position = {p: proj[p]["position"] for p in pids if p in proj}
-    out = {}
-    for w in weeks:
-        pts = {p: proj[p]["weekly"].get(w, {}).get("pts", 0.0) for p in position}
-        total, lineup = best_lineup(list(position), position, pts, slots)
-        filled = [s for s, p in lineup if pts[p] > 0]
-        empty = list(slots)
-        for s in filled:
-            empty.remove(s)
-        out[w] = {"total": total, "lineup": lineup, "empty": empty}
-    return out

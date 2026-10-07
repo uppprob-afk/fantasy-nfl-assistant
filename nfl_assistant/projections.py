@@ -119,10 +119,6 @@ def schedule(games: list[dict], season: str) -> dict[int, dict[str, dict]]:
     return dict(out)
 
 
-def all_teams(sched: dict) -> set[str]:
-    return {t for teams in sched.values() for t in teams}
-
-
 # --- game logs --------------------------------------------------------------
 def _snap_index(snaps: list[dict]) -> dict[tuple, float]:
     idx = {}

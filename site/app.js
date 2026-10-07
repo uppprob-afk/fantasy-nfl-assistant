@@ -773,10 +773,6 @@
     return level ? `<span class="conf-t ${esc(level)}" title="How much data backs this number">${esc(level)} conf.</span>` : "";
   }
 
-  function projMeta(p) {
-    const range = p.sd != null ? ` (${num(Math.max(p.rate - p.sd, 0), 0)}–${num(p.rate + p.sd, 0)} typical)` : "";
-    return `${esc(p.position)} · ${esc(p.team)} · <b>${num(p.rate)}</b>/wk proj${range}`;
-  }
 
   // Full-width player details (same content as the roster cards) for the Trades tab.
   function playerExpand(p) {
@@ -2605,7 +2601,8 @@
   if (navigator.serviceWorker) navigator.serviceWorker.addEventListener("message", (e) => {
     if (!e.data || e.data.type !== "data-updated" || $("fresh-note")) return;
     $("status").insertAdjacentHTML("afterbegin", `<div class="status-note" id="fresh-note">Newer data has downloaded.
-      <button type="button" class="mini" onclick="location.reload()">Show it</button></div>`);
+      <button type="button" class="mini" id="fresh-reload">Show it</button></div>`);
+    $("fresh-reload").addEventListener("click", () => location.reload());
   });
   window.addEventListener("popstate", () => {
     if (NAV.ignorePop) { NAV.ignorePop--; return; }
