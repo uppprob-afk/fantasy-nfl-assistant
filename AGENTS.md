@@ -434,6 +434,19 @@ marked "Showing above"; the summary card links down to the rest).
 Sub-tabs that share their section's name are selected with `selectTab(name, true)` so they
 don't jump back to the last sub-tab. (The Planner was removed: unused.)
 
+**Explore trades (current Suggest button).** `exploreTrades({give, get, partner})` in lab.js
+replaces the strict win-win search for the Lab button (suggestOffers remains for reference).
+Modes: get only (buy), give only (shop; all teams when opened via Shop), nothing (any deal with
+the selected team: 1-1, 2-1, 1-2, 2-2), both (variations: every improveTrade edit of my trade
+plus other ways to get their main player / move mine). Kept if total ROS ratio 0.4-2.5, my
+gain >= -4 (-10 for variations), their gain >= -25. Each offer has `chance` (rough acceptance:
+logistic of their gain / 6 + 0.5 per need filled + perceived value / 8 capped ±1.5, where
+perceived = best player + 0.35 x the rest on this season's points per game) and fits.
+`bestScore` = 0.5 me + 0.25 them + 12 x chance (−5 if under 15%). app.js groups offers
+(`OFFER_CATS`: Both gain, Likely accepted, Value for you, Fills your need, Needs a sweetener),
+sorts (`OFFER_SORTS`), filters by shape / team, shows 12 at a time with a variety rule (a
+player appears at most 3 times before others), and each offer can Load or Load + Optimise.
+
 **Suggested offers and quick actions.** `suggestOffers({get | give, partner})` in lab.js
 searches 1-for-1, 2-for-1, 1-for-2 and 2-for-2 deals around the fixed player (buy: my
 tradeable players, plus one of theirs alongside the target; shop: their players, plus one of

@@ -1697,6 +1697,7 @@
     const me = String(L.my_roster_id);
     const others = Object.keys(L.rosters).filter((t) => t !== me);
     if (!labState || !L.rosters[labState.partner]) labState = { partner: others[0], give: [], get: [] };
+    if (labState.offers && !labState.offers.mode) labState.offers = null;      // saved by an older version
     const mine = E.rosterOf(me), theirs = E.rosterOf(labState.partner);
     labState.give = labState.give.filter((p) => mine.includes(p));
     labState.get = labState.get.filter((p) => theirs.includes(p));
@@ -1716,9 +1717,12 @@
         <div><div class="col-label">You give (${labState.give.length})</div><div class="picks">${pickChips(mine, labState.give, "give")}</div></div>
         <div><div class="col-label">You get (${labState.get.length})</div><div class="picks">${pickChips(theirs, labState.get, "get")}</div></div>
       </div>
-      <div class="lab-actions"><button type="button" class="btn" id="lab-suggest" ${(labState.give.length > 0) !== (labState.get.length > 0) ? "" : "disabled"}>Suggest offers</button>
+      <div class="lab-actions"><button type="button" class="btn" id="lab-suggest">${
+          labState.give.length && labState.get.length ? "Find variations" : labState.give.length || labState.get.length ? "Suggest offers"
+          : `Find trades with ${esc((L.rosters[labState.partner] || {}).team_name || "them")}`}</button>
         <button type="button" class="btn secondary" id="lab-clear">Clear</button></div>
-      <p class="subtle">Pick only who you want (or only who you're shopping) and tap <b>Suggest offers</b>. Numbers on the right are projected pts/week.</p>
+      <p class="subtle">Pick who you want, who you're shopping, both, or nobody, then tap the button: it always finds options, grouped by
+        how likely they are to work. Numbers on the right are projected pts/week.</p>
       <div id="lab-result">${labState.give.length && labState.get.length ? `<div class="empty">Calculating…</div>`
         : labState.offers || labState.give.length || labState.get.length ? "" : `<div class="empty">Pick at least one player on each side.</div>`}</div>
       <div id="lab-offers">${labState.offers ? offersHtml(labState.offers) : ""}</div>
@@ -1769,32 +1773,71 @@
     }
   }
 
+  const OFFER_CATS = [
+    ["all", "All", () => true],
+    ["winwin", "Both gain", (x) => x.gainMe > 0 && x.gainThem > 0],
+    ["likely", "Likely accepted", (x) => x.chance >= 0.6 && x.gainMe >= -1.5],
+    ["value", "Value for you", (x) => x.gainMe >= 3 && x.gainThem >= -8 && x.chance >= 0.2],
+    ["need", "Fills your need", (x) => x.fits.some((f) => f.startsWith("fills your")) && x.gainMe >= -2 && x.gainThem >= -5],
+    ["close", "Needs a sweetener", (x) => x.gainMe > 0 && x.gainThem <= 0 && x.gainThem > -6],
+  ];
+  const OFFER_SORTS = [["best", "Best match"], ["mine", "Your gain"], ["theirs", "Their gain"], ["chance", "Chance accepted"], ["fair", "Fairest"]];
+  function offerView() {
+    labState.view = Object.assign({ cat: "all", sort: "best", shape: "any", team: "", limit: 12 }, labState.view || {});
+    return labState.view;
+  }
+  function filteredOffers(o) {
+    const v = offerView(), cat = OFFER_CATS.find((c) => c[0] === v.cat) || OFFER_CATS[0];
+    const key = { best: (x) => engine().bestScore(x), mine: (x) => x.gainMe, theirs: (x) => x.gainThem,
+      chance: (x) => x.chance + x.gainMe / 1000, fair: (x) => Math.min(x.gainMe, x.gainThem) - Math.abs(x.gainMe - x.gainThem) / 10 }[v.sort];
+    const rows = o.offers.map((x, i) => Object.assign({ i }, x))
+      .filter((x) => cat[2](x) && (v.shape === "any" || x.shape === v.shape) && (!v.team || String(x.partner) === v.team))
+      .sort((a, b) => key(b) - key(a));
+    // variety: no player in more than 3 offers before everyone else has had a turn
+    const used = {}, first = [], later = [];
+    rows.forEach((x) => {
+      const ids = x.give.concat(x.get);
+      if (ids.every((p) => (used[p] || 0) < 3)) { ids.forEach((p) => { used[p] = (used[p] || 0) + 1; }); first.push(x); } else later.push(x);
+    });
+    return first.concat(later);
+  }
   function offersHtml(o) {
-    const P = DATA.lab.players, R = DATA.lab.rosters;
-    const who = labState.get.length ? labState.get : labState.give;
-    const subject = who.map((p) => esc(P[p].n)).join(" + ");
+    const P = DATA.lab.players, R = DATA.lab.rosters, v = offerView();
     if (!o.offers.length) {
-      return `<h2>Suggested offers</h2><div class="card"><div class="empty">No realistic offer found for ${subject}.
-        Every deal of similar value either costs you points or doesn't help the other team${labState.get.length ? "" : " — they may simply be worth more to you than in a trade"}.</div></div>`;
+      return `<h2>Suggested offers</h2><div class="card"><div class="empty">No trade within reason was found${o.mode === "any" ? " with this team" : ""}
+        (searched ${o.searched}). Try another team, or pick a player to build around.</div></div>`;
     }
+    const counts = Object.fromEntries(OFFER_CATS.map(([k, , f]) => [k, o.offers.filter(f).length]));
+    const shapes = ["any", ...[...new Set(o.offers.map((x) => x.shape))].sort()];
+    const teams = [...new Set(o.offers.map((x) => String(x.partner)))];
+    const rows = filteredOffers(o);
     const names = (ids) => ids.map((p) => esc(P[p].n)).join(" + ");
-    const same = (a, b) => a.length === b.length && a.every((p) => b.includes(p));
-    const isLoaded = (x) => String(x.partner) === String(labState.partner) && same(x.give, labState.give) && same(x.get, labState.get);
-    const showing = labState.give.length && labState.get.length;
-    return `<h2>${showing ? "Other suggested offers" : "Suggested offers"}</h2>
-      <p class="subtle">${o.anyAcceptable
-        ? "Deals of similar value where you don't lose points and they gain, fairest first."
-        : "Nothing of similar value helps both teams right now. These come closest: they don't cost you, but the other team would lose a little, so expect to negotiate."}</p>
-      <div class="stack">${o.offers.map((x, i) => {
-        const cls = x.gainThem <= 0 ? "lopsided" : x.balance.startsWith("balanced") ? "balanced" : x.balance.startsWith("favours you") ? "favours" : "lopsided";
-        const label = x.gainThem <= 0 ? "close — needs a sweetener" : x.balance;
-        const shape = `${x.give.length}-for-${x.get.length}`;
-        return `<div class="trade offer"><div class="trade-head"><div class="pname">${esc(R[x.partner].team_name)}</div><span class="chip ${cls}">${esc(label)}</span></div>
-          <div class="subtle" style="margin:4px 0 8px">Give <b>${names(x.give)}</b> · get <b>${names(x.get)}</b>
-            <br>${shape}${x.fits && x.fits.length ? " · " + esc(x.fits.join(" · ")) : ""}</div>
-          <div class="gains"><span class="gain me">You ${signed(x.gainMe)}</span><span class="gain">Them ${signed(x.gainThem)}</span>
-            ${isLoaded(x) ? `<span class="mini on">Showing above</span>` : `<button type="button" class="mini" data-offer="${i}">Load</button>`}</div></div>`;
-      }).join("")}</div>`;
+    const PRIMARY = ["winwin", "likely", "need", "value", "close"];
+    const tags = (x) => { const c = PRIMARY.map((k) => OFFER_CATS.find((y) => y[0] === k)).find((y) => y[2](x));
+      return c ? `<span class="chip ${c[0] === "close" ? "q" : c[0] === "value" ? "favours" : "balanced"}">${c[1]}</span>` : ""; };
+    const card = (x) => {
+      const pc = Math.round(100 * x.chance);
+      return `<div class="trade offer"><div class="trade-head"><div class="pname">${esc(R[x.partner].team_name)}</div><span class="subtle">${esc(x.shape)}${x.built ? " · your trade" : ""}</span></div>
+        <div style="margin:4px 0 6px">Give <b>${names(x.give)}</b> · get <b>${names(x.get)}</b></div>
+        <div class="otags">${tags(x)}${x.fits.map((f) => `<span class="chip">${esc(f)}</span>`).join("")}</div>
+        <div class="gains"><span class="gain me">You ${signed(x.gainMe)}</span><span class="gain">Them ${signed(x.gainThem)}</span>
+          <span class="chance" title="Rough chance they accept: from their gain, whether it fills a need and how good the players look on recent scoring">
+            <span class="chance-bar"><span style="width:${pc}%"></span></span>${pc}% accept</span></div>
+        <div class="acts"><button type="button" class="mini" data-offer="${x.i}">Load</button>
+          <button type="button" class="mini" data-offer="${x.i}" data-improve="1">${x.gainThem <= 0 ? "Find a sweetener" : "Optimise"}</button></div></div>`;
+    };
+    return `<h2>Suggested offers <span class="muted">${o.offers.length} found</span></h2>
+      <div class="ocats seg" id="ocat">${OFFER_CATS.map(([k, label]) => `<button type="button" data-cat="${k}" aria-pressed="${k === v.cat}" ${counts[k] ? "" : "disabled"}>${label} <small>${counts[k]}</small></button>`).join("")}</div>
+      <div class="ofilters"><label class="subtle">Sort <select id="osort">${OFFER_SORTS.map(([k, l]) => `<option value="${k}" ${k === v.sort ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+        <label class="subtle">Shape <select id="oshape">${shapes.map((k) => `<option value="${k}" ${k === v.shape ? "selected" : ""}>${k === "any" ? "Any" : k}</option>`).join("")}</select></label>
+        ${teams.length > 1 ? `<label class="subtle">Team <select id="oteam"><option value="">All teams</option>${teams.map((t) => `<option value="${t}" ${t === v.team ? "selected" : ""}>${esc(R[t].team_name)}</option>`).join("")}</select></label>` : ""}</div>
+      <div class="stack">${rows.slice(0, v.limit).map(card).join("") || `<div class="empty">Nothing in this group with these filters.</div>`}</div>
+      ${rows.length > v.limit ? `<button type="button" class="btn secondary" id="omore" style="width:100%">Show ${Math.min(12, rows.length - v.limit)} more (${rows.length - v.limit} left)</button>` : ""}
+      <details class="recent"><summary>How these are found</summary><div class="card card-pad subtle">
+        <p>Every 1-for-1, 2-for-1, 1-for-2 and 2-for-2 around what you picked is valued for both teams (rest-of-season points, lineups, byes, roster spots).
+        Deals that would cost you more than 4 points, or are wildly uneven in total value, are left out.</p>
+        <p><b>Chance accepted</b> is a rough guide: it rises with their gain, if the deal fills one of their weak spots, and if the players they get
+        look better on this season's scoring (managers judge on what they've seen). It isn't learned from real acceptances, so treat it as a ranking.</p></div></details>`;
   }
 
   let IMPROVE = null;
@@ -1839,14 +1882,21 @@
 
   function wireOffers() {
     const box = $("lab-offers");
-    if (!box) return;
+    if (!box || !labState.offers) return;
+    const v = offerView(), redraw = () => { store.set("labState", labState); box.innerHTML = offersHtml(labState.offers); wireOffers(); };
+    box.querySelectorAll("#ocat button").forEach((b) => b.addEventListener("click", () => { v.cat = b.dataset.cat; v.limit = 12; redraw(); }));
+    [["osort", "sort"], ["oshape", "shape"], ["oteam", "team"]].forEach(([id, k]) => { const el = $(id); if (el) el.addEventListener("change", () => { v[k] = el.value; v.limit = 12; redraw(); }); });
+    const more = $("omore"); if (more) more.addEventListener("click", () => { v.limit += 12; redraw(); });
     box.querySelectorAll("[data-offer]").forEach((b) => b.addEventListener("click", () => {
       const x = labState.offers.offers[Number(b.dataset.offer)];
-      labState = Object.assign({}, labState, { partner: x.partner, give: x.give.slice(), get: x.get.slice() });
+      labState = Object.assign({}, labState, { partner: String(x.partner), give: x.give.slice(), get: x.get.slice() });
       store.set("labState", labState);
       renderTradeLab();
-      const r = $("lab-result");
-      if (r) setTimeout(() => r.scrollIntoView({ block: "start", behavior: "smooth" }), 60);
+      setTimeout(() => {
+        const r = $("lab-result");
+        if (r) r.scrollIntoView({ block: "start", behavior: "smooth" });
+        if (b.dataset.improve) setTimeout(() => { if ($("lab-improve")) runImprove(); }, 250);
+      }, 60);
     }));
   }
 
@@ -1854,10 +1904,10 @@
     const E = engine();
     $("lab-offers").innerHTML = `<div class="card"><div class="empty">Searching trades…</div></div>`;
     setTimeout(() => {
-      const res = labState.get.length
-        ? E.suggestOffers({ get: labState.get, partner: labState.partner })
-        : E.suggestOffers({ give: labState.give, partner: labState.shopAll ? null : labState.partner });
+      const shopAll = labState.give.length && !labState.get.length && labState.shopAll;
+      const res = E.exploreTrades({ give: labState.give, get: labState.get, partner: shopAll ? null : labState.partner });
       labState.offers = res;
+      labState.view = Object.assign(offerView(), { cat: "all", limit: 12, team: "" });
       store.set("labState", labState);
       $("lab-offers").innerHTML = offersHtml(res);
       wireOffers();

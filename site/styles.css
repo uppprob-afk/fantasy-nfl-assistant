@@ -488,6 +488,18 @@ details.tm > summary::-webkit-details-marker { display: none; }
 .fpill.f-boom { background: var(--good); color: var(--on-accent); } .fpill.f-start { background: var(--good-soft); color: var(--good); }
 .fpill.f-mid { background: var(--surface-3); } .fpill.f-bust { background: var(--bad-soft); color: var(--bad); }
 
+/* ---------- Trade Lab offers ---------- */
+.ocats { margin: 6px 0 8px; max-width: 100%; }
+.ocats button small { opacity: .7; font-weight: 500; }
+.ocats button[disabled] { opacity: .4; }
+.ofilters { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; margin-bottom: 10px; }
+.ofilters select { margin: 0 0 0 6px; padding: 6px 8px; font-size: 13.5px; }
+.otags { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+.otags .chip { margin: 0; }
+.chance { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-2); margin-left: auto; }
+.chance-bar { width: 54px; height: 6px; border-radius: 999px; background: var(--surface-3); overflow: hidden; }
+.chance-bar > span { display: block; height: 100%; background: var(--accent); }
+
 /* ---------- This week to-do ---------- */
 .todo-list > .todo { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 10px; align-items: start; padding: 12px 14px; }
 .todo .chip { margin: 1px 0 0; }
