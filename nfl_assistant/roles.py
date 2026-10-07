@@ -159,3 +159,52 @@ def redistribute(group: list[dict], vacated_from: dict, take: float, group_take:
             c, t = out.get(p["id"], (0.0, 0.0))
             out[p["id"]] = (c + part, t) if kind == "car_share" else (c, t + part)
     return out
+
+
+QB_SHRINK = 60               # pseudo-games of "no effect"
+QB_CAP = (0.7, 1.05)
+
+
+def learn_qb_change(logs: dict[str, list[dict]]) -> dict[str, dict]:
+    """RB / WR / TE points when the team's usual QB (most attempts that season, 2+ starts)
+    didn't start, relative to the player's average with the usual QB. Per position, shrunk
+    toward no effect and capped."""
+    starts = defaultdict(dict)                    # (season, team) -> week -> starting QB
+    att = defaultdict(lambda: defaultdict(float))
+    for key, games in logs.items():
+        for g in games:
+            if g.get("position") == "QB" and g.get("team"):
+                a = g.get("attempts") or 0
+                att[(g["season"], g["team"])][key] += a
+                cur = starts[(g["season"], g["team"])].get(g["week"])
+                if a >= 10 and (cur is None or a > cur[1]):
+                    starts[(g["season"], g["team"])][g["week"]] = (key, a)
+    primary = {}
+    for st, a in att.items():
+        top = max(a, key=a.get)
+        if sum(1 for k, _ in starts[st].values() if k == top) >= 2:
+            primary[st] = top
+    acc = defaultdict(lambda: [0.0, 0.0, 0])
+    for key, games in logs.items():
+        by_st = defaultdict(list)
+        for g in games:
+            if g.get("position") in ("RB", "WR", "TE") and not g.get("partial") and g.get("team"):
+                by_st[(g["season"], g["team"])].append(g)
+        for st, gs in by_st.items():
+            if st not in primary:
+                continue
+            usual = [g for g in gs if (starts[st].get(g["week"]) or (None,))[0] == primary[st]]
+            other = [g for g in gs if g["week"] in starts[st] and starts[st][g["week"]][0] != primary[st]]
+            if len(usual) < 3 or not other:
+                continue
+            normal = mean(g["pts"] for g in usual)
+            if normal < 3:
+                continue
+            a = acc[gs[0]["position"]]
+            a[0] += sum(g["pts"] for g in other); a[1] += normal * len(other); a[2] += len(other)
+    out = {}
+    for pos in ("RB", "WR", "TE"):
+        act, exp, n = acc.get(pos, [0.0, 0.0, 0])
+        ratio = act / exp if exp else 1.0
+        out[pos] = {"factor": round(max(QB_CAP[0], min(QB_CAP[1], (n * ratio + QB_SHRINK) / (n + QB_SHRINK))), 3), "games": n}
+    return out

@@ -45,7 +45,8 @@ def test_next_weeks_ranges_byes_and_matchups():
     nxt = cards.next_weeks(proj())
     assert [w["week"] for w in nxt] == [5, 6, 7]
     assert nxt[0] == {"week": 5, "bye": False, "pts": 12.0, "low": 6.0, "high": 18.0, "opp": "BUF", "home": True,
-                      "avail": 1.0, "matchup": "easy", "source": "vegas", "wx": None, "inherit": None}
+                      "avail": 1.0, "matchup": "easy", "source": "vegas", "wx": None, "inherit": None,
+                      "floor": None, "ceiling": None, "qb_change": None}
     assert nxt[1] == {"week": 6, "bye": True, "pts": 0.0}
     assert nxt[2]["matchup"] == "tough" and nxt[2]["avail"] == 0.85
 

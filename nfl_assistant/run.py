@@ -300,13 +300,39 @@ def build_model(ctx: dict, nfl: dict) -> dict:
     scheds = {s: projections.schedule(nfl["games"], s) for s in (prior, season)}
     base = {"availability": factors.learn_availability(nfl.get("injuries") or [], logs),
             "weather": factors.learn_weather({**logs, **{f"DEF:{t}": v for t, v in dlogs.items()}}, scheds),
-            "inherit": roles.learn_take(logs)}
+            "inherit": roles.learn_take(logs), "qb_factor": roles.learn_qb_change(logs)}
     records = model.backtest_records(nfl["prior"], nfl["this"], nfl["snaps"], nfl["games"],
-                                     league["scoring_settings"], season, starters, ctx["completed_weeks"])
+                                     league["scoring_settings"], season, starters, ctx["completed_weeks"],
+                                     nfl.get("injuries") or [], snapshot_ranks(ctx, nfl, scheds[season]))
     learned = model.learn(records, base)
     return {"records": records, "learned": learned,
             "backtest": model.evaluate(records, learned["params"]),
             "backtest_default": model.evaluate(records, None)}
+
+
+def snapshot_ranks(ctx: dict, nfl: dict, sched: dict) -> dict[int, dict]:
+    """week -> nflverse id -> (position, position rank by Sleeper's ranking) from the latest
+    saved players snapshot taken before that week's first game (none = week not covered)."""
+    snap_root = ROOT / "data" / "snapshots"
+    dates = sorted(d.name for d in snap_root.iterdir() if (d / "players.json").exists()) if snap_root.exists() else []
+    if not dates:
+        return {}
+    rows = nfl["prior"] + nfl["this"]
+    _, by_gsis, by_name = nflverse.index_rows(rows)
+    players = ctx["players"]
+    out = {}
+    for w in ctx["completed_weeks"]:
+        days = [g["gameday"] for g in sched.get(w, {}).values() if g.get("gameday")]
+        if not days:
+            continue
+        before = [d for d in dates if d < min(days)]
+        if not before:
+            continue
+        snap = json.loads((snap_root / before[-1] / "players.json").read_text())
+        ranks = projections.sleeper_pos_ranks(snap)
+        out[w] = {nid: (snap[pid]["position"], r) for pid, r in ranks.items()
+                  if (nid := nflverse.match_player(players.get(pid) or snap[pid], by_gsis, by_name))}
+    return out
 
 
 def build_projections(ctx: dict, nfl: dict, params: dict | None = None, today: str | None = None,

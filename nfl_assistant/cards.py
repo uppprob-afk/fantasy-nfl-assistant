@@ -129,10 +129,12 @@ def next_weeks(p: dict, n: int = 3) -> list[dict]:
         full = x["pts"] / x["avail"] if x.get("avail") else 0.0
         sd = p["sd"] * (full / p["rate"]) if p["rate"] else p["sd"]
         out.append({"week": w, "bye": False, "pts": round(x["pts"], 1),
-                    "low": round(max(x["pts"] - sd, 0), 1), "high": round(x["pts"] + sd, 1),
+                    "low": x["q"][1] if x.get("q") else round(max(x["pts"] - sd, 0), 1),
+                    "high": x["q"][3] if x.get("q") else round(x["pts"] + sd, 1),
+                    "floor": x["q"][0] if x.get("q") else None, "ceiling": x["q"][4] if x.get("q") else None,
                     "opp": x.get("opp"), "home": x.get("home"), "avail": x.get("avail", 1.0),
                     "matchup": matchup_label(x.get("mult")), "source": x.get("source"), "wx": x.get("wx"),
-                    "inherit": x.get("inherit")})
+                    "inherit": x.get("inherit"), "qb_change": x.get("qb_change")})
     return out
 
 
@@ -204,5 +206,6 @@ def build_card(pid: str, p: dict | None, sleeper_pts: dict[int, float], complete
                      "vor": round(p["ros"] - repl.get(p["position"], 0.0) * n_weeks, 1),
                      "rank": rank, "rank_of": count, "byes": p["byes"], "flag": flags.get(pid),
                      "prior_ppg": p.get("prior_ppg"), "partial_weeks": p.get("partial_weeks", []),
-                     "status": p.get("status"), "practice": p.get("practice")}
+                     "status": p.get("status"), "practice": p.get("practice"),
+                     "range": p.get("q")}       # [floor, low, median, high, ceiling] per game (learned)
     return card

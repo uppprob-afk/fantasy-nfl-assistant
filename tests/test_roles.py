@@ -81,3 +81,14 @@ def test_mark_opportunity_keeps_the_opponent_field():
         x["opp"] = "DET"
     roles.mark_opportunity(logs)
     assert all(x["opp"] == "DET" for x in logs["mona"]) and logs["mona"][3]["opp_game"]
+
+
+def test_learn_qb_change_from_backup_starts():
+    def qb(w, key_att):
+        return {"season": "2026", "week": w, "team": "CHI", "position": "QB", "attempts": key_att, "pts": 15.0, "partial": False}
+    logs = {"starter": [qb(w, 35) for w in (1, 2, 3, 4)], "backup": [qb(5, 30)],
+            "wr": [{"season": "2026", "week": w, "team": "CHI", "position": "WR", "pts": 12.0 if w < 5 else 6.0, "partial": False}
+                   for w in (1, 2, 3, 4, 5)]}
+    f = roles.learn_qb_change(logs)["WR"]
+    assert f["games"] == 1 and f["factor"] < 1.0                     # 6 vs usual 12, shrunk with 60 pseudo-games
+    assert roles.learn_qb_change(logs)["RB"] == {"factor": 1.0, "games": 0}
