@@ -346,6 +346,18 @@ sorts (`SORTS`). State in localStorage `playerSearch`; 40 results at a time. Row
 - **Search**: header magnifier opens Players with the search box focused. Trade Lab picker has
   a name filter + position toggle (`LAB_FILTER`; selected players always stay visible).
 
+## Card polish, wide screens, glossary
+
+- Opened player cards start with a sticky mini header (`.pd-sticky`: name, position, team,
+  this week's projection, Close) and end with a full-width Close button (`data-act="collapse"`;
+  also closes Trades-tab detail panels). `.stack > details` uses `overflow: visible` so the
+  sticky header works inside tiles.
+- ≥1100px: main is 1160px wide; stacks of player / waiver / news / to-do / trade tiles become
+  two columns and an opened tile spans both (`:has()` selectors in styles.css).
+- `.table-wrap` shows a fade on the side that can scroll (background-attachment local/scroll).
+- Settings → Glossary (`GLOSSARY`, `renderGlossary`, searchable); every ⓘ explanation ends with
+  a "Glossary →" link. Settings shows the update time as "X ago (date)".
+
 ## Freshness
 
 The header subtitle shows "Updated <relative time>" (`showUpdated`, refreshed every minute;
