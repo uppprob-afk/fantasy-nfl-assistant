@@ -294,6 +294,9 @@
         ? `players listed like this have played ${row.played != null ? Math.round(100 * row.played) + "% of the time and" : ""} produced ${Math.round(100 * row.share)}% of their normal points (${row.games} cases), so this week's projection is ${Math.round(100 * (nx.avail ?? 1))}% of normal.`
         : `this week's projection is ${Math.round(100 * (nx.avail ?? 1))}% of normal.`}`);
     }
+    if (nx && nx.qb_change) {
+      notes.push(`${nx.qb_change.usual ? esc(nx.qb_change.usual) : "The usual QB"} isn't expected to start: ${Math.round(100 * (1 - nx.qb_change.mult))}% lower (learned backup-QB effect).`);
+    }
     if (nx && nx.inherit && nx.inherit.length) {
       notes.push(`<b>+${num(nx.inherit.reduce((a, x) => a + x.pts, 0))}</b> this week with ${nx.inherit.map((x) => esc(x.from)).join(" and ")} likely out: his work passes down the depth chart.`);
     }
@@ -314,7 +317,9 @@
     const tiles = [];
     if (k.games) tiles.push(tileHtml("Season", `${one(k.ppg)}<small>/g</small>`, `${k.games} game${k.games > 1 ? "s" : ""}`));
     if (k.games) tiles.push(tileHtml("Avg finish", `${ab}${k.avg_finish}`, `best ${ab}${k.best_finish}`));
-    if (v) tiles.push(tileHtml("Projected", `${one(v.rate)}<small>/wk</small>`, `${one(Math.max(v.rate - v.sd, 0))}–${one(v.rate + v.sd)}`));
+    if (v) tiles.push(tileHtml("Projected", `${one(v.rate)}<small>/wk</small>`, v.range
+      ? `typically ${one(v.range[1])}–${one(v.range[3])}` : `${one(Math.max(v.rate - v.sd, 0))}–${one(v.rate + v.sd)}`));
+    if (v && v.range) tiles.push(tileHtml("Floor / ceiling", `${one(v.range[0])}<small> – </small>${one(v.range[4])}`, "1-in-10 bad / great week"));
     if (v && v.rank) tiles.push(tileHtml("ROS rank", `${ab}${v.rank}`, `${Math.round(v.ros)} pts · ${v.vor >= 0 ? "+" : ""}${Math.round(v.vor)} vs FA`));
     if (tiles.length) html += `<div class="tiles head">${tiles.join("")}</div>`;
 
@@ -1662,15 +1667,17 @@
     const better = bt.naive_mae ? 1 - bt.mae / bt.naive_mae : null;
     let html = `<h2>How accurate are the projections?</h2>
       <p class="lead-text">Every update re-runs the model for each completed week this season using only what was known before kickoff,
-      then compares it with what players actually scored (${bt.games || 0} player-games so far, fantasy-relevant players only, full games).
-      "In range" = the score landed inside the projected range; about 68% is right for a well-calibrated range.</p>`;
+      (games before that week, that week's official injury report, Vegas lines), then compares it with what players actually scored:
+      ${bt.games || 0} player-games so far, fantasy-relevant players only, <b>including ${bt.injured_or_partial || 0} games where the player was hurt or sat</b> (scored as 0),
+      because that's what you'd really have got. "In range" = between the learned 16th and 84th percentile (about 68% is right);
+      "floor–ceiling" = between the 10th and 90th (about 80%).</p>`;
     if (!bt.games) {
       html += `<div class="card"><div class="empty">No completed weeks to check yet.</div></div>`;
     } else {
       html += `<div class="tiles head">
         ${tileHtml("Avg miss", `${num(bt.mae)}<small> pts</small>`, `per player-game`)}
         ${tileHtml("vs a simple guess", better == null ? "–" : `${better >= 0 ? "" : "−"}${Math.abs(Math.round(100 * better))}%<small> ${better >= 0 ? "better" : "worse"}</small>`, `guess = season avg so far (${num(bt.naive_mae)})`, better > 0 ? "good" : "warn")}
-        ${tileHtml("In range", pctTxt(bt.coverage), "target ~68%", Math.abs(bt.coverage - 0.68) > 0.08 ? "warn" : "")}
+        ${tileHtml("In range", pctTxt(bt.coverage), bt.coverage_fc != null ? `target ~68% · floor–ceiling ${pctTxt(bt.coverage_fc)} (~80%)` : "target ~68%", Math.abs(bt.coverage - 0.68) > 0.08 ? "warn" : "")}
         ${tileHtml("Bias", `${bt.bias >= 0 ? "+" : ""}${num(bt.bias)}`, bt.bias > 0.5 ? "projects a bit high" : bt.bias < -0.5 ? "projects a bit low" : "about right")}
       </div>
       <div class="card table-wrap" style="margin-top:12px"><table class="named"><thead><tr><th>Position</th><th>Games</th><th>Avg miss</th><th>Bias</th><th>In range</th><th class="hide-sm">Simple guess</th></tr></thead>
@@ -1691,7 +1698,8 @@
       <div>${esc(L.reason || "")}</div>
       ${L.changed && L.changed.length ? `<ul class="tight" style="margin-top:8px">${L.changed.map((c) => `<li>${fmt(c)}</li>`).join("")}</ul>` : ""}
       ${bd.mae && bt.mae && L.changed && L.changed.length ? `<div class="subtle" style="margin-top:6px">Avg miss with the starting settings: ${num(bd.mae)} → with what it learned: ${num(bt.mae)} (in range ${pctTxt(bd.coverage)} → ${pctTxt(bt.coverage)}).</div>` : ""}
-      ${v ? `<div class="subtle" style="margin-top:6px">Checked on week ${esc(v.week)}, which it didn't learn from: ${num(v.default_mae)} → ${num(v.learned_mae)} avg miss, so the changes ${v.passed ? "are switched on" : "were not trusted and are switched off"}.</div>` : ""}
+      ${v ? `<div class="subtle" style="margin-top:6px">Rolling check: re-learned without ${v.weeks ? `each of weeks ${v.weeks.join(", ")}` : `week ${esc(v.week)}`} and tested on that unseen week
+        (${v.games} games): ${num(v.default_mae)} → ${num(v.learned_mae)} avg miss, so the changes ${v.passed ? "are switched on" : "were not trusted and are switched off"}.</div>` : ""}
     </div>`;
     const A = L.params && L.params.availability;
     if (A) {
@@ -1712,6 +1720,23 @@
         ${Object.entries(WX).map(([pos, x]) => `<tr><td><b>${esc(pos)}</b></td><td>${f(x.dome)}</td><td>${f(x.outdoor)}</td><td>${f(x.wind)}</td><td>${f(x.cold)}</td></tr>`).join("")}</tbody></table></div>
         <p class="subtle">Currently applied at <b>${Math.round(100 * (L.params.weather_strength || 0))}%</b> strength: the learner only turns this up when it improves accuracy on this season's games${
           (L.params.weather_strength || 0) === 0 ? ", which it hasn't yet" : ""}. Recency: each older game counts ${L.params.recency === 1 ? "the same as the latest (no fade yet)" : `${Math.round(100 * L.params.recency)}% as much as the week after it`}.</p>`;
+    }
+    const QQ = L.params && L.params.quantiles;
+    if (QQ && Object.keys(QQ).length) {
+      const x100 = (m) => `${Math.round(100 * m)}%`;
+      html += `<h2>Floor, range and ceiling</h2><p class="lead-text">Fantasy scores are lopsided: most weeks land a bit under the projection and a few blow past it.
+        Learned from the backtest: what share of his projection a player scored in a 1-in-10 bad week (floor), the typical range (16th–84th percentile)
+        and a 1-in-10 great week (ceiling), for a mid-level projection at each position. Used on every player card.</p>
+        <div class="card table-wrap"><table class="named"><thead><tr><th>Pos</th><th>Floor</th><th>Typical</th><th>Ceiling</th><th>Games</th></tr></thead><tbody>
+        ${Object.entries(QQ).map(([pos, q]) => { const m = q.q[1]; return `<tr><td><b>${esc(pos)}</b></td><td>${x100(m[0])}</td><td>${x100(m[1])}–${x100(m[3])}</td><td>${x100(m[4])}</td><td>${q.games}</td></tr>`; }).join("")}</tbody></table></div>`;
+    }
+    const QB = L.params && L.params.qb_factor;
+    if (QB) {
+      html += `<h2>Backup QB effect</h2><p class="lead-text">Learned from every game last season and this season where a team's usual QB didn't start:
+        how his running backs, receivers and tight ends scored compared with their average with the usual QB. Applied (at ${Math.round(100 * (L.params.qb_change || 0))}% strength)
+        when the usual QB is out or no longer first on the depth chart.</p>
+        <div class="card table-wrap"><table class="named"><thead><tr><th>Pos</th><th>Effect</th><th>Games</th></tr></thead><tbody>
+        ${Object.entries(QB).map(([pos, x]) => `<tr><td><b>${esc(pos)}</b></td><td>${x.factor >= 1 ? "+" : "−"}${Math.round(100 * Math.abs(x.factor - 1))}%</td><td>${x.games}</td></tr>`).join("")}</tbody></table></div>`;
     }
     const IH = L.params && L.params.inherit;
     if (IH) {
@@ -1802,7 +1827,7 @@
     const lines = [`### ${pnm(pid)} (${pos}${r ? ", " + r.t : ""}) - ${ownerText(pid)}${r && r.s ? `, status: ${r.s}` : ""}${isHeld(pid) ? ", I'm holding (stashing) him" : ""}`];
     if (!c) return lines.concat(["No player card available."]).join("\n");
     const v = c.value, k = c.consistency || {}, o = c.opportunity || {}, u = c.usage || {};
-    if (v) lines.push(`Projection: ${one(v.rate)} pts/wk (typical range ${one(Math.max(v.rate - v.sd, 0))}-${one(v.rate + v.sd)}), ${Math.round(v.ros)} pts rest of season, ${ab}${v.rank} of ${v.rank_of}, ${v.vor >= 0 ? "+" : ""}${Math.round(v.vor)} vs a free-agent replacement, ${v.confidence} confidence${v.flag ? `, flagged ${v.flag}` : ""}. Byes: ${v.byes.join(", ") || "none left"}.`);
+    if (v) lines.push(`Projection: ${one(v.rate)} pts/wk (typical range ${v.range ? `${one(v.range[1])}-${one(v.range[3])}, floor ${one(v.range[0])}, ceiling ${one(v.range[4])}` : `${one(Math.max(v.rate - v.sd, 0))}-${one(v.rate + v.sd)}`}), ${Math.round(v.ros)} pts rest of season, ${ab}${v.rank} of ${v.rank_of}, ${v.vor >= 0 ? "+" : ""}${Math.round(v.vor)} vs a free-agent replacement, ${v.confidence} confidence${v.flag ? `, flagged ${v.flag}` : ""}. Byes: ${v.byes.join(", ") || "none left"}.`);
     const pts = (g) => (g.pts != null ? one(g.pts) : g.calc != null ? "~" + one(g.calc) : "n/a");
     lines.push("Recent weeks: " + c.log.slice(-6).map((g) => g.bye ? `W${g.week} bye` : `W${g.week} ${g.opp ? "vs " + g.opp + " " : ""}${pts(g)} pts${g.finish ? ` (${ab}${g.finish})` : ""}${g.partial ? " partial game" : ""}`).join("; "));
     if (k.games) lines.push(`Consistency: ${k.ppg}/g, best ${k.ceiling}, median ${k.median}, worst ${k.floor}; boom ${k.boom}, starter-level ${k.start} of ${k.games}, bust ${k.bust} (starter-level = top ${c.tiers.start} ${ab}).`);

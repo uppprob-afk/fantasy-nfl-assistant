@@ -224,6 +224,28 @@ and scores it (Sleeper points, else nflverse, else 0 = didn't play), plus
 `data/model_history.json` (one entry per week). Both persist via the private repo's data/.
 Site: `site/data/model.*`, `renderModel()`.
 
+**Model v3** (backtest, ranges, extra settings). The backtest is honest: candidates for week
+w include players on that week's official injury report who didn't play (actual 0) and
+partial games; `project()` applies that week's status (learned availability), weather, game
+script and backup-QB flag. Headline metrics cover every record; `full_games` is separate.
+New settings (all tunable, all in `DEFAULT_PARAMS`, per-position overrides in `by_pos` via
+`pp(P, key, pos)`): `partial_weight` (partial games scaled per snap to a full game and
+weighted by their fraction, only with 20%+ snaps and 30%+ of normal: `PARTIAL_MIN_*`),
+`rank_prior` (starting point blends in Sleeper's ranking: `sleeper_pos_ranks` → `rank_tiers`
+of established players' points per game → `rank_baseline_for`; backtest uses saved
+snapshots taken before each week via `run.snapshot_ranks`, so weeks before the first snapshot
+can't judge it; default 0.5), `script_rb` / `script_pass` (`script_multiplier`, Vegas expected
+margin / 7, capped ±15%), `qb_change` x `qb_factor` (`roles.learn_qb_change`: RB/WR/TE points
+when the usual QB - most attempts, 2+ starts - didn't start; `apply_qb_change` when he's out or
+not depth-chart #1). Tuning: `_coordinate_search` over the finer `GRID` (global, then
+`POS_KEYS` per position with 150+ games and 2%+ gain); adopted with 0.5%+ in-sample gain and a
+rolling check (`CV_WEEKS`: re-learn without each of the last 3 weeks, must beat the starting
+settings on them combined). Ranges: `learn_quantiles` = 10/16/50/84/90th percentiles of
+actual / projected per position in three projection bands (shrunk to the position, 40 games),
+with spreads narrowed by sqrt(band median / projection) above the band median
+(`quantile_points`); stored as `weekly[w].q` and card `value.range`; coverage is judged on
+16th-84th (~68%) and 10th-90th (~80%).
+
 **Recency, injuries, weather** (`factors.py`). `recency` (tuned: 1 = all games equal) weights
 this-season games by `recency ** (weeks before the projected week)` (`rate_components` keeps
 `this_games` + `as_of`). Injuries: nflverse `injuries_{season}.csv` (last + this season,
