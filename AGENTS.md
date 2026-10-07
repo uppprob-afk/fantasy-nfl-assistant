@@ -159,8 +159,10 @@ league roster; average skips byes and games not played). Next 3 = next three unp
 weeks from projections with ±1 SD range; matchup easy >= 1.05 / tough <= 0.95 multiplier.
 Usage = last 3 full games (partial only if that's all there is). Position rank = by ROS
 projection among all projected players. The site renders each row as `<details>`
-(tap to expand). The row shows **finish pills**: last 3 = Sleeper points + positional finish,
-coloured by tier; next 3 = projected points + opponent with an easy/tough outline.
+(tap to expand). The row shows a **six-week timeline** (`pills()` → `.wk6`): the last 3 played
+weeks | a divider | the next 3, every cell labelled with its week; played = points + positional
+finish coloured by tier, upcoming = projection + opponent with an easy/tough outline; the
+header shows the last-3 average and next-3 projection.
 Finish (`projections.assign_finishes`) = rank among every NFL player at the position that
 week, by nflverse stats under league scoring (displayed points stay Sleeper's). Tiers come
 from `run.starter_counts` (league-wide starters per position = n): boom <= ceil(n/2),
