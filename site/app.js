@@ -1294,6 +1294,128 @@
   // Weekly scores: one row per team, recent weeks as score pills (score + that week's league
   // rank, coloured by rank, with W/L); tap a team for every game, schedule luck and consistency.
   const ordinal = (n) => n + (n % 100 >= 11 && n % 100 <= 13 ? "th" : ["th", "st", "nd", "rd"][n % 10] || "th");
+  // ---------- League → Teams: one scouting profile per team ----------
+  const FLEX_OK = { FLEX: ["RB", "WR", "TE"], WRRB_FLEX: ["RB", "WR"], REC_FLEX: ["WR", "TE"], SUPER_FLEX: ["QB", "RB", "WR", "TE"] };
+  function bestLineup(pids) {
+    const P = DATA.lab.players, used = new Set(), out = [];
+    const pool = pids.filter((p) => P[p]).sort((a, b) => P[b].r - P[a].r);
+    DATA.lab.slots.forEach((slot) => {
+      const ok = FLEX_OK[slot] || [slot];
+      const pick = pool.find((p) => !used.has(p) && ok.includes(P[p].p) && !P[p].s);
+      if (pick) { used.add(pick); out.push([slot, pick]); }
+    });
+    return out;
+  }
+  function teamProfile(rid) {
+    const L = DATA.lab, P = L.players, key = String(rid), me = myRid();
+    const W = weeklyStats();
+    const st = recBy[rid] || {}, po = O ? O.playoffs.teams.find((t) => t.roster_id === rid) : null;
+    const ap = (LG && LG.all_play || {})[key] || null, pw = LG ? LG.power.find((r) => r.roster_id === rid) : null;
+    const tt = (T && T.teams || []).find((t) => t.roster_id === rid) || {};
+    const th = (T && T.history && T.history.teams || []).find((t) => t.roster_id === rid) || {};
+    const fm = (F && F.managers || []).find((m) => m.roster_id === rid) || {};
+    const tp = (F && F.tendencies && F.tendencies.profiles || []).find((m) => m.roster_id === rid) || {};
+    const ws = W.st[key] || { games: [] };
+    const pids = (L.rosters[key] || {}).players || [];
+    const starters = bestLineup(pids).map(([, p]) => p);
+    const weeksLeft = L.weeks.filter((w) => w >= L.current_week);
+    const byes = weeksLeft.map((w) => ({ w, out: starters.filter((p) => (P[p].b || []).includes(w)) })).filter((x) => x.out.length >= 2);
+    const perWeek = {}; (T && T.teams || []).forEach((t) => { perWeek[t.roster_id] = t.per_week; });
+    const opps = Object.entries(L.schedule).filter(([w]) => Number(w) >= L.current_week).map(([w, games]) => {
+      const g = games.find((x) => x.includes(rid)); return g ? { w: Number(w), opp: g[0] === rid ? g[1] : g[0] } : null; }).filter(Boolean);
+    const sos = {};
+    Object.keys(L.rosters).forEach((r) => {
+      const os = Object.entries(L.schedule).filter(([w]) => Number(w) >= L.current_week)
+        .map(([, games]) => { const g = games.find((x) => x.includes(Number(r))); return g ? perWeek[g[0] === Number(r) ? g[1] : g[0]] : null; }).filter((x) => x != null);
+      sos[r] = os.length ? os.reduce((a, b) => a + b, 0) / os.length : null;
+    });
+    const sosRank = Object.keys(sos).filter((r) => sos[r] != null).sort((a, b) => sos[b] - sos[a]).indexOf(key) + 1;
+    const vm = tt.vs_median || {};
+    const strong = Object.entries(vm).filter(([, v]) => v >= 2).sort((a, b) => b[1] - a[1]).map(([k]) => k);
+    const weak = Object.entries(vm).filter(([, v]) => v <= -2).sort((a, b) => a[1] - b[1]).map(([k]) => k);
+    const mine = (T && T.teams || []).find((t) => t.roster_id === me) || {};
+    return { rid, key, st, po, ap, pw, tt, th, fm, tp, ws, W, starters, byes, opps, sos: sos[key], sosRank, perWeek, strong, weak,
+      best: pids.filter((p) => P[p]).sort((a, b) => P[b].r - P[a].r).slice(0, 4),
+      hurt: pids.filter((p) => P[p] && P[p].s),
+      h2h: ws.games.filter((g) => g.opp === me), nextVsMe: opps.find((o) => o.opp === me),
+      theyNeedMine: (tt.needs || []).filter((x) => (mine.surplus || []).includes(x)),
+      iNeedTheirs: (mine.needs || []).filter((x) => (tt.surplus || []).includes(x)),
+      ideas: (T && T.ideas || []).filter((i) => i.roster_id === rid) };
+  }
+  function teamsScouting() {
+    if (!DATA.lab || !LG) return `<div class="card"><div class="empty">No team data yet.</div></div>`;
+    const order = (O ? O.playoffs.teams.map((t) => t.roster_id) : D.standings.map((s) => s.roster_id));
+    return `<p class="subtle" style="margin:12px 0">Every team at a glance: form, odds, luck, strengths, needs and how the manager behaves. Tap a team for its full profile.</p>
+      <div class="stack">${order.map((rid) => teamTile(teamProfile(rid))).join("")}</div>`;
+  }
+  function teamTile(x) {
+    const L = DATA.lab, P = L.players, me = myRid(), isMe = x.rid === me;
+    const s = x.st, ap = x.ap || {}, po = x.po || {}, ab = (p) => POS_ABBR[P[p].p] || P[p].p;
+    const form = x.ws.games.slice(-3).map((g) => { const r = x.W.rankOf[g.week][x.key], n = x.W.teamsIn[g.week];
+      return `<span class="fpill ${r === 1 ? "f-boom" : r <= 3 ? "f-start" : r > n - 3 ? "f-bust" : "f-mid"}" title="Week ${g.week}: ${num(g.pts)}">W${g.week} ${ordinal(r)}</span>`; }).join("");
+    const luck = ap.luck == null ? "" : ap.luck >= 0.75 ? `<span class="chip q">lucky +${num(ap.luck)}</span>` : ap.luck <= -0.75 ? `<span class="chip ok-style">unlucky ${num(ap.luck)}</span>` : "";
+    const tags = [...x.strong.map((k) => `<span class="chip balanced">strong ${k}</span>`), ...x.weak.map((k) => `<span class="chip lopsided">thin ${k}</span>`),
+      ...(x.tt.needs || []).filter((k) => !x.weak.includes(k)).map((k) => `<span class="chip q">needs ${k}</span>`)].join("");
+    const tile = (k, v, sub) => tileHtml(k, v, sub);
+    const ch = (t, b) => (b ? `<section class="pd-ch"><h3>${t}</h3>${b}</section>` : "");
+    // 1 snapshot
+    let snap = `<div class="tiles head">${tile("Record", `${record(s)}`, `#${s.rank} · PF ${num(s.points_for, 0)} · PA ${num(s.points_against, 0)}`)}
+      ${tile("Playoff odds", po.odds_text || "–", po.proj_wins != null ? `${num(po.proj_wins)} proj wins · #1 seed ${Math.round(100 * (po.seed1 || 0))}%` : "")}
+      ${tile("All-play", ap.w != null ? `${ap.w}–${ap.l}` : "–", ap.luck != null ? `luck ${ap.luck >= 0 ? "+" : ""}${num(ap.luck)} wins` : "")}
+      ${tile("Power", x.pw ? `#${x.pw.rank}` : "–", x.pw ? `${num(x.pw.actual)} scored · ${num(x.pw.projected)} proj/wk` : "")}</div>
+      ${po.if_win_text ? `<div class="subtle" style="margin-top:8px">This week: win → ${esc(po.if_win_text)}, lose → ${esc(po.if_lose_text)} playoff odds. ${sparkline(x.rid) || ""}</div>` : ""}`;
+    // 2 form
+    const wsr = x.W.st[x.key] || {};
+    const allWeeks = x.ws.games.map((g) => { const r = x.W.rankOf[g.week][x.key], n = x.W.teamsIn[g.week];
+      return `<span class="wc ${r === 1 ? "f-boom" : r <= 3 ? "f-start" : r > n - 3 ? "f-bust" : "f-mid"}"><span class="wc-w">W${g.week}</span><b>${num(g.pts, 0)}</b><span class="wc-s">${ordinal(r)}${g.result ? " " + g.result : ""}</span></span>`; }).join("");
+    const last3 = x.ws.games.slice(-3).map((g) => g.pts);
+    let form2 = `<div class="role-weeks">${allWeeks}</div>
+      <div class="subtle">Season ${num(wsr.avg)}/wk${last3.length ? ` · last ${last3.length} ${num(last3.reduce((a, b) => a + b, 0) / last3.length)}/wk` : ""} · high ${num(wsr.high)} · low ${num(wsr.low)}${
+        wsr.sd != null ? ` · ${wsr.sd <= x.W.sdMedian ? "steady" : "boom-or-bust"} (±${num(wsr.sd)})` : ""}${x.th.efficiency != null ? ` · lineup efficiency ${Math.round(100 * x.th.efficiency)}%` : ""}</div>`;
+    // 3 roster
+    const vm = x.tt.vs_median || {}, str = x.tt.strength || {};
+    const posRow = Object.keys(str).map((k) => `<tr><td><b>${k}</b></td><td>${num(str[k])}</td><td class="${vm[k] > 0.5 ? "up" : vm[k] < -0.5 ? "down" : ""}">${vm[k] >= 0 ? "+" : ""}${num(vm[k])}</td></tr>`).join("");
+    let roster = `<div class="card table-wrap"><table class="named"><thead><tr><th>Slot</th><th>Pts/wk</th><th>vs median</th></tr></thead><tbody>${posRow}</tbody></table></div>
+      <div class="subtle">Needs: <b>${(x.tt.needs || []).join(", ") || "none"}</b> · Depth to spare: <b>${(x.tt.surplus || []).join(", ") || "none"}</b></div>
+      <div class="subtle">Best players: ${x.best.map((p) => `${esc(P[p].n)} (${ab(p)}, ${num(P[p].r)})`).join(", ")}</div>
+      ${x.hurt.length ? `<div class="subtle">Injured: ${x.hurt.map((p) => `${esc(P[p].n)} <span class="chip ${P[p].s === "Questionable" ? "q" : "inj"}">${esc(P[p].s)}</span>`).join(" ")}</div>` : ""}
+      ${x.byes.length ? `<div class="subtle">Bye crunch: ${x.byes.map((b) => `week ${b.w} (${b.out.map((p) => esc(P[p].n)).join(", ")})`).join("; ")}</div>` : `<div class="subtle">No week with 2+ starters on bye.</div>`}`;
+    // 4 schedule
+    const tn = (r) => esc((recBy[r] || {}).team_name || r);
+    let sched = x.opps.length ? `<div class="sched">${x.opps.map((o) => `<div class="sch ${o.opp === me ? "mu-easy" : ""}"><div class="w">W${o.w}</div><div class="o" style="font-size:11px">${tn(o.opp)}</div><div class="p">${num(x.perWeek[o.opp])}</div></div>`).join("")}</div>
+      <div class="subtle">Remaining opponents' projected points per week. Strength of schedule: <b>${ordinal(x.sosRank)} hardest</b> of ${Object.keys(L.rosters).length} (avg opponent ${num(x.sos)}/wk).</div>` : "";
+    if (!isMe) sched += `<div class="subtle">Against you: ${x.h2h.length ? x.h2h.map((g) => `W${g.week} ${num(g.pts)}–${num(g.opp_pts)} (${g.result === "W" ? "they won" : g.result === "L" ? "you won" : "tie"})`).join(", ") : "not played yet"}${x.nextVsMe ? ` · next meeting week ${x.nextVsMe.w}` : ""}.</div>`;
+    // 5 manager
+    const tp = x.tp, fm = x.fm;
+    let mgr = `<div class="tiles head">${tile("FAAB left", money(fm.remaining ?? s.faab_remaining), fm.spent != null ? `${money(fm.spent)} spent` : "")}
+      ${tile("Waiver order", `#${s.waiver_position ?? tp.waiver_position ?? "–"}`, "")}
+      ${tile("Bidding", esc(tp.style || "–"), tp.bids ? `${tp.bids} bid${tp.bids === 1 ? "" : "s"} · typical ${money(tp.typical_bid)} · max ${money(tp.max_bid)}` : "no bids yet")}
+      ${tile("Moves", `${(fm.claims || 0) + (fm.fa_adds || 0)}`, `${fm.claims || 0} claims · ${fm.fa_adds || 0} free adds · ${x.th.trades || 0} trades`)}</div>
+      ${tp.positions && Object.keys(tp.positions).length ? `<div class="subtle" style="margin-top:8px">Chases: ${Object.entries(tp.positions).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ×${v}`).join(", ")}${tp.nearly_out ? " · nearly out of FAAB" : ""}${tp.active === false ? " · hasn't been active" : ""}</div>` : ""}`;
+    // 6 trade fit
+    let fit = "";
+    if (!isMe) {
+      const lines = [];
+      if (x.theyNeedMine.length) lines.push(`They need <b>${x.theyNeedMine.join(", ")}</b>, where you have depth to spare.`);
+      if (x.iNeedTheirs.length) lines.push(`You need <b>${x.iNeedTheirs.join(", ")}</b>, where they have depth.`);
+      if (!lines.length) lines.push("No obvious need-for-surplus match right now; trades would be about value.");
+      x.ideas.slice(0, 2).forEach((i) => lines.push(`Idea: give ${i.give.map((p) => esc(p.name)).join(" + ")}, get ${i.get.map((p) => esc(p.name)).join(" + ")} (you +${num(i.my_gain)}, them +${num(i.their_gain)}).`));
+      fit = lines.map((l) => `<div>${l}</div>`).join("") + `<div class="acts"><button type="button" class="mini" data-act="lab-team" data-rid="${x.rid}">Open Trade Lab with them</button>
+        <button type="button" class="mini" data-act="ask" data-kind="team" data-pid="${x.rid}">Ask Claude</button></div>`;
+    } else {
+      fit = `<div class="acts"><button type="button" class="mini" data-act="ask" data-kind="team" data-pid="${x.rid}">Ask Claude</button></div>`;
+    }
+    const delta = oddsDelta(x.rid);
+    return `<details class="tm ${isMe ? "mine-bg" : ""}"><summary class="tm-sum">
+        <div class="tm-head"><div class="t">${esc(s.team_name)}${isMe ? ` <span class="chip ok-style">you</span>` : ""}</div>
+          <div class="m">${esc(s.label || "")} · ${record(s)} · #${s.rank}${x.pw ? ` · power #${x.pw.rank}` : ""}</div></div>
+        <div class="tm-odds"><b>${esc(po.odds_text || "–")}</b><small>playoffs ${delta}</small></div>
+        <div class="tm-line">${form}${luck}${tags}</div>
+      </summary>
+      <div class="pd">${ch("Snapshot", snap)}${ch("Form", form2)}${ch("Roster", roster)}${ch("Schedule", sched)}${ch("Manager", mgr)}${ch(isMe ? "Ask" : "Trade fit with you", fit)}</div>
+    </details>`;
+  }
+
   function weeklyStats() {
     const ids = Object.keys(LG.weekly);
     const rankOf = {};          // week -> rid -> rank (ties share the better rank)
@@ -1368,7 +1490,7 @@
 
   function renderLeague() {
     const view = store.get("leagueView", "standings");
-    let html = segHtml("league-seg", [["standings", "Standings"], ["race", "Playoff race"], ["power", "Power"]], view)
+    let html = segHtml("league-seg", [["teams", "Teams"], ["standings", "Standings"], ["race", "Playoff race"], ["power", "Power"]], view)
       + `<div id="league-body"></div>`;
     html += weeklyChart();
     if (O) html += `<h2>Week ${esc(O.week)} matchups</h2>${O.matchups.map(matchupCard).join("")}`;
@@ -1383,6 +1505,7 @@
 
     const draw = (v) => {
       const body = $("league-body");
+      if (v === "teams") { body.innerHTML = teamsScouting(); return; }
       if (v === "race" && O) {
         const P = O.playoffs;
         const seed = {};
@@ -2047,6 +2170,18 @@
       "", "## Players in the deal", ...res.give.concat(res.get).map(playerText)];
     return lines.join("\n");
   }
+  function teamText(rid) {
+    const x = teamProfile(rid), P = DATA.lab.players, s = x.st, ap = x.ap || {}, po = x.po || {};
+    const ws = x.W.st[x.key] || {};
+    return [`## Team profile: ${s.team_name} (${s.label})${rid === myRid() ? " - my team" : ""}`,
+      `Record ${record(s)} (#${s.rank}), PF ${num(s.points_for)}, PA ${num(s.points_against)}. All-play ${ap.w}-${ap.l}, luck ${num(ap.luck)} wins. Power rank #${x.pw ? x.pw.rank : "?"}. Playoff odds ${po.odds_text || "?"} (${num(po.proj_wins)} projected wins; win this week -> ${po.if_win_text || "?"}, lose -> ${po.if_lose_text || "?"}).`,
+      `Weekly scores: ${x.ws.games.map((g) => `W${g.week} ${num(g.pts)} (${ordinal(x.W.rankOf[g.week][x.key])}${g.result ? " " + g.result : ""})`).join(", ")}. Season ${num(ws.avg)}/wk, high ${num(ws.high)}, low ${num(ws.low)}.`,
+      `Strength vs league median (pts/wk): ${Object.entries(x.tt.vs_median || {}).map(([k, v]) => `${k} ${v >= 0 ? "+" : ""}${num(v)}`).join(", ")}. Needs: ${(x.tt.needs || []).join(", ") || "none"}. Surplus: ${(x.tt.surplus || []).join(", ") || "none"}.`,
+      `Best players: ${x.best.map((p) => `${P[p].n} (${P[p].p}, ${num(P[p].r)}/wk)`).join(", ")}. Injured: ${x.hurt.map((p) => `${P[p].n} (${P[p].s})`).join(", ") || "none"}. Bye crunch: ${x.byes.map((b) => `week ${b.w}: ${b.out.map((p) => P[p].n).join(", ")}`).join("; ") || "none"}.`,
+      `Remaining schedule: ${x.opps.map((o) => `W${o.w} vs ${(recBy[o.opp] || {}).team_name}`).join(", ")}; strength of schedule ${ordinal(x.sosRank)} hardest.`,
+      `Manager: FAAB left ${money(x.fm.remaining ?? s.faab_remaining)}, waiver #${s.waiver_position}, style ${x.tp.style || "?"}, ${x.tp.bids || 0} bids (typical ${money(x.tp.typical_bid)}, max ${money(x.tp.max_bid)}), chases ${Object.entries(x.tp.positions || {}).map(([k, v]) => `${k} x${v}`).join(", ") || "nothing yet"}, ${x.th.trades || 0} trades.`,
+      rid !== myRid() ? `Trade fit: they need ${x.theyNeedMine.join(", ") || "nothing I have spare"}; I need ${x.iNeedTheirs.join(", ") || "nothing they have spare"}. Ideas: ${x.ideas.map((i) => `give ${i.give.map((p) => p.name).join("+")} get ${i.get.map((p) => p.name).join("+")} (me +${i.my_gain}, them +${i.their_gain})`).join("; ") || "none"}.` : ""].join("\n");
+  }
   function waiversText() {
     const best = (F && F.available || []).filter((p) => p.fit !== "none").slice(0, 10);
     const top = best.length ? best : (F && F.available || []).slice(0, 8);
@@ -2063,6 +2198,10 @@
       body: () => tradeText() },
     waivers: { about: () => "About waivers and FAAB", chips: () => ["Who should I bid on this week, and how much?", "Should I save my FAAB?"],
       body: () => waiversText() },
+    team: { about: (rid) => `About ${(recBy[Number(rid)] || {}).team_name || "this team"}`,
+      chips: (rid) => Number(rid) === myRid() ? ["What are my biggest weaknesses?", "How do I improve my playoff odds?"]
+        : ["What trade would they accept?", "How do I beat them?", "What are they likely to do on waivers?"],
+      body: (rid) => teamText(Number(rid)) },
     general: { about: () => "About my team and league", chips: () => ["What should I do this week?", "Who should I start?", "What's my biggest weakness?"],
       body: () => "" },
   };
@@ -2348,6 +2487,7 @@
     else if (act === "pitch") openInLab(b.dataset.partner, [pid], [], { suggest: true });
     else if (act === "hold") toggleHold(pid);
     else if (act === "ask") openAsk(b.dataset.kind, pid);
+    else if (act === "lab-team") { openInLab(Number(b.dataset.rid), [], []); }
     else if (act === "watch") toggleSet(WATCH, "watch", pid, b, "★ Watching", "☆ Watch");
     else if (act === "compare") toggleCompare(pid);
     else if (act === "compare-open") openCompare();
@@ -2439,7 +2579,7 @@
   // expanded players / waiver tiles / weekly-score teams: Back collapses them
   document.addEventListener("toggle", (e) => {
     const el = e.target;
-    if (!(el instanceof HTMLDetailsElement) || !el.matches("details.prow-d, details.wv, details.ws")) return;
+    if (!(el instanceof HTMLDetailsElement) || !el.matches("details.prow-d, details.wv, details.ws, details.tm")) return;
     if (el.open) {
       const close = () => {
         el.__close = null;

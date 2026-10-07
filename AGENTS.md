@@ -333,6 +333,19 @@ sorts (`SORTS`). State in localStorage `playerSearch`; 40 results at a time. Row
   players (not held) and the best non-lopsided trade idea; 5 shown, rest under "more".
   Buttons use `data-act="go"` (tab) / `"find"` (opens Players with a name search) / `"shop"`.
 
+## League → Teams (scouting profiles)
+
+`teamsScouting()` (League segment "Teams", ordered by playoff odds) builds one `details.tm`
+tile per team from data already on the page (`teamProfile(rid)`): standings, playoff odds +
+trend, all-play / luck, power rank, weekly scores and ranks (`weeklyStats`), strength vs the
+league median, needs / surplus (`T.teams`), lineup efficiency and trades (`T.history`), FAAB
+and bidding tendencies (`F.managers`, `F.tendencies`), roster best players / injuries, bye
+crunches (weeks where 2+ of their best healthy lineup are on bye, `bestLineup`), remaining
+schedule with strength of schedule (average opponent projected points, ranked), head-to-head
+with me, and trade fit (their needs vs my surplus and back, trade ideas with them). Collapsed:
+form (last 3 weekly ranks), luck chip, strong / thin / needs tags. Buttons: open the Trade Lab
+with that team (`lab-team`), Ask Claude (`kind: "team"`, `teamText`).
+
 ## Compare, watchlist, search
 
 - **Watchlist** (localStorage `watch`, per device): `☆ Watch` in `actionButtons` for any player
