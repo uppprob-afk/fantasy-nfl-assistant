@@ -38,18 +38,26 @@
   // ---------- holds (stashed players) and quick actions ----------
   let HOLDS = new Set((() => { try { return JSON.parse(localStorage.getItem("holds") || "[]"); } catch (e) { return []; } })());
   const isHeld = (pid) => HOLDS.has(pid);
-  const ownerOf = (pid) => (DATA.lab && DATA.lab.players[pid] ? DATA.lab.players[pid].o : undefined);
+  // Owner (roster id, or null = free agent). Players without a projection (e.g. no current NFL
+  // team) aren't in DATA.lab.players, so fall back to the league rosters.
+  const ownerOf = (pid) => {
+    const L = DATA.lab;
+    if (!L) return undefined;
+    if (L.players[pid]) return L.players[pid].o;
+    const rid = Object.keys(L.rosters).find((r) => (L.rosters[r].all || L.rosters[r].players || []).includes(pid));
+    return rid !== undefined ? Number(rid) : undefined;
+  };
   const myRid = () => (DATA.lab ? DATA.lab.my_roster_id : D && D.me.roster_id);
   function actionButtons(pid) {
     const o = ownerOf(pid);
     if (o === undefined) return "";
     if (o === myRid()) {
-      return `<button type="button" class="mini" data-act="shop" data-pid="${esc(pid)}">Shop in Trade Lab</button>
+      return `${DATA.lab.players[pid] ? `<button type="button" class="mini" data-act="shop" data-pid="${esc(pid)}">Shop in Trade Lab</button>` : ""}
         <button type="button" class="mini ${isHeld(pid) ? "on" : ""}" data-act="hold" data-pid="${esc(pid)}"
           title="Held players are never suggested for trades, cuts or drops">${isHeld(pid) ? "Held ✓" : "Hold (stash)"}</button>`;
     }
     if (o === null) return "";
-    return `<button type="button" class="mini" data-act="trade-for" data-pid="${esc(pid)}">Trade for in Lab</button>`;
+    return DATA.lab.players[pid] ? `<button type="button" class="mini" data-act="trade-for" data-pid="${esc(pid)}">Trade for in Lab</button>` : "";
   }
   const one = (n) => (n == null ? "–" : Number(n).toFixed(1));
   const POS_ABBR = { QB: "QB", RB: "RB", WR: "WR", TE: "TE", K: "K", DEF: "DEF" };

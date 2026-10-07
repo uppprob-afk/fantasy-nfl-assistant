@@ -356,7 +356,7 @@ searched (`openInLab(..., {suggest, shopAll})`), `hold` toggles a stash, `team` 
 team sheet and `ask` opens Ask Claude. `actionButtons(pid)` picks the buttons from the owner in `DATA.lab`
 (mine / another team / free agent) and is used in player detail panels, FAAB cards and News.
 
-**Holds (stashes).** localStorage `holds` (per device). Held players are passed to the
+**Holds (stashes).** localStorage `holds` (per device). `ownerOf` falls back to the league rosters (`lab.rosters[].all`) for players without a projection (e.g. no current NFL team), so they can still be held; Lab buttons only show for projected players. Held players are passed to the
 engine (`setHolds`) so they're never offered or cut in Lab maths; trade ideas that give or
 drop one are hidden (with a count), they're left out of sell-high and "players you could
 pitch", and the sell-high flag is replaced by a "held" tag. Python output is unaffected (parity runs with no holds).
