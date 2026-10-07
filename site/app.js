@@ -346,6 +346,9 @@
     const isQB = pos === "QB", isKD = pos === "K" || pos === "DEF";
     const chapter = (title, body) => (body ? `<section class="pd-ch"><h3>${title}</h3>${body}</section>` : "");
     let html = `<div class="pd">`;
+    const nx0 = (c.next3 || []).find((w) => !w.bye);
+    html += `<div class="pd-sticky"><div class="pd-st-n"><b>${esc(p.name || "")}</b> <span class="subtle">${esc(pos)}${p.team ? " · " + esc(p.team) : ""}${
+      nx0 ? ` · W${esc(nx0.week)} ${one(nx0.pts)} proj` : ""}</span></div><button type="button" class="mini" data-act="collapse">Close ▲</button></div>`;
     html += `<div class="acts pd-acts">${actionButtons(p.id)}<button type="button" class="mini" data-act="ask" data-kind="player" data-pid="${esc(p.id)}">Ask Claude</button></div>`;
 
     // 1. This week: the next game and everything that changes it
@@ -452,6 +455,7 @@
       <div class="subtle">Newest first. * partial game (snap share well below normal, e.g. hurt early). ${c.log.some((g) => g.pts == null && g.calc != null) ? "≈ = not on a league roster that week, so calculated from NFL stats with your league's scoring." : "n/r = not on a league roster that week."}</div></details>`;
       const track = html; html = html0;
       html += chapter("Track record", track); }
+    html += `<button type="button" class="btn secondary pd-close" data-act="collapse">Close ${esc(p.name || "player")} ▲</button>`;
     return html + `</div>`;
   }
 
@@ -2137,7 +2141,7 @@
     players: [["players", "Players"]],
     moves: [["faab", "Waivers"], ["news", "News"], ["trades", "Trades"], ["lab", "Lab"], ["nfl", "Teams"]],
     model: [["model", "Model"]],
-    settings: [["more", "Settings"], ["brief", "Brief"]],
+    settings: [["more", "Settings"], ["brief", "Brief"], ["glossary", "Glossary"]],
   };
   const lastSub = {};
   // Back button: tabs are history entries; open sheets and expanded players are "layers"
@@ -2190,6 +2194,7 @@
       btn.setAttribute("aria-label", "What is this?"); btn.setAttribute("aria-expanded", "false");
       h.appendChild(btn);
       p.classList.remove("lead-text"); p.classList.add("info-body"); p.hidden = true;
+      p.insertAdjacentHTML("beforeend", ` <a href="#glossary" class="gl-link">Glossary →</a>`);
       btn.addEventListener("click", () => {
         p.hidden = !p.hidden;
         btn.setAttribute("aria-expanded", String(!p.hidden));
@@ -2197,12 +2202,55 @@
     });
   }
 
+  const GLOSSARY = [
+    ["Projection", "Expected fantasy points for a game (league scoring), from this season, last season, usage, matchup, injuries, weather and game script. Learns from its own track record (see Model)."],
+    ["Typical range", "Where the player lands about two weeks in three: the 16th–84th percentile of results, learned from the backtest. Lopsided: big weeks stretch further above than bad weeks fall below."],
+    ["Floor / ceiling", "A 1-in-10 bad week and a 1-in-10 great week (10th and 90th percentile)."],
+    ["Confidence", "How much data backs a projection: high (4+ games this season and plenty overall), medium, low (rookies, new roles)."],
+    ["Finish (e.g. WR12)", "Rank among every NFL player at the position that week, by league scoring."],
+    ["Boom / starter / middling / bust", "Weekly finish tiers based on how many play the position in your league: boom = top half of starters, starter = a starter-level week, bust = outside twice the number of starters."],
+    ["ROS", "Rest of season: the remaining regular-season weeks."],
+    ["Value vs FA", "Rest-of-season points above the best free agents at the position (what you'd get for nothing)."],
+    ["Rank (QB18…)", "Position rank by rest-of-season projection."],
+    ["Last 3 / Next 3", "Points in the last three played weeks (Sleeper) and projections for the next three games; ≈ = calculated from NFL stats when he wasn't on a league roster."],
+    ["Partial game (*)", "He left early or played limited snaps (under ~60–70% of his normal). Counted per snap, at reduced weight."],
+    ["Opportunity game (↑)", "His share was inflated because a teammate ahead of him sat or left early. Left out of his normal rate."],
+    ["Job security", "Locked in, Starter, Lead role, Rising, Losing work, Committee, One injury away, Depth: from depth chart, share of team work and its trend."],
+    ["If X misses / handcuff", "His projection if the teammate with the biggest share misses a game, using what past backups actually inherited."],
+    ["Target share / carry share", "His share of the team's targets (receivers) or of RB carries."],
+    ["Air-yards share", "His share of the team's air yards (how far passes to him travel): deep usage."],
+    ["WOPR", "Weighted opportunity rating: target share plus air-yards share. Above ~0.5 is a strong receiving role."],
+    ["TDs vs expected", "Touchdowns compared with what his volume usually produces. Well above = likely to cool off; well below = upside."],
+    ["Running hot / cold", "Scoring well above / below what his usage usually produces."],
+    ["Matchup easy / tough", "The opponent allows more / fewer points than average to the position (or Vegas expects a high / low-scoring game)."],
+    ["Game script", "Favourites run more late in games, underdogs throw more; learned from the Vegas spread."],
+    ["Backup QB effect", "Learned drop in RB / WR / TE scoring when the usual QB doesn't start."],
+    ["Sell-high / buy-low", "Scoring well above / below what his usage supports, so his trade value may be temporarily high / low."],
+    ["Hold (stash)", "Your player that the dashboard won't suggest trading, cutting or dropping (e.g. injured)."],
+    ["Watch ★", "A player you're tracking who isn't yours; shown on Home and filterable in Players."],
+    ["FAAB bids: bargain / competitive / safe", "Bargain = what past claims actually cost; competitive = beats half of rivals' bids at the position; safe = beats 75%."],
+    ["Likely rival", "A manager the player would clearly start for, who's active and has budget."],
+    ["All-play", "Your record if you'd played every team every week."],
+    ["Luck", "Actual wins minus the wins your all-play record would give: positive = winning more than your scores deserve."],
+    ["Power ranking", "Blend of points scored, projected strength and lineup efficiency (results count more as the season goes on)."],
+    ["Trade balance", "Balanced, favours you, lopsided (tough sell) or they'd likely decline: from both teams' rest-of-season gains."],
+    ["Avg miss / bias / in range", "Model accuracy: average points it misses by, whether it runs high or low, and how often scores land in the typical range (~68% is right)."],
+  ];
+  function renderGlossary() {
+    const host = $("tab-glossary");
+    const list = (q) => GLOSSARY.filter(([t, d]) => !q || (t + " " + d).toLowerCase().includes(q))
+      .map(([t, d]) => `<div class="gl"><div class="gl-t">${esc(t)}</div><div class="subtle">${esc(d)}</div></div>`).join("") || `<div class="empty">No match.</div>`;
+    host.innerHTML = `<h2>Glossary</h2><input id="gl-q" type="search" placeholder="Find a term" autocomplete="off"><div class="stack" id="gl-list">${list("")}</div>`;
+    $("gl-q").addEventListener("input", (e) => { $("gl-list").innerHTML = list(e.target.value.trim().toLowerCase()); });
+  }
+
   function renderMore() {
     const saved = (() => { try { return localStorage.getItem("theme"); } catch (e) { return null; } })() || "auto";
     $("tab-more").innerHTML = `<h2>Settings</h2><div class="card">
         <div class="set-row"><div>Appearance</div><div class="seg" id="theme-seg">${[["auto", "Auto"], ["light", "Light"], ["dark", "Dark"]]
           .map(([v, l]) => `<button type="button" data-theme="${v}" aria-pressed="${v === saved}">${l}</button>`).join("")}</div></div>
-        <div class="set-row"><div>Data<div class="subtle">Updated ${D ? esc(new Date(D.generated_at).toLocaleString()) : "–"}</div></div>
+        <div class="set-row"><div>Data<div class="subtle">Updated ${D ? `${agoText(Date.now() - new Date(D.generated_at).getTime())} (${esc(new Date(D.generated_at).toLocaleString())})` : "–"}.
+          Automatic updates run around game days (before kickoffs, after games and after waivers).</div></div>
           <button type="button" class="btn secondary" id="more-reload">Reload</button></div>
         <div class="set-row"><div>Sources<div class="subtle">Sleeper API (league data, points) · nflverse (stats, snaps, schedule, Vegas lines)</div></div></div>
       </div>
@@ -2304,6 +2352,13 @@
     else if (act === "compare") toggleCompare(pid);
     else if (act === "compare-open") openCompare();
     else if (act === "compare-clear") { COMPARE = []; store.set("compare", COMPARE); syncCompare(); }
+    else if (act === "collapse") {
+      const panel = b.closest(".trade-detail");
+      if (panel) { panel.hidden = true; panel.innerHTML = ""; panel.dataset.pid = "";
+        panel.closest(".has-detail").querySelectorAll(".tp.open").forEach((x) => x.classList.remove("open")); return; }
+      const d = b.closest("details");
+      if (d) { d.open = false; const r = d.getBoundingClientRect(); if (r.top < 70) window.scrollBy({ top: r.top - 80, behavior: "smooth" }); }
+    }
     else if (act === "go") {
       if (b.dataset.tab === "startsit") { store.set("homeView", "startsit"); renderHome(); selectTab("home", true);
         setTimeout(() => { const el = $("home-seg"); if (el) el.scrollIntoView({ block: "start", behavior: "smooth" }); }, 50); }
@@ -2345,7 +2400,7 @@
   }
   showStatus(D.generated_at);
 
-  renderHome(); renderLeague(); renderNews(); renderFaab(); renderTrades(); renderTradeLab(); renderNFL(); renderPlayers(); renderModel(); renderBrief(); renderMore();
+  renderHome(); renderLeague(); renderNews(); renderFaab(); renderTrades(); renderTradeLab(); renderNFL(); renderPlayers(); renderModel(); renderBrief(); renderMore(); renderGlossary();
   tidyExplanations(document);
   new MutationObserver(() => tidyExplanations(document.querySelector("main"))).observe(document.querySelector("main"), { childList: true, subtree: true });
   document.querySelectorAll("#tabs button").forEach((b) => b.addEventListener("click", () => selectTab(b.dataset.tab)));
