@@ -68,9 +68,6 @@ class SleeperClient:
     def transactions(self, league_id, week):
         return self.get(f"league/{league_id}/transactions/{week}") or []
 
-    def traded_picks(self, league_id):
-        return self.get(f"league/{league_id}/traded_picks") or []
-
     def trending(self, kind: str, lookback_hours: int = 48, limit: int = 50):
         return self.get(f"players/nfl/trending/{kind}",
                         params={"lookback_hours": lookback_hours, "limit": limit}) or []

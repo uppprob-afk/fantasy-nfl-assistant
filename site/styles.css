@@ -66,11 +66,11 @@ button { -webkit-tap-highlight-color: transparent; }
 @media (max-width: 480px) { .lg-name { display: none; } }
 #updated-at.stale { color: var(--warn); font-weight: 600; }
 .top-actions { display: flex; gap: 6px; align-items: center; }
-.icon-btn, .theme-btn {
+.icon-btn {
   display: inline-grid; place-items: center; width: 34px; height: 34px; border-radius: 999px;
   border: 0; background: transparent; color: var(--text-2); cursor: pointer; font-size: 16px;
 }
-.icon-btn:hover, .theme-btn:hover { background: var(--surface-2); }
+.icon-btn:hover { background: var(--surface-2); }
 .icon-btn svg { width: 18px; height: 18px; }
 #install-btn { width: auto; padding: 0 14px; height: 32px; font-size: 13px; font-weight: 650;
   background: var(--accent); color: var(--on-accent); border-radius: 999px; }
@@ -243,9 +243,6 @@ details.prow-d[open] > summary { background: var(--surface-2); }
 .prow-card > .pnums { grid-area: nums; }
 .prow-card > .pills, .prow-card > .wk6 { grid-area: pills; }
 .pmain { min-width: 0; }
-.l3n3 { display: grid; grid-template-columns: auto auto; gap: 14px; text-align: right; }
-.l3n3 .k { font-size: 10px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); font-weight: 650; }
-.l3n3 .big { font-size: 16px; font-weight: 650; line-height: 1.2; }
 .trend { font-size: 10px; margin-right: 3px; vertical-align: 2px; }
 .trend.up { color: var(--good); } .trend.down { color: var(--bad); }
 
@@ -274,11 +271,6 @@ details.prow-d[open] > summary { background: var(--surface-2); }
 
 /* finish pills (last 3) and matchup pills (next 3) */
 .pills { display: grid; gap: 6px; max-width: 480px; }
-.pl-row { display: grid; grid-template-columns: 44px minmax(0, 1fr) 46px; align-items: center; gap: 8px; }
-.pl-k { font-size: 10px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); font-weight: 650; line-height: 1.15; }
-.pl-set { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
-.pl-avg { text-align: right; font-weight: 650; font-size: 15px; line-height: 1.1; }
-.pl-avg small { display: block; font-size: 10px; font-weight: 500; color: var(--muted); }
 .pill { display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 0;
   border-radius: 9px; padding: 4px 4px; background: var(--surface-2); line-height: 1.15; }
 .pill b { font-size: 14px; font-weight: 650; white-space: nowrap; }
@@ -347,8 +339,6 @@ details.pd-log[open] > summary .subtle { display: none; }
 .pd { padding: 6px 16px 16px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; font-size: 13.5px; }
 .pd > * { min-width: 0; }
 .pd-h { font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 6px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.pd-row { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; padding: 5px 0; border-top: 1px solid var(--border); align-items: center; }
-.pd-row:first-of-type { border-top: 0; }
 table.log th, table.log td { padding: 5px 6px; font-size: 12.5px; }
 table.log th, table.log td { text-align: right; }
 table.log th:nth-child(2), table.log td:nth-child(2) { text-align: left; }
@@ -576,13 +566,6 @@ details.bs-d[open] > .xp-body { margin-top: 12px; border-top: 1px solid var(--bo
 .odds-row { display: flex; justify-content: space-between; gap: 8px; padding: 5px 0; font-size: 14px; }
 
 /* ---------- planner ---------- */
-.pl-row select { margin: 0; padding: 7px 10px; font-size: 14px; }
-.pl-search input { margin: 4px 0 10px; }
-.fa-row { border-top: 1px solid var(--border); }
-.fa-row:first-child { border-top: 0; }
-.fa-row .prow { border-top: 0; }
-.fa-drop { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 0 16px 14px; }
-.fa-drop select { margin: 0; padding: 7px 10px; font-size: 14px; }
 
 /* ---------- Ask Claude sheet ---------- */
 dialog#team-sheet { border: 0; padding: 0; background: transparent; width: min(640px, calc(100vw - 24px)); max-height: calc(100vh - 32px); color: var(--text); }
@@ -624,7 +607,6 @@ details.wv .pd + .pd { padding-top: 0; }
 
 /* ---------- league: weekly scores ---------- */
 .ws-card { padding-top: 4px; }
-.ws-weeks { display: grid; gap: 6px; padding: 8px 16px 0; font-size: 10px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); font-weight: 650; text-align: center; max-width: 480px; box-sizing: border-box; }
 details.ws { border-top: 1px solid var(--border); }
 details.ws:first-of-type { border-top: 0; }
 details.ws > summary { list-style: none; cursor: pointer; }

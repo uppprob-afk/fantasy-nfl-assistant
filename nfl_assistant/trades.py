@@ -273,7 +273,7 @@ def season_strength(matchups_by_week: dict[int, list[dict]], completed: list[int
             rid = m["roster_id"]
             t = out.setdefault(rid, {"weeks": 0, "sum": dict.fromkeys(STRENGTH_KEYS, 0.0),
                                      "actual": 0.0, "optimal": 0.0})
-            starters, spts = m.get("starters") or [], m.get("starters_points") or []
+            spts = m.get("starters_points") or []
             t["weeks"] += 1
             for slot, pts in zip(slots, spts):
                 key = slot if slot in t["sum"] else ("FLEX" if slot in FLEX_ELIGIBLE else None)
