@@ -322,6 +322,7 @@
           removed: give.filter((p) => !g.ids.includes(p)).map((p) => ["give", p]).concat(get.filter((p) => !r.ids.includes(p)).map((p) => ["get", p])) },
           score(g.ids, r.ids)));
       }
+      if (o.all) return { current: cur, all, core: [coreG, coreR] };
       const curOk = cur.gainMe >= 0 && cur.gainThem > 0;
       const fair = (e) => Math.min(e.gainMe, e.gainThem);
       // only versions that work for both and actually improve on what's there
@@ -337,6 +338,97 @@
       }
       const closest = ok.length || curOk ? null : all.filter((e) => e.gainMe >= 0).sort((a, b) => b.gainThem - a.gainThem || a.changes - b.changes)[0] || null;
       return { current: cur, acceptable: curOk, edits: picks, closest, core: [coreG, coreR], searched: all.length };
+    }
+
+    /* Every reasonable trade around what's picked, scored three ways: my gain, their gain and a
+       rough chance they'd accept. Never just "nothing": the app groups these into win-win,
+       likely accepted, value for me, fills a need and close-but-needs-a-sweetener.
+       Modes: get only (buy), give only (shop: one partner or all teams), nothing (any deal with
+       the partner), both (variations of the trade I built). */
+    // "best match": my gain, their gain and - mostly - whether they'd plausibly say yes
+    const bestScore = (x) => 0.5 * x.gainMe + 0.25 * x.gainThem + 12 * x.chance - (x.chance < 0.15 ? 5 : 0);
+
+    function exploreTrades(o) {
+      const me = String(L.my_roster_id);
+      const get = o.get || [], give = o.give || [];
+      const nPool = o.poolSize || 9;
+      const byRos = (x, y) => P[y].ros - P[x].ros;
+      const ros = (ids) => ids.reduce((t, p) => t + Math.max(P[p].ros, 0), 0);
+      const pairs = (arr) => { const r = []; for (let i = 0; i < arr.length; i++) for (let j = i + 1; j < arr.length; j++) r.push([arr[i], arr[j]]); return r; };
+      const mineAll = rosterAll(me);
+      const myPool = rosterOf(me).filter((p) => tradeableRec(P[p]) && !holds.has(p) && !give.includes(p)).sort(byRos);
+      const partners = o.partner ? [String(o.partner)] : Object.keys(L.rosters).filter((t) => t !== me);
+      const profs = leagueProfiles().profiles;
+      const myBase = value(mineAll).score;
+      // what managers "see": this season's points per game when he's played 2+ games, else projection
+      const seen = (p) => (P[p].gt >= 2 && P[p].ap != null ? P[p].ap : P[p].r);
+      const out = [];
+      let searched = 0;
+      for (const t of partners) {
+        const theirsAll = rosterAll(t);
+        const theirPool = rosterOf(t).filter((p) => tradeableRec(P[p]) && !get.includes(p)).sort(byRos);
+        const theirBase = value(theirsAll).score;
+        const shapes = [];
+        const mine = myPool.slice(0, nPool + 3), theirs = theirPool.slice(0, nPool + 3);
+        const mp = pairs(myPool.slice(0, nPool)), tp = pairs(theirPool.slice(0, nPool));
+        if (get.length && !give.length) {
+          mine.forEach((x) => shapes.push([[x], get]));
+          mp.forEach((pr) => shapes.push([pr, get]));
+          if (get.length === 1) {
+            mine.forEach((x) => theirs.forEach((c) => shapes.push([[x], [get[0], c]])));
+            mp.forEach((pr) => theirs.slice(0, nPool).forEach((c) => shapes.push([pr, [get[0], c]])));
+          }
+        } else if (give.length && !get.length) {
+          theirs.forEach((y) => shapes.push([give, [y]]));
+          tp.forEach((pr) => shapes.push([give, pr]));
+          if (give.length === 1) {
+            mine.forEach((m) => theirs.forEach((y) => shapes.push([[give[0], m], [y]])));
+            mine.slice(0, nPool).forEach((m) => tp.forEach((pr) => shapes.push([[give[0], m], pr])));
+          }
+        } else if (!give.length && !get.length) {
+          mine.forEach((x) => theirs.forEach((y) => shapes.push([[x], [y]])));
+          mp.forEach((pr) => theirs.forEach((y) => shapes.push([pr, [y]])));
+          mine.forEach((x) => tp.forEach((pr) => shapes.push([[x], pr])));
+          pairs(myPool.slice(0, 6)).forEach((a) => pairs(theirPool.slice(0, 6)).forEach((b) => shapes.push([a, b])));
+        } else {
+          shapes.push([give, get]);
+          (improveTrade(t, give, get, { all: true }).all || []).forEach((e) => shapes.push([e.give, e.get]));
+          // plus other ways to get their main player, and to move my main player to them
+          const coreR = get.slice().sort(byRos)[0], coreG = give.slice().sort(byRos)[0];
+          mine.forEach((x) => shapes.push([[x], [coreR]]));
+          mp.forEach((pr) => shapes.push([pr, [coreR]]));
+          theirs.forEach((y) => shapes.push([[coreG], [y]]));
+          tp.forEach((pr) => shapes.push([[coreG], pr]));
+        }
+        const needs = profs[t].needs, myNeeds = profs[me].needs;
+        const seenKey = new Set();
+        for (const [g, r] of shapes) {
+          const k = g.slice().sort().join(",") + "|" + r.slice().sort().join(",");
+          if (seenKey.has(k)) continue;
+          seenKey.add(k);
+          const rg = ros(g), rr = ros(r);
+          if (!rg || !rr || rr / rg > 2.5 || rr / rg < 0.4) continue;      // keep it within reason
+          searched++;
+          const gainMe = round(value(mineAll.filter((p) => !g.includes(p)).concat(r)).score - myBase, 1);
+          if (gainMe < (give.length && get.length ? -10 : -4)) continue;  // never a big loss for me (looser for tweaks of my own trade)
+          const gainThem = round(value(theirsAll.filter((p) => !r.includes(p)).concat(g)).score - theirBase, 1);
+          if (gainThem < -25) continue;                                     // they'd laugh at it
+          const fits = [];
+          [...new Set(g.map((p) => P[p].p))].forEach((pos) => { if (needs.includes(pos)) fits.push(`fills their ${pos} need`); });
+          [...new Set(r.map((p) => P[p].p))].forEach((pos) => { if (myNeeds.includes(pos)) fits.push(`fills your ${pos} need`); });
+          const theirFill = fits.filter((f) => f.startsWith("fills their")).length;
+          // managers value one good player over two decent ones: best player + a third of the rest
+          const look = (ids) => { const v = ids.map(seen).sort((a, b) => b - a); return v[0] + 0.35 * v.slice(1).reduce((a, x) => a + x, 0); };
+          const perceived = look(g) - look(r);
+          const z = gainThem / 6 + 0.5 * Math.min(theirFill, 2) + Math.max(-1.5, Math.min(1.5, perceived / 8));
+          const chance = Math.max(0.05, Math.min(0.95, 1 / (1 + Math.exp(-z))));
+          out.push({ partner: t, give: g, get: r, gainMe, gainThem, balance: balanceOf(gainMe, gainThem), fits,
+            perceived: round(perceived, 1), chance: round(chance, 2), shape: `${g.length}-for-${r.length}`,
+            built: give.length && get.length && g.length === give.length && r.length === get.length && g.every((p) => give.includes(p)) && r.every((p) => get.includes(p)) });
+        }
+      }
+      out.sort((a, b) => bestScore(b) - bestScore(a));
+      return { offers: out.slice(0, o.max || 400), searched, mode: get.length && give.length ? "variations" : get.length ? "buy" : give.length ? "shop" : "any" };
     }
 
     function tradeableRec(r) {
@@ -430,7 +522,7 @@
       return { ok: diffs.every((d) => d < 0.5), maxDiff: Math.max(...diffs) };
     }
 
-    return { lineup, value, rawValue, profile, simulate, evaluateTrade, suggestOffers, improveTrade, leagueProfiles, rosterOf, rosterAll, tradeable: tradeableRec,
+    return { lineup, value, rawValue, profile, simulate, evaluateTrade, suggestOffers, improveTrade, exploreTrades, bestScore, leagueProfiles, rosterOf, rosterAll, tradeable: tradeableRec,
       setHolds: (ids) => { holds = new Set(ids || []); }, holds: () => holds,
       vor, selfCheck, weekIndex: wi, players: P };
   }
