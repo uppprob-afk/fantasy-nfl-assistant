@@ -333,6 +333,19 @@ sorts (`SORTS`). State in localStorage `playerSearch`; 40 results at a time. Row
   players (not held) and the best non-lopsided trade idea; 5 shown, rest under "more".
   Buttons use `data-act="go"` (tab) / `"find"` (opens Players with a name search) / `"shop"`.
 
+## Compare, watchlist, search
+
+- **Watchlist** (localStorage `watch`, per device): `☆ Watch` in `actionButtons` for any player
+  that isn't mine; watched players show ★ on rows, a Watchlist section on Home (`watchHtml`)
+  and a "★ Watching" filter in Players.
+- **Compare** (localStorage `compare`, up to 3): `Compare` in `actionButtons`; a floating tray
+  (`#compare-tray`) above the tab bar opens `dialog#compare` (`openCompare`): owner, status,
+  this week (projection, opponent, matchup, range, floor / ceiling), ROS projection and rank,
+  last 3 (avg + finishes), next 3, starter-level weeks, role, if starter misses, value vs FA;
+  best value per row highlighted. Back closes it.
+- **Search**: header magnifier opens Players with the search box focused. Trade Lab picker has
+  a name filter + position toggle (`LAB_FILTER`; selected players always stay visible).
+
 ## Freshness
 
 The header subtitle shows "Updated <relative time>" (`showUpdated`, refreshed every minute;
