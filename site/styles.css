@@ -419,6 +419,13 @@ tr.detail-row .card { background: var(--surface); border: 1px solid var(--border
 .ps-bar { display: flex; justify-content: space-between; align-items: center; margin: 6px 0 10px; }
 .sr-extra { color: var(--text-2); }
 
+/* ---------- This week to-do ---------- */
+.todo-list > .todo { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 10px; align-items: start; padding: 12px 14px; }
+.todo .chip { margin: 1px 0 0; }
+.todo-t { font-size: 14px; line-height: 1.4; }
+.todo-a { grid-column: 2; }
+.todo-more > summary { margin-bottom: 8px; }
+
 /* ---------- tile stacks: one rounded tile per item, space between ---------- */
 .stack { display: grid; gap: 10px; margin-bottom: 12px; }
 .stack > * { background: var(--surface); border: 1px solid var(--border) !important; border-radius: var(--r-lg); overflow: hidden; }

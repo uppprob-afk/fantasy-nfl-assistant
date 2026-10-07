@@ -33,7 +33,27 @@
   }
 
   // ---------- player row: last 3 vs next 3, tap for details ----------
-  const CARDS = DATA.cards || (D && D.cards) || {};
+  const CARDS = Object.assign({}, DATA.cards || (D && D.cards) || {});
+  // The rest of the league's player cards load after the page is up (they're only needed
+  // for Players search and rarely-viewed players).
+  let moreCards = DATA.cards_more ? "loaded" : null;
+  const moreCardsWaiters = [];
+  function ensureMoreCards(cb) {
+    if (moreCards === "loaded") { if (cb) cb(); return; }
+    if (cb) moreCardsWaiters.push(cb);
+    if (moreCards === "loading") return;
+    moreCards = "loading";
+    const sc = document.createElement("script");
+    sc.src = "data/cards_more.js";
+    sc.onload = () => {
+      Object.assign(CARDS, DATA.cards_more || {});
+      moreCards = "loaded";
+      PLAYER_INDEX = null;
+      moreCardsWaiters.splice(0).forEach((f) => f());
+    };
+    sc.onerror = () => { moreCards = null; };
+    document.head.appendChild(sc);
+  }
 
   // ---------- holds (stashed players) and quick actions ----------
   let HOLDS = new Set((() => { try { return JSON.parse(localStorage.getItem("holds") || "[]"); } catch (e) { return []; } })());
@@ -159,7 +179,7 @@
   const SORTS = [["proj", "Projected /wk"], ["ros", "Rest of season"], ["last3", "Last 3 avg"], ["next3", "Next 3 proj"],
     ["gain", "Gain to my team"], ["handcuff", "If starter misses"], ["share", "Share of team work"]];
   let SEARCH = null;     // loaded on first render (store isn't set up yet at this point)
-  let PLAYER_INDEX = null;
+  var PLAYER_INDEX = null;
   function playerIndex() {
     if (PLAYER_INDEX) return PLAYER_INDEX;
     const L = DATA.lab, avail = {}, opp = {};
@@ -222,8 +242,8 @@
   }
   function renderPlayers() {
     const host = $("tab-players");
-    SEARCH = SEARCH || Object.assign({ q: "", pos: "ALL", own: "all", team: "", roles: [], status: "any", flags: [], sort: "proj" },
-      store.get("playerSearch", {}), { limit: 40 });
+    SEARCH = Object.assign({ q: "", pos: "ALL", own: "all", team: "", roles: [], status: "any", flags: [], sort: "proj" },
+      store.get("playerSearch", {}), SEARCH || {}, { limit: 40 });
     if (!DATA.lab) { host.innerHTML = `<div class="empty">No player data yet. Run an update.</div>`; return; }
     const teamsList = [...new Set(Object.values(DATA.lab.players).map((r) => r.t).filter(Boolean))].sort();
     const chip = (group, val, label, on) => `<button type="button" class="mini ${on ? "on" : ""}" data-ps="${group}" data-v="${esc(val)}">${esc(label)}</button>`;
@@ -258,6 +278,10 @@
       SEARCH.limit = 40; drawSearch();
     }));
     drawSearch();
+    if (moreCards !== "loaded") {
+      $("ps-count").textContent += " · loading the rest…";
+      ensureMoreCards(() => { if ($("ps-results")) drawSearch(); });
+    }
   }
   function renderNFL() {
     const host = $("tab-nfl");
@@ -1156,6 +1180,49 @@
     draw();
   }
 
+  // ---------- "This week" to-do list: the decisions the dashboard already knows about ----------
+  function todos() {
+    const me = D.me, out = [], mine = new Set([...me.starters, ...me.bench, ...me.ir].map((p) => p.id).filter(Boolean));
+    const go = (tab, label) => `<button type="button" class="mini" data-act="go" data-tab="${tab}">${label}</button>`;
+    if (O) O.start_sit.filter((r) => r.verdict === "problem" || r.verdict === "swap").forEach((r) => out.push({
+      tag: "Lineup", cls: "lopsided", rank: r.verdict === "problem" ? 0 : 1,
+      text: r.alt ? `Start <b>${esc(nm(r.alt).name)}</b> over <b>${esc(nm(r.starter).name)}</b> at ${esc(r.slot)}: ${num(r.alt_pts)} vs ${num(r.starter_pts)} projected${r.p_alt ? `, wins ${Math.round(100 * r.p_alt)}% of the time` : ""}.`
+        : `Lineup problem at ${esc(r.slot)}: ${esc(nm(r.starter).name)}. ${esc(r.why || "")}`,
+      act: go("startsit", "Start/sit") }));
+    (me.notes || []).forEach((n) => out.push({ tag: "Roster", cls: "q", rank: 2, text: esc(n), act: "" }));
+    (TM && TM.opportunities || []).filter((o) => o.owner == null || mine.has(o.id)).slice(0, 3).forEach((o) => out.push({
+      tag: "Opportunity", cls: "balanced", rank: 3,
+      text: `<b>${esc(o.name)}</b> (${esc(o.pos)}, ${esc(o.team)}${o.owner == null ? ", free agent" : ", yours"}) projects <b>${num(o.pts)}</b> in week ${esc(o.week)}, up ${num(o.gain)} with ${o.from.map(esc).join(" and ")} out.`,
+      act: o.owner == null ? `<button type="button" class="mini" data-act="find" data-name="${esc(o.name)}">View</button>` : "" }));
+    (F && F.available || []).filter((p) => p.fit === "upgrade").slice(0, 2).forEach((p) => out.push({
+      tag: "Waivers", cls: "ok-style", rank: 4,
+      text: `Bid <b>$${esc(p.suggestion.bid)}</b> on <b>${esc(p.name)}</b> (${esc(p.position)}): +${num(p.gain_per_week)} pts/wk for you${p.drop && p.drop.length ? `, cutting ${esc(p.drop[0].name)}` : ""}.`,
+      act: go("faab", "Waivers") }));
+    if (TM) me.starters.filter((p) => p.id && p.position === "RB").forEach((p) => {
+      const rows = (TM.depth[p.team] || {}).RB || [];
+      const cuff = rows.find((r) => r.contingency && r.contingency.id === p.id && r.owner == null && r.proj != null && r.contingency.rate - r.proj >= 3);
+      if (cuff) out.push({ tag: "Handcuff", cls: "ok-style", rank: 5,
+        text: `<b>${esc(cuff.name)}</b> is a free agent: about ${num(cuff.contingency.rate)} pts/wk if your <b>${esc(p.name)}</b> misses time.`,
+        act: `<button type="button" class="mini" data-act="find" data-name="${esc(cuff.name)}">View</button>` });
+    });
+    (T && T.sell_high || []).filter((r) => r.roster_id === T.my_roster_id && !isHeld(r.id)).slice(0, 2).forEach((r) => out.push({
+      tag: "Sell high", cls: "hot", rank: 6, text: `<b>${esc(r.name)}</b> is scoring above what his usage supports: worth shopping while his value is high.`,
+      act: `<button type="button" class="mini" data-act="shop" data-pid="${esc(r.id)}">Shop</button>` }));
+    const idea = T && (T.ideas || []).find((t) => !t.give.some((p) => isHeld(p.id)) && t.balance !== "lopsided (tough sell)");
+    if (idea) out.push({ tag: "Trade idea", cls: "balanced", rank: 7,
+      text: `Give ${idea.give.map((p) => `<b>${esc(p.name)}</b>`).join(" + ")}, get ${idea.get.map((p) => `<b>${esc(p.name)}</b>`).join(" + ")} with ${esc(idea.team_name)}: you +${num(idea.my_gain)}, them +${num(idea.their_gain)}.`,
+      act: go("trades", "Trade ideas") });
+    return out.sort((a, b) => a.rank - b.rank);
+  }
+  function todoHtml() {
+    const items = todos();
+    if (!items.length) return `<h2>This week</h2><div class="card"><div class="empty">Nothing needs your attention right now.</div></div>`;
+    const row = (t) => `<div class="todo"><span class="chip ${t.cls}">${esc(t.tag)}</span><div class="todo-t">${t.text}</div>${t.act ? `<div class="todo-a">${t.act}</div>` : ""}</div>`;
+    const shown = items.slice(0, 5), more = items.slice(5);
+    return `<h2>This week <span class="muted">${items.length} to do</span></h2><div class="stack todo-list">${shown.map(row).join("")}</div>
+      ${more.length ? `<details class="recent todo-more"><summary>${more.length} more</summary><div class="stack todo-list">${more.map(row).join("")}</div></details>` : ""}`;
+  }
+
   function renderHome() {
     const me = D.me;
     const st = recBy[me.roster_id] || {};
@@ -1171,10 +1238,7 @@
       html += matchupCard(mine);
       if (po && po.if_win_text) html += `<p class="subtle" style="margin:-4px 0 12px">Playoff odds if you win this week <b>${esc(po.if_win_text)}</b> · if you lose <b>${esc(po.if_lose_text)}</b> · projected ${num(po.proj_wins)} wins.</p>`;
     }
-    const alerts = (me.notes || []).slice();
-    if (O) O.start_sit.filter((r) => r.verdict === "problem" || r.verdict === "swap").forEach((r) =>
-      alerts.push(`${r.verdict === "problem" ? "Lineup problem" : "Consider a swap"} at ${r.slot}: ${nm(r.starter).name}${r.alt ? ` vs ${nm(r.alt).name}` : ""}. See Start/sit.`));
-    if (alerts.length) html += `<div class="alert"><strong>Heads up</strong><ul>${alerts.map((n) => `<li>${esc(n)}</li>`).join("")}</ul></div>`;
+    html += todoHtml();
 
     const view = store.get("homeView", "roster");
     html += segHtml("home-seg", O ? [["roster", "Roster"], ["startsit", "Start/sit"], ["lineups", "Weekly lineups"]] : [["roster", "Roster"]], view);
@@ -1985,6 +2049,20 @@
     settings: [["more", "Settings"], ["brief", "Brief"]],
   };
   const lastSub = {};
+  // Back button: tabs are history entries; open sheets and expanded players are "layers"
+  // that Back closes first (each one pushes a history entry while it's open).
+  const NAV = { ready: false, restoring: false, layers: [], ignorePop: 0 };
+  function pushLayer(close) {
+    NAV.layers.push(close);
+    try { history.pushState({ layer: NAV.layers.length, tab: location.hash.slice(1) }, "", location.hash || "#home"); } catch (e) { /* ignore */ }
+  }
+  function dropLayer(close) {
+    const i = NAV.layers.lastIndexOf(close);
+    if (i < 0) return;
+    NAV.layers.splice(i, 1);
+    NAV.ignorePop++;
+    try { history.back(); } catch (e) { NAV.ignorePop--; }
+  }
   function sectionOf(name) {
     if (SECTIONS[name]) return name;
     return Object.keys(SECTIONS).find((sec) => SECTIONS[sec].some(([t]) => t === name)) || "home";
@@ -2002,7 +2080,10 @@
       `<button type="button" data-sub="${t}" aria-pressed="${t === sub}">${label}</button>`).join("")}</div>` : "";
     $("subnav").querySelectorAll("button").forEach((b) => b.addEventListener("click", () => selectTab(b.dataset.sub, true)));
     if (location.hash.slice(1) !== sub) {
-      try { history.replaceState(null, "", "#" + sub); } catch (e) { /* file:// may block */ }
+      try {
+        if (NAV.restoring || !NAV.ready) history.replaceState({ tab: sub }, "", "#" + sub);
+        else history.pushState({ tab: sub }, "", "#" + sub);
+      } catch (e) { /* file:// may block */ }
     }
     window.scrollTo(0, 0);
   }
@@ -2128,6 +2209,16 @@
     else if (act === "pitch") openInLab(b.dataset.partner, [pid], [], { suggest: true });
     else if (act === "hold") toggleHold(pid);
     else if (act === "ask") openAsk(b.dataset.kind, pid);
+    else if (act === "go") {
+      if (b.dataset.tab === "startsit") { store.set("homeView", "startsit"); renderHome(); selectTab("home", true);
+        setTimeout(() => { const el = $("home-seg"); if (el) el.scrollIntoView({ block: "start", behavior: "smooth" }); }, 50); }
+      else selectTab(b.dataset.tab, true);
+    }
+    else if (act === "find") {
+      SEARCH = Object.assign(SEARCH || {}, { q: b.dataset.name, pos: "ALL", own: "all", team: "", roles: [], status: "any", flags: [] });
+      store.set("playerSearch", SEARCH);
+      renderPlayers(); selectTab("players", true);
+    }
     else if (act === "team") openTeam(b.dataset.team);
     else if (act === "improve") runImprove();
     else if (act === "apply-edit") {
@@ -2169,6 +2260,54 @@
   const initial = MOVED[location.hash.slice(1)] || location.hash.slice(1);
   const known = Object.values(SECTIONS).flat().map(([t]) => t).concat(Object.keys(SECTIONS));
   selectTab(known.includes(initial) ? initial : "home");
+  NAV.ready = true;
+  setTimeout(() => ensureMoreCards(), 2500);
+  if (navigator.serviceWorker) navigator.serviceWorker.addEventListener("message", (e) => {
+    if (!e.data || e.data.type !== "data-updated" || $("fresh-note")) return;
+    $("status").insertAdjacentHTML("afterbegin", `<div class="status-note" id="fresh-note">Newer data has downloaded.
+      <button type="button" class="mini" onclick="location.reload()">Show it</button></div>`);
+  });
+  window.addEventListener("popstate", () => {
+    if (NAV.ignorePop) { NAV.ignorePop--; return; }
+    while (NAV.layers.length) {
+      const close = NAV.layers.pop();
+      if (close(true) !== false) return;      // false = already gone (page redrawn): try the next
+    }
+    const h = MOVED[location.hash.slice(1)] || location.hash.slice(1);
+    if (known.includes(h)) { NAV.restoring = true; selectTab(h, true); NAV.restoring = false; }
+  });
+  // dialogs (team sheet, Ask Claude): Back closes them
+  ["team-sheet", "ask"].forEach((id) => {
+    const d = $(id);
+    if (!d) return;
+    const close = () => { if (!d.open) return false; d.close(); return true; };
+    new MutationObserver(() => {
+      if (d.open && !NAV.layers.includes(close)) pushLayer(close);
+      else if (!d.open && NAV.layers.includes(close)) dropLayer(close);
+    }).observe(d, { attributes: true, attributeFilter: ["open"] });
+  });
+  // expanded players / waiver tiles / weekly-score teams: Back collapses them
+  document.addEventListener("toggle", (e) => {
+    const el = e.target;
+    if (!(el instanceof HTMLDetailsElement) || !el.matches("details.prow-d, details.wv, details.ws")) return;
+    if (el.open) {
+      const close = () => {
+        el.__close = null;
+        if (!el.isConnected || !el.open) return false;
+        el.open = false;
+        return true;
+      };
+      el.__close = close;
+      pushLayer(close);
+      requestAnimationFrame(() => {
+        const r = el.getBoundingClientRect();
+        if (r.top < 70 || r.top > window.innerHeight * 0.6) window.scrollBy({ top: r.top - 80, behavior: "smooth" });
+      });
+    } else if (el.__close) {
+      const c = el.__close; el.__close = null;
+      dropLayer(c);
+    }
+  }, true);
   window.addEventListener("hashchange", () => {
     const h = MOVED[location.hash.slice(1)] || location.hash.slice(1);
     if (known.includes(h)) selectTab(h, true);

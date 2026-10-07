@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 
 from . import brief, cards, dashboard, faab, factors, lab, league, lineups, model, nflverse, outlook, projections, roles, scanner, teams, tendencies, trades, waivers
 from .config import ROOT, ConfigError, load_config
-from .output import write_site_data, write_snapshot
+from .output import prune, write_site_data, write_snapshot
 from .players import find_player, ir_allowed_statuses, player_brief, player_name, slim_players
 from .sleeper import SleeperClient
 
@@ -828,7 +828,11 @@ def main() -> int:
     write_site_data(site_data, "lab", lab_data)
     write_site_data(site_data, "league", league_data)
     write_site_data(site_data, "teams", teams_data)
-    write_site_data(site_data, "cards", all_cards)
+    # cards: what Home / Waivers / Trades need loads with the page; the rest loads on demand
+    core_ids = ({pid for r in ctx["rosters"] for pid in (r.get("players") or [])} | set(pool_ids)
+                | {o["id"] for o in teams_data.get("opportunities", [])})
+    write_site_data(site_data, "cards", prune({pid: c for pid, c in all_cards.items() if pid in core_ids}))
+    write_site_data(site_data, "cards_more", prune({pid: c for pid, c in all_cards.items() if pid not in core_ids}))
     write_site_data(site_data, "model", build_model_page(ctx, mdl, proj, points, pool_ids, now, ROOT / "data"))
     brief_md = brief.build_brief(dash, faab_data, scan, trade_data, outlook_data)
     (site_data / "claude_brief.md").write_text(brief_md, encoding="utf-8")

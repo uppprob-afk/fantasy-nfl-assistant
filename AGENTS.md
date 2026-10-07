@@ -315,6 +315,24 @@ value >= 2 pts, opportunity this week, upgrades my team, sell-high, buy-low, hel
 sorts (`SORTS`). State in localStorage `playerSearch`; 40 results at a time. Rows are
 `playerRow` tiles with an extra summary line (owner, role, handcuff, opportunity, waiver gain).
 
+## Loading, Back button and the to-do list
+
+- Data files are written compact (`output.write_site_data`, no indentation). Player cards are
+  split: `cards.js` (rostered players, waiver pool, opportunity players: what Home, Waivers
+  and Trades show) loads with the page; `cards_more.js` (everyone else, nulls pruned) loads
+  2.5 s later or when Players opens (`ensureMoreCards`).
+- Service worker (`sw.js`, cache `fantasy-nfl-v2`): data/*.js are stale-while-revalidate (the
+  cached copy shows instantly; if the fresh copy differs the page gets a `data-updated`
+  message and shows "Newer data has downloaded · Show it"); app files network-first.
+- Back button: tab changes `pushState`; open dialogs (team sheet, Ask Claude) and expanded
+  `details.prow-d / .wv / .ws` are layers (`pushLayer` / `dropLayer`); `popstate` closes the
+  top live layer first, else restores the tab from the hash. Opening a player scrolls it into view.
+- Home starts with **This week** (`todos()`): lineup swaps from start/sit, roster notes,
+  opportunities for free agents / my players, waiver upgrades (fit = upgrade), free-agent
+  handcuffs for my RB starters (contingency >= 3 pts over their projection), my sell-high
+  players (not held) and the best non-lopsided trade idea; 5 shown, rest under "more".
+  Buttons use `data-act="go"` (tab) / `"find"` (opens Players with a name search) / `"shop"`.
+
 ## Freshness
 
 The header subtitle shows "Updated <relative time>" (`showUpdated`, refreshed every minute;
