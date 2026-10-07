@@ -58,6 +58,10 @@
   // ---------- holds (stashed players) and quick actions ----------
   let HOLDS = new Set((() => { try { return JSON.parse(localStorage.getItem("holds") || "[]"); } catch (e) { return []; } })());
   const isHeld = (pid) => HOLDS.has(pid);
+  const readSet = (k) => { try { return new Set(JSON.parse(localStorage.getItem(k) || "[]")); } catch (e) { return new Set(); } };
+  const WATCH = readSet("watch");          // ★ players I'm tracking (not mine)
+  const isWatched = (pid) => WATCH.has(pid);
+  let COMPARE = [...readSet("compare")].slice(0, 3);
   // Owner (roster id, or null = free agent). Players without a projection (e.g. no current NFL
   // team) aren't in DATA.lab.players, so fall back to the league rosters.
   const ownerOf = (pid) => {
@@ -70,6 +74,11 @@
   const myRid = () => (DATA.lab ? DATA.lab.my_roster_id : D && D.me.roster_id);
   function actionButtons(pid) {
     const o = ownerOf(pid);
+    const cmp = `<button type="button" class="mini ${COMPARE.includes(pid) ? "on" : ""}" data-act="compare" data-pid="${esc(pid)}">${COMPARE.includes(pid) ? "Comparing ✓" : "Compare"}</button>`;
+    const star = o !== myRid() ? `<button type="button" class="mini ${isWatched(pid) ? "on" : ""}" data-act="watch" data-pid="${esc(pid)}">${isWatched(pid) ? "★ Watching" : "☆ Watch"}</button>` : "";
+    return baseActions(pid, o) + star + cmp;
+  }
+  function baseActions(pid, o) {
     if (o === undefined) return "";
     if (o === myRid()) {
       return `${DATA.lab.players[pid] ? `<button type="button" class="mini" data-act="shop" data-pid="${esc(pid)}">Shop in Trade Lab</button>` : ""}
@@ -202,7 +211,7 @@
     ["opportunity", "Opportunity this week", (p) => !!p.opp],
     ["upgrade", "Upgrades my team", (p) => p.fit === "upgrade" || p.fit === "depth"],
     ["sell", "Sell-high", (p) => p.sell], ["buy", "Buy-low", (p) => p.buy],
-    ["held", "Held", (p) => isHeld(p.id)], ["trending", "Trending", (p) => p.trending],
+    ["held", "Held", (p) => isHeld(p.id)], ["watching", "★ Watching", (p) => isWatched(p.id)], ["trending", "Trending", (p) => p.trending],
   ];
   function searchResults() {
     const S2 = SEARCH, me = myRid(), q = S2.q.trim().toLowerCase();
@@ -469,7 +478,7 @@
       <span class="slot ${esc(cls)}">${esc(label)}</span>
       <div class="pmain">
         <div class="pname">${esc(p.name)}${injuryChip(p)}${irNote}${checkChip(p)}</div>
-        <div class="pmeta">${teamLink(p.team)}${rank}${v && v.flag && !isHeld(p.id) ? ` · <span class="flag">${esc(v.flag)}</span>` : ""}${isHeld(p.id) ? ` · <span class="held">held</span>` : ""}</div>
+        <div class="pmeta">${teamLink(p.team)}${rank}${v && v.flag && !isHeld(p.id) ? ` · <span class="flag">${esc(v.flag)}</span>` : ""}${isHeld(p.id) ? ` · <span class="held">held</span>` : ""}${isWatched(p.id) ? ` · <span class="held">★</span>` : ""}</div>
         ${reason}
       </div>
       <div class="pnums proj">${v ? `<div class="big">${one(v.rate)}</div><div class="small">proj/wk</div>` : ""}</div>
@@ -1239,6 +1248,7 @@
       if (po && po.if_win_text) html += `<p class="subtle" style="margin:-4px 0 12px">Playoff odds if you win this week <b>${esc(po.if_win_text)}</b> · if you lose <b>${esc(po.if_lose_text)}</b> · projected ${num(po.proj_wins)} wins.</p>`;
     }
     html += todoHtml();
+    html += watchHtml();
 
     const view = store.get("homeView", "roster");
     html += segHtml("home-seg", O ? [["roster", "Roster"], ["startsit", "Start/sit"], ["lineups", "Weekly lineups"]] : [["roster", "Roster"]], view);
@@ -1451,11 +1461,12 @@
     return pids.slice().sort((a, b) => (POS_ORDER.indexOf(P[a].p) - POS_ORDER.indexOf(P[b].p)) || (P[b].r - P[a].r));
   }
 
+  const LAB_FILTER = { q: "", pos: "ALL" };
   function pickChips(pids, chosen, side) {
     const P = DATA.lab.players;
     return sortPids(pids).map((pid) => {
       const r = P[pid];
-      return `<button type="button" class="pick ${chosen.includes(pid) ? "on" : ""}" data-side="${side}" data-pid="${esc(pid)}"
+      return `<button type="button" class="pick ${chosen.includes(pid) ? "on" : ""}" data-side="${side}" data-pid="${esc(pid)}" data-pos="${esc(r.p)}" data-name="${esc(r.n.toLowerCase())}"
         aria-pressed="${chosen.includes(pid)}"><span class="slot ${esc(r.p)}">${esc(r.p)}</span>
         <span class="pick-name">${esc(r.n)}${r.s ? ` <span class="chip ${r.s === "Questionable" ? "q" : "inj"}">${esc(r.s)}</span>` : ""}</span>
         <span class="pick-val">${num(r.r)}</span></button>`;
@@ -1572,6 +1583,8 @@
       ${check.ok ? "" : `<div class="alert">Heads up: the in-browser maths differs from the last update by ${num(check.maxDiff)} pts. Refresh after the next update.</div>`}
       <label class="subtle" for="lab-partner">Trade with</label>
       <select id="lab-partner">${opts}</select>
+      <div class="lab-filter"><input id="lab-q" type="search" placeholder="Filter players" value="${esc(LAB_FILTER.q)}" autocomplete="off">
+        ${segHtml("lab-pos", [["ALL", "All"], ["QB", "QB"], ["RB", "RB"], ["WR", "WR"], ["TE", "TE"]], LAB_FILTER.pos)}</div>
       <div class="lab-cols">
         <div><div class="col-label">You give (${labState.give.length})</div><div class="picks">${pickChips(mine, labState.give, "give")}</div></div>
         <div><div class="col-label">You get (${labState.get.length})</div><div class="picks">${pickChips(theirs, labState.get, "get")}</div></div>
@@ -1599,6 +1612,16 @@
         stands. Odds are rounded while confidence is ${esc(L.confidence)}.</p>
         <p>Positional strength compares projected points per week from each position with the league median.</p></div></details>`;
 
+    const filterPicks = () => {
+      const q = LAB_FILTER.q.trim().toLowerCase();
+      host.querySelectorAll(".pick").forEach((el) => {
+        const show = el.classList.contains("on") || ((LAB_FILTER.pos === "ALL" || el.dataset.pos === LAB_FILTER.pos) && (!q || el.dataset.name.includes(q)));
+        el.hidden = !show;
+      });
+    };
+    $("lab-q").addEventListener("input", (e) => { LAB_FILTER.q = e.target.value; filterPicks(); });
+    wireSeg("lab-pos", "_labPos", (v) => { LAB_FILTER.pos = v; filterPicks(); });
+    filterPicks();
     $("lab-partner").addEventListener("change", (e) => { labState = { partner: e.target.value, give: labState.give, get: [] }; renderTradeLab(); });
     $("lab-clear").addEventListener("click", () => { labState = { partner: labState.partner, give: [], get: [] }; renderTradeLab(); });
     $("lab-suggest").addEventListener("click", () => runSuggestions());
@@ -1721,6 +1744,69 @@
     selectTab("lab");
     renderTradeLab();
     window.scrollTo(0, 0);
+  }
+
+  function toggleSet(set, key, pid, btn, onTxt, offTxt) {
+    if (set.has(pid)) set.delete(pid); else set.add(pid);
+    store.set(key, [...set]);
+    document.querySelectorAll(`[data-act="${btn.dataset.act}"][data-pid="${CSS.escape(pid)}"]`).forEach((x) => {
+      x.classList.toggle("on", set.has(pid)); x.textContent = set.has(pid) ? onTxt : offTxt; });
+    if (key === "watch") { const w = $("watch-sec"); if (w) w.outerHTML = watchHtml(); PLAYER_INDEX = null; }
+  }
+  function toggleCompare(pid) {
+    const i = COMPARE.indexOf(pid);
+    if (i >= 0) COMPARE.splice(i, 1); else { COMPARE.push(pid); if (COMPARE.length > 3) COMPARE.shift(); }
+    store.set("compare", COMPARE);
+    syncCompare();
+  }
+  function syncCompare() {
+    document.querySelectorAll('[data-act="compare"]').forEach((x) => {
+      const on = COMPARE.includes(x.dataset.pid); x.classList.toggle("on", on); x.textContent = on ? "Comparing ✓" : "Compare"; });
+    const tray = $("compare-tray");
+    if (!COMPARE.length) { tray.hidden = true; tray.innerHTML = ""; return; }
+    const L = DATA.lab;
+    const name = (pid) => esc((L && L.players[pid] && L.players[pid].n) || (CARDS[pid] && CARDS[pid].role && CARDS[pid].role.name) || pid);
+    tray.hidden = false;
+    tray.innerHTML = `<div class="ct-names">${COMPARE.map(name).join(" · ")}</div>
+      <button type="button" class="btn" data-act="compare-open" ${COMPARE.length < 2 ? "disabled" : ""}>${COMPARE.length < 2 ? "Pick 1 more" : `Compare ${COMPARE.length}`}</button>
+      <button type="button" class="icon-btn" data-act="compare-clear" aria-label="Clear compare">✕</button>`;
+  }
+  function openCompare() {
+    const L = DATA.lab;
+    const cols = COMPARE.map((pid) => ({ pid, r: (L && L.players[pid]) || {}, c: CARDS[pid] || {} }));
+    const nx = (c) => (c.next3 || []).find((w) => !w.bye) || {};
+    const ab = (x) => POS_ABBR[x.r.p] || x.r.p || "";
+    const rows = [
+      ["Owner", (x) => x.r.o == null ? "free agent" : x.r.o === myRid() ? "you" : esc((L.rosters[String(x.r.o)] || {}).team_name || ""), null],
+      ["Status", (x) => x.r.s ? esc(x.r.s) : "healthy", null],
+      ["This week", (x) => { const w = nx(x.c); return w.week ? `<b>${one(w.pts)}</b> ${w.home ? "vs" : "@"} ${esc(w.opp)}${w.matchup && w.matchup !== "neutral" ? ` <span class="chip mu-${w.matchup}">${w.matchup}</span>` : ""}` : "bye"; }, (x) => nx(x.c).pts],
+      ["Typical range", (x) => { const w = nx(x.c); return w.low != null ? `${one(w.low)}–${one(w.high)}` : "–"; }, null],
+      ["Floor / ceiling", (x) => { const w = nx(x.c); return w.floor != null ? `${one(w.floor)} / ${one(w.ceiling)}` : "–"; }, (x) => nx(x.c).ceiling],
+      ["Proj / wk (ROS)", (x) => x.r.r != null ? one(x.r.r) : "–", (x) => x.r.r],
+      ["Rank", (x) => x.c.value && x.c.value.rank ? `${ab(x)}${x.c.value.rank}` : "–", (x) => x.c.value && x.c.value.rank ? -x.c.value.rank : null],
+      ["Last 3 avg", (x) => one(x.c.last3_avg), (x) => x.c.last3_avg],
+      ["Last 3 finishes", (x) => (x.c.last3 || []).map((w) => w.finish ? `${ab(x)}${w.finish}` : "–").join(" · ") || "–", null],
+      ["Next 3 proj", (x) => one(x.c.next3_avg), (x) => x.c.next3_avg],
+      ["Starter-level weeks", (x) => x.c.consistency && x.c.consistency.games ? `${x.c.consistency.start} of ${x.c.consistency.games}` : "–", (x) => x.c.consistency && x.c.consistency.games ? x.c.consistency.start / x.c.consistency.games : null],
+      ["Role", (x) => x.c.role ? `${esc(x.c.role.label)}${x.c.role.share != null ? ` · ${Math.round(100 * x.c.role.share)}%` : ""}` : "–", null],
+      ["If starter misses", (x) => x.c.role && x.c.role.contingency ? `~${one(x.c.role.contingency.rate)}` : "–", null],
+      ["Value vs FA", (x) => x.c.value ? `${x.c.value.vor >= 0 ? "+" : ""}${Math.round(x.c.value.vor)}` : "–", (x) => x.c.value && x.c.value.vor],
+    ];
+    const best = (f) => { if (!f) return null; const v = cols.map(f); const m = Math.max(...v.filter((y) => y != null)); return v.map((y) => y != null && y === m && v.filter((z) => z === m).length < cols.length); };
+    $("compare-body").innerHTML = `<div class="table-wrap"><table class="cmp"><thead><tr><th></th>${cols.map((x) =>
+        `<th>${esc(x.r.n || x.pid)}<div class="subtle">${esc(x.r.p || "")} · ${esc(x.r.t || "")}</div></th>`).join("")}</tr></thead>
+      <tbody>${rows.map(([label, f, key]) => { const b2 = best(key); return `<tr><td class="cmp-k">${label}</td>${cols.map((x, i) =>
+        `<td class="${b2 && b2[i] ? "cmp-best" : ""}">${f(x)}</td>`).join("")}</tr>`; }).join("")}</tbody></table></div>
+      <p class="subtle">Green = best in that row. This week uses the next game's projection, range and matchup.</p>`;
+    const d = $("compare");
+    if (d.showModal) d.showModal(); else d.setAttribute("open", "");
+  }
+  function watchHtml() {
+    if (!WATCH.size) return `<div id="watch-sec"></div>`;
+    const L = DATA.lab, ids = [...WATCH].filter((pid) => L && L.players[pid]);
+    if (!ids.length) return `<div id="watch-sec"></div>`;
+    const rows = ids.map((pid) => { const r = L.players[pid]; return playerRow({ id: pid, name: r.n, position: r.p, team: r.t, injury_status: r.s || null }, r.p); }).join("");
+    return `<div id="watch-sec"><h2>Watchlist <span class="muted">${ids.length}</span></h2><div class="stack">${rows}</div></div>`;
   }
 
   function toggleHold(pid) {
@@ -2014,6 +2100,11 @@
   function setupAsk() {
     $("ask-btn").addEventListener("click", () => openAsk());
     $("settings-btn").addEventListener("click", () => selectTab("more"));
+    $("search-btn").addEventListener("click", () => {
+      selectTab("players", true);
+      setTimeout(() => { const q = $("ps-q"); if (q) { q.focus(); q.select(); } }, 60);
+    });
+    syncCompare();
     $("ask-q").addEventListener("input", refreshAskPreview);
     $("ask-chips").addEventListener("click", (e) => {
       const c = e.target.closest("[data-chip]");
@@ -2209,6 +2300,10 @@
     else if (act === "pitch") openInLab(b.dataset.partner, [pid], [], { suggest: true });
     else if (act === "hold") toggleHold(pid);
     else if (act === "ask") openAsk(b.dataset.kind, pid);
+    else if (act === "watch") toggleSet(WATCH, "watch", pid, b, "★ Watching", "☆ Watch");
+    else if (act === "compare") toggleCompare(pid);
+    else if (act === "compare-open") openCompare();
+    else if (act === "compare-clear") { COMPARE = []; store.set("compare", COMPARE); syncCompare(); }
     else if (act === "go") {
       if (b.dataset.tab === "startsit") { store.set("homeView", "startsit"); renderHome(); selectTab("home", true);
         setTimeout(() => { const el = $("home-seg"); if (el) el.scrollIntoView({ block: "start", behavior: "smooth" }); }, 50); }
@@ -2277,7 +2372,7 @@
     if (known.includes(h)) { NAV.restoring = true; selectTab(h, true); NAV.restoring = false; }
   });
   // dialogs (team sheet, Ask Claude): Back closes them
-  ["team-sheet", "ask"].forEach((id) => {
+  ["team-sheet", "ask", "compare"].forEach((id) => {
     const d = $(id);
     if (!d) return;
     const close = () => { if (!d.open) return false; d.close(); return true; };

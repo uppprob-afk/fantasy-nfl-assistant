@@ -419,6 +419,26 @@ tr.detail-row .card { background: var(--surface); border: 1px solid var(--border
 .ps-bar { display: flex; justify-content: space-between; align-items: center; margin: 6px 0 10px; }
 .sr-extra { color: var(--text-2); }
 
+/* ---------- compare + watchlist ---------- */
+#compare-tray { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(76px + env(safe-area-inset-bottom));
+  z-index: 30; width: min(560px, calc(100vw - 24px)); box-sizing: border-box; display: flex; gap: 10px; align-items: center;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 6px 6px 6px 16px;
+  box-shadow: 0 10px 30px -12px rgba(0, 0, 0, .45); }
+#compare-tray .ct-names { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#compare-tray .btn { padding: 8px 14px; font-size: 13.5px; }
+dialog#compare { border: 0; padding: 0; background: transparent; width: min(720px, calc(100vw - 24px)); max-height: calc(100vh - 32px); color: var(--text); }
+dialog#compare::backdrop { background: rgba(0, 0, 0, .45); }
+dialog#compare .ask-box { max-height: calc(100vh - 32px); overflow-y: auto; box-sizing: border-box; }
+table.cmp th, table.cmp td { text-align: center; white-space: normal; font-size: 13px; padding: 8px 6px; vertical-align: top; }
+table.cmp th:first-child, table.cmp td:first-child { text-align: left; width: auto; padding-left: 4px; }
+table.cmp th { text-transform: none; letter-spacing: 0; font-size: 13.5px; color: var(--text); font-weight: 650; }
+table.cmp th .subtle { font-weight: 500; font-size: 11.5px; }
+.cmp-k { color: var(--muted); font-size: 12px !important; font-weight: 600; }
+.cmp-best { background: var(--good-soft); color: var(--good); font-weight: 650; }
+.lab-filter { display: grid; gap: 8px; margin: 10px 0; }
+.lab-filter input { width: 100%; box-sizing: border-box; font: inherit; font-size: 15px; padding: 9px 12px; border-radius: var(--r-md);
+  border: 1px solid var(--border); background: var(--surface); color: var(--text); margin: 0; }
+
 /* ---------- This week to-do ---------- */
 .todo-list > .todo { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 10px; align-items: start; padding: 12px 14px; }
 .todo .chip { margin: 1px 0 0; }
