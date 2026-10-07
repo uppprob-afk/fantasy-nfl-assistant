@@ -95,3 +95,12 @@ def test_playoff_weeks_from_settings():
     assert playoff_weeks({"playoff_week_start": 15, "playoff_teams": 6}) == [15, 16, 17]
     assert playoff_weeks({"playoff_week_start": 15, "playoff_teams": 4, "playoff_round_type": 1}) == [15, 16, 17]
     assert playoff_weeks({"playoff_week_start": 16, "playoff_teams": 8, "playoff_round_type": 2}) == [16, 17, 18]
+
+
+def test_prune_drops_nulls_and_output_is_compact(tmp_path):
+    import json
+    from nfl_assistant.output import prune, write_site_data
+    assert prune({"a": None, "b": [1, {"c": None, "d": 2}], "e": {"f": None}}) == {"b": [1, {"d": 2}], "e": {}}
+    write_site_data(tmp_path, "x", {"k": [1, 2]})
+    assert (tmp_path / "x.json").read_text().strip() == '{"k":[1,2]}'
+    assert json.loads((tmp_path / "x.json").read_text()) == {"k": [1, 2]}
