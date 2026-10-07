@@ -241,13 +241,36 @@ details.prow-d[open] > summary { background: var(--surface-2); }
 .prow-card > .slot { grid-area: slot; margin-top: 3px; }
 .prow-card > .pmain { grid-area: main; }
 .prow-card > .pnums { grid-area: nums; }
-.prow-card > .pills { grid-area: pills; }
+.prow-card > .pills, .prow-card > .wk6 { grid-area: pills; }
 .pmain { min-width: 0; }
 .l3n3 { display: grid; grid-template-columns: auto auto; gap: 14px; text-align: right; }
 .l3n3 .k { font-size: 10px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); font-weight: 650; }
 .l3n3 .big { font-size: 16px; font-weight: 650; line-height: 1.2; }
 .trend { font-size: 10px; margin-right: 3px; vertical-align: 2px; }
 .trend.up { color: var(--good); } .trend.down { color: var(--bad); }
+
+/* six-week timeline on player rows: last 3 played | next 3 */
+.wk6 { display: grid; gap: 5px; max-width: 480px; }
+.wk6-h, .wk6-g { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) 9px repeat(3, minmax(0, 1fr)); gap: 5px; }
+.wk6-h span { grid-column: span 3; font-size: 11px; color: var(--muted); font-weight: 600; letter-spacing: .02em; }
+.wk6-h span + span { grid-column: 5 / span 3; text-align: right; }
+.wk6-h b { color: var(--text); font-size: 13px; font-weight: 700; }
+.wk6-now { justify-self: center; width: 1px; background: var(--border); border-radius: 1px; margin: 2px 0; }
+.wc { display: flex; flex-direction: column; align-items: center; min-width: 0; border-radius: 8px; padding: 4px 2px 5px;
+  background: var(--surface-2); line-height: 1.15; }
+.wc .wc-w { font-size: 9.5px; font-weight: 700; letter-spacing: .04em; color: var(--muted); }
+.wc b { font-size: 14px; font-weight: 700; white-space: nowrap; margin: 1px 0; }
+.wc .wc-s { font-size: 10.5px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.wc.none { background: transparent; box-shadow: inset 0 0 0 1px var(--border); }
+.wc.none b, .wc.none .wc-s { color: var(--muted); font-weight: 500; }
+.wc.f-boom { background: var(--good); } .wc.f-boom b, .wc.f-boom .wc-s, .wc.f-boom .wc-w { color: var(--on-accent); }
+.wc.f-start { background: var(--good-soft); } .wc.f-start .wc-s { color: var(--good); font-weight: 600; }
+.wc.f-mid { background: var(--surface-3); }
+.wc.f-bust { background: var(--bad-soft); } .wc.f-bust .wc-s { color: var(--bad); font-weight: 600; }
+.wc.upc { background: transparent; box-shadow: inset 0 0 0 1px var(--border); }
+.wc.upc.mu-easy { box-shadow: inset 0 0 0 1.5px var(--good); }
+.wc.upc.mu-tough { box-shadow: inset 0 0 0 1.5px var(--bad); }
+.stack .pd .wc.f-mid { background: var(--surface); }
 
 /* finish pills (last 3) and matchup pills (next 3) */
 .pills { display: grid; gap: 6px; max-width: 480px; }

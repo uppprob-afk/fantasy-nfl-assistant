@@ -72,22 +72,26 @@
   const oppLabel = (w) => (w.bye ? "BYE" : `${w.home === false ? "@" : ""}${w.opp || ""}`);
 
   // Last 3 as finish pills (points + positional finish, coloured by tier); next 3 as matchups.
+  // Six-week timeline: the last 3 played weeks | the next 3, each labelled with its week.
   function pills(c, pos) {
     const ab = POS_ABBR[pos] || pos || "";
+    const cell = (cls, wk, main, sub, title) =>
+      `<div class="wc ${cls}" title="${esc(title)}"><span class="wc-w">W${esc(wk)}</span><b>${main}</b><span class="wc-s">${sub}</span></div>`;
     const past = c.last3.map((w) => {
-      if (w.bye) return `<span class="pill none"><b>bye</b><i>W${w.week}</i></span>`;
-      if (!w.played && w.pts == null) return `<span class="pill none"><b>–</b><i>W${w.week} DNP</i></span>`;
+      if (w.bye) return cell("none", w.week, "bye", "&nbsp;", `Week ${w.week}: bye`);
+      if (!w.played && w.pts == null) return cell("none", w.week, "–", "didn't play", `Week ${w.week}: didn't play`);
       const pts = (w.pts == null ? (w.calc != null ? "≈" + one(w.calc) : "n/r") : one(w.pts)) + (w.partial ? "*" : "");
-      return `<span class="pill f-${tierOf(c, w.finish)}" title="Week ${w.week}${w.opp ? " vs " + esc(w.opp) : ""}"><b>${pts}</b><i>${
-        w.finish ? ab + w.finish : "W" + w.week}</i></span>`;
+      return cell(`f-${tierOf(c, w.finish)}`, w.week, pts, w.finish ? `${ab}${w.finish}` : "&nbsp;",
+        `Week ${w.week}${w.opp ? " vs " + w.opp : ""}: ${pts} pts${w.finish ? `, ${ab}${w.finish}` : ""}${w.partial ? " (left early)" : ""}`);
     }).join("");
     const next = c.next3.map((w) => w.bye
-      ? `<span class="pill nx none"><b>bye</b><i>W${w.week}</i></span>`
-      : `<span class="pill nx ${w.matchup !== "neutral" ? "mu-" + w.matchup : ""}" title="Week ${w.week}: ${w.matchup} matchup"><b>${one(w.pts)}${MU_MARK[w.matchup] || ""}</b><i>${esc(oppLabel(w))}</i></span>`).join("");
+      ? cell("upc none", w.week, "bye", "&nbsp;", `Week ${w.week}: bye`)
+      : cell(`upc ${w.matchup !== "neutral" ? "mu-" + w.matchup : ""}`, w.week, `${one(w.pts)}${MU_MARK[w.matchup] || ""}`, esc(oppLabel(w)),
+        `Week ${w.week} ${w.home ? "vs" : "at"} ${w.opp}: ${one(w.pts)} projected, ${w.matchup} matchup`)).join("");
     const arrow = { up: `<span class="trend up">▲</span>`, down: `<span class="trend down">▼</span>` }[c.trend] || "";
-    return `<div class="pills">
-      <div class="pl-row"><span class="pl-k">Last 3</span><div class="pl-set">${past}</div><span class="pl-avg">${one(c.last3_avg)}<small>avg</small></span></div>
-      <div class="pl-row"><span class="pl-k">Next 3</span><div class="pl-set">${next}</div><span class="pl-avg">${arrow}${one(c.next3_avg)}<small>proj</small></span></div>
+    return `<div class="wk6">
+      <div class="wk6-h"><span>Last 3 · <b>${one(c.last3_avg)}</b> avg</span><span>Next 3 · <b>${arrow}${one(c.next3_avg)}</b> proj</span></div>
+      <div class="wk6-g">${past}<div class="wk6-now" aria-hidden="true"></div>${next}</div>
     </div>`;
   }
 
