@@ -273,6 +273,21 @@ details.prow-d[open] > summary { background: var(--surface-2); }
 .mk.easy { color: var(--good); } .mk.tough { color: var(--bad); }
 .pnums.proj .big { font-size: 17px; }
 
+/* detail panel chapters: This week · Rest of season · Role & usage · Track record */
+.pd-ch { display: grid; gap: 14px; }
+.pd-ch + .pd-ch { border-top: 1px solid var(--border); padding-top: 18px; }
+.pd-ch > h3 { margin: 0; font-size: 15px; font-weight: 700; color: var(--text); display: flex; align-items: center; gap: 8px; }
+.pd-ch > h3::before { content: ""; width: 4px; height: 15px; border-radius: 2px; background: var(--accent); }
+.pd-acts { margin: -2px 0 2px; }
+.nx { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.nx-w { font-weight: 600; font-size: 14.5px; margin-bottom: 2px; }
+.nx-p { font-size: 26px; font-weight: 700; line-height: 1; text-align: right; }
+.nx-p small { display: block; font-size: 11px; font-weight: 500; color: var(--muted); margin-top: 3px; }
+.nx-notes { margin: 0; }
+details.pd-log > summary { cursor: pointer; list-style: none; }
+details.pd-log > summary::-webkit-details-marker { display: none; }
+details.pd-log[open] > summary .subtle { display: none; }
+
 /* detail panel: tiles, finish bar, schedule */
 .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
 .tiles.head { grid-template-columns: repeat(2, minmax(0, 1fr)); }

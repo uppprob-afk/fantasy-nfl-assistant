@@ -291,6 +291,17 @@ teammate misses a full game. `teams.opportunities` lists next-game boosts >= 2.5
 Shown: Role section (if X misses), team sheet, waiver tiles (handcuff), Game day note,
 Model page (who inherits the work).
 
+## Player card (detail panel) order
+
+`detailPanel` is built as chapters (`section.pd-ch` with an accent `h3`): actions first
+(`.pd-acts`), then **This week** (next game: opponent, matchup, projection with typical range /
+floor / ceiling, conditions, plus `gameDayNotes`: injury + practice, inherited work, backup
+QB), **Rest of season** (projection, floor / ceiling, rank, value vs a free agent, confidence,
+flags, byes, schedule incl. playoffs), **Role & usage** (`roleSection`: depth chart, job
+security, if X misses, share by week; then usage & efficiency) and **Track record** (season
+ppg, average finish, consistency, game log collapsed in `details.pd-log`). Keep new content in
+the chapter that answers the matching question.
+
 ## Players (search)
 
 `renderPlayers` searches every projected player (`DATA.lab.players`, ~530) joined with their

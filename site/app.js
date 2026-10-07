@@ -107,8 +107,8 @@
     if (!r) return "";
     const ordinalPos = r.order ? `${esc(r.pos)}${r.order}` : esc(r.pos);
     const weeks = (r.weeks || []).slice(-6).map((w) => `<span class="pill ${w.opportunity ? "f-start" : w.partial ? "none" : "f-mid"}" title="Week ${w.week}${
-        w.partial ? ": left early / limited" : w.opportunity ? ": someone ahead of him left early or sat" : ""}"><b>${w.share == null ? "–" : Math.round(100 * w.share) + "%"}${w.partial ? "*" : w.opportunity ? "↑" : ""}</b><i>W${w.week}${w.snap != null ? " · " + Math.round(100 * w.snap) + "% sn" : ""}</i></span>`).join("");
-    return `<div class="pd-sec"><div class="pd-h">Role · ${teamLink(r.team)} depth chart</div>
+        w.partial ? ": left early / limited" : w.opportunity ? ": someone ahead of him left early or sat" : ""}"><b>${w.share == null ? "–" : Math.round(100 * w.share) + "%"}${w.partial ? "*" : w.opportunity ? "↑" : ""}</b><i>W${w.week}${w.snap != null && r.kind !== "snap" ? " · " + Math.round(100 * w.snap) + "% sn" : ""}</i></span>`).join("");
+    return `<div class="pd-sec"><div class="pd-h">Depth chart · ${teamLink(r.team)}</div>
       <div>${roleChip(r.label)} <b>${ordinalPos}</b>${r.ahead && r.ahead.length ? ` behind ${r.ahead.map(esc).join(", ")}` : ""}${r.behind && r.behind.length ? ` · ahead of ${r.behind.map(esc).join(", ")}` : ""}</div>
       <div class="subtle" style="margin:4px 0 8px">${esc(r.reason)}</div>
       ${r.contingency && c.value && r.contingency.rate - c.value.rate >= 1 ? `<div class="tile good" style="margin-bottom:8px"><div class="k">If ${esc(r.contingency.if_out)} misses</div>
@@ -284,7 +284,7 @@
     if (wx.temp != null) bits.push(`${Math.round(wx.temp)}°F`);
     return (wx.roof === "open" ? "open roof" : "outdoors") + (bits.length ? ` · ${bits.join(", ")}${wx.forecast ? " forecast" : ""}` : "");
   }
-  function gameDayNote(c) {
+  function gameDayNotes(c) {
     const v = c.value, nx = (c.next3 || []).find((w) => !w.bye);
     const notes = [];
     if (v && v.status && ["Questionable", "Doubtful", "Out"].includes(v.status) && nx) {
@@ -300,48 +300,59 @@
     if (nx && nx.inherit && nx.inherit.length) {
       notes.push(`<b>+${num(nx.inherit.reduce((a, x) => a + x.pts, 0))}</b> this week with ${nx.inherit.map((x) => esc(x.from)).join(" and ")} likely out: his work passes down the depth chart.`);
     }
-    if (nx && nx.wx) {
-      const t = wxText(nx.wx), m = nx.wx.mult;
-      if (t) notes.push(`Next game ${t}${m && Math.abs(m - 1) >= 0.01 ? ` (${m > 1 ? "+" : "−"}${Math.round(100 * Math.abs(m - 1))}% for conditions)` : ""}.`);
-    }
-    return notes.length ? `<div class="pd-sec"><div class="pd-h">Game day</div>${notes.map((n) => `<div>${n}</div>`).join("")}</div>` : "";
+    return notes;
   }
 
   function detailPanel(p, c) {
     const v = c.value, u = c.usage, k = c.consistency || {}, o = c.opportunity || {};
     const pos = p.position, ab = POS_ABBR[pos] || pos;
     const isQB = pos === "QB", isKD = pos === "K" || pos === "DEF";
+    const chapter = (title, body) => (body ? `<section class="pd-ch"><h3>${title}</h3>${body}</section>` : "");
     let html = `<div class="pd">`;
+    html += `<div class="acts pd-acts">${actionButtons(p.id)}<button type="button" class="mini" data-act="ask" data-kind="player" data-pid="${esc(p.id)}">Ask Claude</button></div>`;
 
-    // headline tiles
-    const tiles = [];
-    if (k.games) tiles.push(tileHtml("Season", `${one(k.ppg)}<small>/g</small>`, `${k.games} game${k.games > 1 ? "s" : ""}`));
-    if (k.games) tiles.push(tileHtml("Avg finish", `${ab}${k.avg_finish}`, `best ${ab}${k.best_finish}`));
-    if (v) tiles.push(tileHtml("Projected", `${one(v.rate)}<small>/wk</small>`, v.range
-      ? `typically ${one(v.range[1])}–${one(v.range[3])}` : `${one(Math.max(v.rate - v.sd, 0))}–${one(v.rate + v.sd)}`));
-    if (v && v.range) tiles.push(tileHtml("Floor / ceiling", `${one(v.range[0])}<small> – </small>${one(v.range[4])}`, "1-in-10 bad / great week"));
-    if (v && v.rank) tiles.push(tileHtml("ROS rank", `${ab}${v.rank}`, `${Math.round(v.ros)} pts · ${v.vor >= 0 ? "+" : ""}${Math.round(v.vor)} vs FA`));
-    if (tiles.length) html += `<div class="tiles head">${tiles.join("")}</div>`;
-
-    html += gameDayNote(c);
-    html += roleSection(c);
-
-    // consistency & ceiling
-    if (k.games) {
-      const t = c.tiers;
-      html += `<div class="pd-sec"><div class="pd-h">Consistency &amp; ceiling</div>
-        <div class="tiles">${tileHtml("Best week", one(k.ceiling))}${tileHtml("Median", one(k.median))}${tileHtml("Worst week", one(k.floor))}</div>
-        <div class="fin-bar" role="img" aria-label="${k.boom} boom, ${k.start - k.boom} starter, ${k.games - k.start - k.bust} middling, ${k.bust} bust weeks">${
-          [["boom", k.boom], ["start", k.start - k.boom], ["mid", k.games - k.start - k.bust], ["bust", k.bust]]
-            .filter(([, n]) => n > 0).map(([cl, n]) => `<span class="f-${cl}" style="flex:${n}"></span>`).join("")}</div>
-        <div class="fin-legend"><span><i class="sw f-boom"></i>Boom ${k.boom} <small>(top ${t.boom})</small></span>
-          <span><i class="sw f-start"></i>Starter ${k.start - k.boom} <small>(${t.boom + 1}–${t.start})</small></span>
-          <span><i class="sw f-mid"></i>Middling ${k.games - k.start - k.bust}</span>
-          <span><i class="sw f-bust"></i>Bust ${k.bust} <small>(outside ${t.bust})</small></span></div>
-        <div class="subtle">Starter-level (top ${t.start} ${ab}) in <b>${k.start} of ${k.games}</b> weeks. Finish = rank among every ${ab} that week, league scoring.</div></div>`;
+    // 1. This week: the next game and everything that changes it
+    const nx = (c.next3 || []).find((w) => !w.bye);
+    const byeNow = (c.next3 || [])[0] && c.next3[0].bye;
+    let week = "";
+    if (nx) {
+      const range = nx.floor != null ? `typically ${one(nx.low)}–${one(nx.high)} · floor ${one(nx.floor)} · ceiling ${one(nx.ceiling)}` : `typically ${one(nx.low)}–${one(nx.high)}`;
+      week += `<div class="nx"><div><div class="nx-w">Week ${esc(nx.week)} · ${nx.home ? "vs" : "@"} ${esc(nx.opp)}${nx.matchup !== "neutral" ? ` <span class="chip mu-${nx.matchup}">${nx.matchup} matchup</span>` : ""}</div>
+        <div class="subtle">${range}${wxText(nx.wx) ? ` · ${esc(wxText(nx.wx))}` : ""}</div></div>
+        <div class="nx-p">${one(nx.pts)}<small>proj</small></div></div>`;
+      const notes = gameDayNotes(c);
+      if (notes.length) week += `<ul class="tight nx-notes">${notes.map((n) => `<li>${n}</li>`).join("")}</ul>`;
     }
+    if (byeNow) week = `<div class="subtle">Bye in week ${esc(c.next3[0].week)}.</div>` + week;
+    html += chapter("This week", week);
 
-    // opportunity & efficiency
+    // 2. Rest of season: value, range, schedule
+    let ros = "";
+    if (v) {
+      const t = [tileHtml("Projected", `${one(v.rate)}<small>/wk</small>`, v.range ? `typically ${one(v.range[1])}–${one(v.range[3])}` : `${one(Math.max(v.rate - v.sd, 0))}–${one(v.rate + v.sd)}`)];
+      if (v.range) t.push(tileHtml("Floor / ceiling", `${one(v.range[0])}<small> – </small>${one(v.range[4])}`, "1-in-10 bad / great week"));
+      if (v.rank) t.push(tileHtml("Rank", `${ab}${v.rank}`, `of ${v.rank_of}`));
+      t.push(tileHtml("Value", `${Math.round(v.ros)}<small> pts</small>`, `${v.vor >= 0 ? "+" : ""}${Math.round(v.vor)} vs a free agent`));
+      ros += `<div class="tiles head">${t.join("")}</div>
+        <div class="subtle" style="margin-top:8px">${confChip(v.confidence)}${v.flag ? ` <span class="chip ${v.flag === "sell-high" ? "hot" : "ok-style"}">${esc(v.flag)}</span>` : ""}
+          ${v.byes.length ? ` Bye: week ${v.byes.join(", ")}.` : ""}${v.prior_ppg != null ? ` Last season ${one(v.prior_ppg)}/g.` : ""}</div>`;
+    }
+    { let h2 = ""; const html0 = html; html = "";
+    if (c.schedule && c.schedule.length) {
+      const wk = (w) => `<div class="sch ${w.bye ? "bye" : w.matchup && w.matchup !== "neutral" ? "mu-" + w.matchup : ""}">
+        <div class="w">W${w.week}</div><div class="o">${esc(oppLabel(w))}</div><div class="p">${w.bye ? "–" : one(w.pts)}${MU_MARK[w.matchup] || ""}</div>${
+        w.wx && (w.wx.roof === "dome" || w.wx.roof === "closed") ? `<div class="wxs">indoors</div>` : w.wx && w.wx.wind != null && w.wx.wind >= 15 ? `<div class="wxs">${Math.round(w.wx.wind)} mph</div>` : ""}</div>`;
+      const reg = c.schedule.filter((w) => !w.playoff), po = c.schedule.filter((w) => w.playoff);
+      html += `<div class="pd-sec"><div class="pd-h">Schedule <span class="subtle">· projected pts, ▲ easy ▼ tough</span></div>
+        <div class="sched">${reg.map(wk).join("")}</div>
+        ${po.length ? `<div class="pd-h" style="margin-top:10px">Fantasy playoffs</div><div class="sched po">${po.map(wk).join("")}</div>` : ""}
+        ${c.next3.some((w) => w.source === "vegas") ? `<div class="subtle">Next game uses Vegas lines; later weeks use opponent strength.</div>` : ""}</div>`;
+    }
+      h2 = html; html = html0; ros += h2; }
+    html += chapter("Rest of season", ros);
+
+    // 3. Role & usage
+    { const html0 = html; html = "";
     if (!isKD && (o.games || (u && u.games))) {
       const t = [];
       if (u && u.snap_pct != null) t.push(tileHtml("Snaps", `${u.snap_pct}%`, `last ${u.games}`));
@@ -363,11 +374,29 @@
       if (o.td_note === "due") notes.push(`Fewer touchdowns than this volume usually brings (${o.tds} vs ~${one(o.exp_tds)}), so there's upside.`);
       if (u && u.actual_ppg != null && u.expected_ppg != null) notes.push(`Scoring <b>${one(u.actual_ppg)}</b>/g vs <b>${one(u.expected_ppg)}</b>/g that this usage usually produces${
         u.actual_ppg - u.expected_ppg > 3 ? " (running hot)" : u.expected_ppg - u.actual_ppg > 3 ? " (running cold)" : ""}.`);
-      html += `<div class="pd-sec"><div class="pd-h">Opportunity &amp; efficiency <span class="subtle">· full games this season</span></div>
+      html += `<div class="pd-sec"><div class="pd-h">Usage &amp; efficiency <span class="subtle">· full games this season</span></div>
         <div class="tiles">${t.join("")}</div>${notes.map((n) => `<div class="subtle" style="margin-top:6px">${n}</div>`).join("")}</div>`;
     }
+      const usage = html; html = html0;
+      html += chapter("Role &amp; usage", roleSection(c) + usage); }
 
-    // game log
+    // 4. Track record
+    { const html0 = html; html = "";
+      if (k.games) html += `<div class="tiles head">${tileHtml("Season", `${one(k.ppg)}<small>/g</small>`, `${k.games} game${k.games > 1 ? "s" : ""}`)}${
+        tileHtml("Avg finish", `${ab}${k.avg_finish}`, `best ${ab}${k.best_finish}`)}</div>`;
+    if (k.games) {
+      const t = c.tiers;
+      html += `<div class="pd-sec"><div class="pd-h">Consistency</div>
+        <div class="tiles">${tileHtml("Best", one(k.ceiling))}${tileHtml("Median", one(k.median))}${tileHtml("Worst", one(k.floor))}</div>
+        <div class="fin-bar" role="img" aria-label="${k.boom} boom, ${k.start - k.boom} starter, ${k.games - k.start - k.bust} middling, ${k.bust} bust weeks">${
+          [["boom", k.boom], ["start", k.start - k.boom], ["mid", k.games - k.start - k.bust], ["bust", k.bust]]
+            .filter(([, n]) => n > 0).map(([cl, n]) => `<span class="f-${cl}" style="flex:${n}"></span>`).join("")}</div>
+        <div class="fin-legend"><span><i class="sw f-boom"></i>Boom ${k.boom} <small>(top ${t.boom})</small></span>
+          <span><i class="sw f-start"></i>Starter ${k.start - k.boom} <small>(${t.boom + 1}–${t.start})</small></span>
+          <span><i class="sw f-mid"></i>Middling ${k.games - k.start - k.bust}</span>
+          <span><i class="sw f-bust"></i>Bust ${k.bust} <small>(outside ${t.bust})</small></span></div>
+        <div class="subtle">Starter-level (top ${t.start} ${ab}) in <b>${k.start} of ${k.games}</b> weeks. Finish = rank among every ${ab} that week, league scoring.</div></div>`;
+    }
     const cols = isQB
       ? [["Att", (g) => g.attempts], ["Yds", (g) => g.pass_yd], ["TD", (g) => g.pass_td], ["Int", (g) => g.ints], ["Car", (g) => g.carries], ["RuYd", (g) => g.rush_yd], ["RuTD", (g) => g.rush_td]]
       : pos === "RB"
@@ -375,7 +404,7 @@
       : isKD ? []
       : [["Snap", (g) => g.pct != null ? pct(g.pct) : null], ["Tgt", (g) => g.targets], ["Rec", (g) => g.receptions], ["Yds", (g) => g.rec_yd], ["TD", (g) => g.rec_td], ["Tgt%", (g) => g.tgt_share != null ? pct(g.tgt_share) : null]];
     const cell = (x) => (x == null ? "–" : typeof x === "number" ? Math.round(x * 10) / 10 : x);
-    html += `<div class="pd-sec"><div class="pd-h">Game log</div>
+    html += `<details class="pd-sec pd-log"><summary class="pd-h">Game log <span class="subtle">· ${c.log.filter((g) => !g.bye).length} games · tap to show</span></summary>
       <div class="table-wrap"><table class="log"><thead><tr><th>Wk</th><th>Opp</th><th>Pts</th><th>Finish</th>${cols.map(([h]) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${
       c.log.slice().reverse().map((g) => g.bye
         ? `<tr class="partial"><td>${g.week}</td><td>bye</td><td colspan="${2 + cols.length}"></td></tr>`
@@ -383,27 +412,9 @@
           <td><b>${g.pts == null ? (g.calc != null ? "≈" + one(g.calc) : "n/r") : one(g.pts)}</b>${g.partial ? "*" : ""}</td>
           <td>${g.finish ? `<span class="fin f-${tierOf(c, g.finish)}">${ab}${g.finish}</span>` : "–"}</td>
           ${cols.map(([, f]) => `<td>${cell(f(g))}</td>`).join("")}</tr>`).join("")}</tbody></table></div>
-      <div class="subtle">Newest first. * partial game (snap share well below normal, e.g. hurt early). ${c.log.some((g) => g.pts == null && g.calc != null) ? "≈ = not on a league roster that week, so calculated from NFL stats with your league's scoring." : "n/r = not on a league roster that week."}</div></div>`;
-
-    // schedule ahead
-    if (c.schedule && c.schedule.length) {
-      const wk = (w) => `<div class="sch ${w.bye ? "bye" : w.matchup && w.matchup !== "neutral" ? "mu-" + w.matchup : ""}">
-        <div class="w">W${w.week}</div><div class="o">${esc(oppLabel(w))}</div><div class="p">${w.bye ? "–" : one(w.pts)}${MU_MARK[w.matchup] || ""}</div>${
-        w.wx && (w.wx.roof === "dome" || w.wx.roof === "closed") ? `<div class="wxs">indoors</div>` : w.wx && w.wx.wind != null && w.wx.wind >= 15 ? `<div class="wxs">${Math.round(w.wx.wind)} mph</div>` : ""}</div>`;
-      const reg = c.schedule.filter((w) => !w.playoff), po = c.schedule.filter((w) => w.playoff);
-      html += `<div class="pd-sec"><div class="pd-h">Schedule ahead <span class="subtle">· projected pts, ▲ easy ▼ tough</span></div>
-        <div class="sched">${reg.map(wk).join("")}</div>
-        ${po.length ? `<div class="pd-h" style="margin-top:10px">Fantasy playoffs</div><div class="sched po">${po.map(wk).join("")}</div>` : ""}
-        ${c.next3.some((w) => w.source === "vegas") ? `<div class="subtle">Next game uses Vegas lines; later weeks use opponent strength.</div>` : ""}</div>`;
-    }
-
-    // value
-    if (v) {
-      html += `<div class="pd-sec"><div class="pd-h">Value ${confChip(v.confidence)}${v.flag ? ` <span class="chip ${v.flag === "sell-high" ? "hot" : "ok-style"}">${esc(v.flag)}</span>` : ""}</div>
-        <div>${ab}${v.rank} of ${v.rank_of} by rest-of-season projection · ${v.vor >= 0 ? "+" : ""}${Math.round(v.vor)} pts vs a free-agent replacement.</div>
-        <div class="subtle">${v.byes.length ? `Bye: week ${v.byes.join(", ")}. ` : ""}${v.prior_ppg != null ? `Last season ${one(v.prior_ppg)}/g. ` : ""}See Trades → How values work.</div></div>`;
-    }
-    html += `<div class="acts">${actionButtons(p.id)}<button type="button" class="mini" data-act="ask" data-kind="player" data-pid="${esc(p.id)}">Ask Claude</button></div>`;
+      <div class="subtle">Newest first. * partial game (snap share well below normal, e.g. hurt early). ${c.log.some((g) => g.pts == null && g.calc != null) ? "≈ = not on a league roster that week, so calculated from NFL stats with your league's scoring." : "n/r = not on a league roster that week."}</div></details>`;
+      const track = html; html = html0;
+      html += chapter("Track record", track); }
     return html + `</div>`;
   }
 
