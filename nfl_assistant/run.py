@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from . import brief, cards, dashboard, faab, factors, lab, league, lineups, model, nflverse, outlook, projections, roles, scanner, teams, tendencies, trades, waivers
+from . import brief, cards, dashboard, faab, factors, startsit, lab, league, lineups, model, nflverse, outlook, projections, roles, scanner, teams, tendencies, trades, waivers
 from .config import ROOT, ConfigError, load_config
 from .output import prune, write_site_data, write_snapshot
 from .players import find_player, ir_allowed_statuses, player_brief, player_name, slim_players
@@ -505,6 +505,18 @@ def build_outlook(ctx: dict, managers: dict, proj: dict, weeks: list[int], slots
 
     my_starters = this.get(my_rid, {}).get("starters", [])
     sit = outlook.start_sit(my_starters, roster_of[my_rid], proj, cw, slots)
+    win_plan = None
+    mine_m = next((m for m in ctx["matchups"].get(cw, []) if m["roster_id"] == my_rid), None)
+    opp_m = next((x for x in matchups if x["is_mine"]), None)
+    if mine_m and opp_m:
+        opp = opp_m["teams"][1]
+        win_plan = startsit.plan(my_starters, roster_of[my_rid], proj, cw, slots, mine_m.get("players_points") or {},
+                                 opp["mean"], opp["sd"])
+        if win_plan:
+            for x in win_plan["changes"]:
+                for k in ("in", "out"):
+                    if x[k]:
+                        name(x[k])
     for r in sit:
         name(r["starter"])
         if r["alt"]:
@@ -564,7 +576,7 @@ def build_outlook(ctx: dict, managers: dict, proj: dict, weeks: list[int], slots
                      "if_a_text": outlook.round_odds(k["if_a"], conf), "if_b_text": outlook.round_odds(k["if_b"], conf)})
     return {"generated_at": now.isoformat(timespec="minutes"), "week": cw, "weeks": weeks,
             "reg_season_end": weeks[-1] if weeks else cw, "playoff_teams": n_playoff,
-            "my_roster_id": my_rid, "slots": slots, "matchups": matchups, "start_sit": sit,
+            "my_roster_id": my_rid, "slots": slots, "matchups": matchups, "start_sit": sit, "win_plan": win_plan,
             "lineups": {str(rid): {str(w): v for w, v in ws.items()} for rid, ws in lineups_by_team.items()},
             "managers": {str(rid): managers[rid] for rid in roster_of},
             "playoffs": {"teams": teams, "key_games": keys, "sims": sim["n"], "confidence": conf,

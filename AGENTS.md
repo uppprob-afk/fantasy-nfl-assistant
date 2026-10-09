@@ -64,6 +64,7 @@ nfl_assistant/
   trades.py               trade values (ROS optimal lineups) + mutual-benefit trade ideas
   outlook.py              win chances, start/sit, weekly lineups, playoff simulation
   teams.py                NFL teams: depth charts, position strength vs league, offence, roles / job security
+  startsit.py             start/sit for the best chance to win (simulated matchup, learned ranges)
   tendencies.py           manager FAAB habits + likely rivals / bid-to-win
   cards.py                player cards: last/next 3, finishes, consistency, opportunity, game log, schedule, value
   lab.py                  compact data for the in-browser Trade Lab (site/lab.js)
@@ -386,6 +387,17 @@ with that team (`lab-team`), Ask Claude (`kind: "team"`, `teamText`).
 - GitHub Actions are pinned to commit SHAs (version in a comment); workflow permissions are
   least-privilege (Pages / id-token only on the deploy job). Python: `yaml.safe_load`, no
   shell / eval / pickle; dependencies checked with `uv run --with pip-audit pip-audit`.
+
+## Start/sit for win chance
+
+`startsit.plan` (called in `build_outlook`, output `O.win_plan`): 3,000 simulated weeks; each of
+my players is drawn from his learned quantiles for this week (`weekly[w].q`, scaled back to a
+full game and zeroed with probability 1 − availability so Questionable players sometimes score
+0), players who already played are fixed at actual points, the opponent ~ Normal(mean, sd).
+Common random numbers for every lineup. Starts from the highest-projected lineup (locked slots
+kept), then hill-climbs single bench swaps while win chance rises ≥ 0.4 pts. Reported as start /
+sit pairs with the win chance if only that swap is made. Home → Start/sit shows it first; the
+to-do list uses it (falls back to slot-by-slot verdicts when there is no plan).
 
 ## Freshness
 

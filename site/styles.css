@@ -491,7 +491,7 @@ details.tm > summary::-webkit-details-marker { display: none; }
 .chance-bar > span { display: block; height: 100%; background: var(--accent); }
 
 /* ---------- This week to-do ---------- */
-.todo-list > .todo { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 10px; align-items: start; padding: 12px 14px; }
+.stack > .todo { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 10px; align-items: start; padding: 12px 14px; }
 .todo .chip { margin: 1px 0 0; }
 .todo-t { font-size: 14px; line-height: 1.4; }
 .todo-a { grid-column: 2; }
