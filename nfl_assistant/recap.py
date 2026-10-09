@@ -37,7 +37,6 @@ def build(week: int, matchups: list[dict], teams: dict[int, dict], my_rid: int, 
           model_changes: list[dict]) -> dict:
     """Recap for `week` (completed). teams = roster_id -> {team_name, label}."""
     name = lambda pid: names.get(pid, pid)
-    tname = lambda rid: (teams.get(rid) or {}).get("team_name", str(rid))
     pre = pregame.get(str(week)) or {}
     scores = {m["roster_id"]: round(float(m.get("points") or 0), 2) for m in matchups}
     ranked = sorted(scores, key=lambda r: -scores[r])
