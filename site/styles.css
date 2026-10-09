@@ -537,6 +537,25 @@ details.tm > summary::-webkit-details-marker { display: none; }
 .todo-a { grid-column: 2; }
 .todo-more > summary { margin-bottom: 8px; }
 
+/* ---------- Home: pinned sections, "since you last looked", new-item dots ---------- */
+.hsec > h2:first-child .hpin { order: 9; margin-left: auto; }
+.hpin { width: 32px; height: 32px; display: inline-grid; place-items: center; flex: none; padding: 0; border: 0; border-radius: 999px;
+  background: none; color: var(--muted); cursor: pointer; }
+.hpin svg, .hmode svg { width: 15px; height: 15px; fill: none; }
+.hmode svg { vertical-align: -2px; }
+.hpin[aria-pressed="true"] { color: var(--accent); }
+.hpin[aria-pressed="true"] svg { fill: currentColor; }
+.hpin:hover { background: var(--surface-2); }
+.hmode { margin: 10px 0 -14px; font-size: 12px; }
+.since { display: flex; gap: 10px; align-items: flex-start; margin: 12px 0 0; padding: 12px 14px; border: 1px solid var(--border);
+  border-radius: var(--r-md); background: var(--accent-soft); font-size: 14px; }
+.since > div { flex: 1; min-width: 0; }
+.since > .new-dot { margin-top: 6px; }
+.since-t { margin-top: 2px; line-height: 1.45; }
+.since .mini { margin-top: 8px; }
+.new-dot { display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; background: var(--accent); flex: none; vertical-align: 1px; }
+.linkish { padding: 0; border: 0; background: none; color: var(--accent); font: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+
 /* ---------- tile stacks: one rounded tile per item, space between ---------- */
 .stack { display: grid; gap: 10px; margin-bottom: 12px; }
 .stack > * { background: var(--surface); border: 1px solid var(--border) !important; border-radius: var(--r-lg); overflow: hidden; }
