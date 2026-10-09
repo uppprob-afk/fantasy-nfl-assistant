@@ -427,6 +427,22 @@ kept), then hill-climbs single bench swaps while win chance rises ≥ 0.4 pts. R
 sit pairs with the win chance if only that swap is made. Home → Start/sit shows it first; the
 to-do list uses it (falls back to slot-by-slot verdicts when there is no plan).
 
+## Home layout, "since you last looked", badges
+
+- Home is built as named sections (`matchup`, `todo`, `team`, `watch`, `recap`, `games`) in
+  `renderHome`, ordered by `homeMode()` (US Eastern weekday: Thu / Sun / Mon game day = matchup
+  first, Tue = recap first, Wed = waivers / to-dos first, else to-dos first; `HOME_ORDER`).
+  Pinned sections (`store` "homePins", pin button `.hpin` injected into each section's first
+  `h2`, `togglePin` with Undo) always come first. The matchup card no longer has its own label;
+  the section heading carries the week.
+- Visits (`initVisit`, `store` "visit"): opening the app after 30+ minutes away starts a visit,
+  and the snapshot from the start of the previous visit becomes the baseline (`VISIT.base`).
+  `visitSnap()` = record, playoff odds, latest recap week, to-do keys (`todoKey`: text without
+  numbers) and news keys (`newsKey` / `oppKey`). `sinceHtml` sums up the differences; new to-dos
+  and current news get `NEW_DOT`. "Mark seen" resets the baseline; opening News marks news seen.
+- `renderBadges()` (bottom bar): Home = Lineup to-dos + new to-dos, Moves = news not yet seen
+  (all current news on a first visit). Call it after anything that changes them.
+
 ## Player sheet, toasts, explain, scroll memory
 
 - `plink(pid, label)` renders a tappable name (`button.plink[data-act=player]`); use it anywhere a

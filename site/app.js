@@ -724,7 +724,7 @@
     const bid = n.suggestion && n.suggestion.bid != null
       ? `<div class="act">Bid idea: <b>${money(n.suggestion.bid)}</b> · <span class="subtle">${esc(n.suggestion.reason)}</span></div>` : "";
     return `<div class="news">
-      <div class="tag ${esc(tagCls)}">${esc(tag)}${sect}</div>
+      <div class="tag ${esc(tagCls)}">${!showSection && isNew("news", newsKey(n)) ? NEW_DOT : ""}${esc(tag)}${sect}</div>
       <div><span class="pname">${plink(n.id, n.name)}</span>${injuryChip(n)} <span class="pmeta">${esc(n.position)} · ${teamLink(n.team)}${who}${stats}</span></div>
       <div class="txt">${esc(n.text)}</div>${action}${bid}${n.rivals && F && F.tendencies ? rivalsBlock(n) : ""}
       ${n.id && actionButtons(n.id) ? `<div class="acts">${actionButtons(n.id)}</div>` : ""}
@@ -747,7 +747,7 @@
     if (TM && TM.opportunities && TM.opportunities.length) {
       html += `<h2>Opportunities this week</h2><p class="lead-text">Players whose next game is projected higher because a teammate ahead of them is out
         or doubtful (his share passes down the depth chart, as learned from past absences).</p>
-        <div class="stack">${TM.opportunities.map((o) => `<div class="news"><div class="tag better">Opportunity · ${esc(o.pos)}</div>
+        <div class="stack">${TM.opportunities.map((o) => `<div class="news"><div class="tag better">${isNew("news", oppKey(o)) ? NEW_DOT : ""}Opportunity · ${esc(o.pos)}</div>
           <div><span class="pname">${plink(o.id, o.name)}</span> <span class="pmeta">${esc(o.pos)} · ${teamLink(o.team)} · ${o.owner ? esc(o.owner) : "free agent"}</span></div>
           <div class="txt">${o.from.map(esc).join(" and ")} out → projects <b>${num(o.pts)}</b> in week ${esc(o.week)} (normally ${num(o.normal)}, +${num(o.gain)}).</div>
           <div class="acts">${actionButtons(o.id)}</div></div>`).join("")}</div>`;
@@ -765,8 +765,6 @@
         <div class="stack">${older.map((n) => newsItem(n, true)).join("")}</div></details>`;
     }
     $("tab-news").innerHTML = html;
-    const count = S.my_players.length + S.other_starters.length + S.free_agents.length;
-    if (count) document.querySelector('#tabs button[data-tab="moves"]').insertAdjacentHTML("beforeend", `<span class="badge">${count}</span>`);
   }
 
   // ---------- Trades ----------
@@ -1113,7 +1111,6 @@
       <div class="pmeta">${esc(recBy[t.roster_id] ? record(recBy[t.roster_id]) : "")} · likely ${range(t.mean, t.sd)}</div></div>`;
     const details = `<details class="mu-detail"${m.is_mine && store.get("muOpen", false) ? " open" : ""}><summary>Lineups side by side</summary>${sideBySide(a, b)}</details>`;
     return `<div class="card ${m.is_mine ? "mine" : ""}">
-      ${m.is_mine ? `<div class="mine-label">Week ${esc(O.week)} · your matchup</div>` : ""}
       <div class="mu">${side(a)}<div class="vs">vs</div>${side(b, true)}</div>
       <div style="padding:0 14px 12px">${winBar(a, b, m.confidence)}</div>${details}</div>`;
   }
@@ -1405,10 +1402,100 @@
   function todoHtml() {
     const items = todos();
     if (!items.length) return `<h2>This week</h2><div class="card"><div class="empty">Nothing needs your attention right now.</div></div>`;
-    const row = (t) => `<div class="todo"><span class="chip ${t.cls}">${esc(t.tag)}</span><div class="todo-t">${t.text}</div>${t.act ? `<div class="todo-a">${t.act}</div>` : ""}</div>`;
+    const row = (t) => `<div class="todo"><span class="chip ${t.cls}">${esc(t.tag)}</span><div class="todo-t">${isNew("todos", todoKey(t)) ? NEW_DOT : ""}${t.text}</div>${t.act ? `<div class="todo-a">${t.act}</div>` : ""}</div>`;
     const shown = items.slice(0, 5), more = items.slice(5);
     return `<h2>This week <span class="muted">${items.length} to do</span></h2><div class="stack todo-list">${shown.map(row).join("")}</div>
       ${more.length ? `<details class="recent todo-more"><summary>${more.length} more</summary><div class="stack todo-list">${more.map(row).join("")}</div></details>` : ""}`;
+  }
+
+  // ---------- "Since you last looked" ----------
+  // A visit starts when the app is opened after 30+ minutes away. What you saw at the start of
+  // the previous visit is the baseline: new to-dos and news get a dot, Home sums up the rest.
+  const hkey = (x) => { let h = 0; for (let i = 0; i < x.length; i++) h = (h * 31 + x.charCodeAt(i)) | 0; return (h >>> 0).toString(36); };
+  // numbers in a to-do change every update (win chance, points), so they're left out of its key
+  const todoKey = (t) => hkey(t.tag + "|" + t.text.replace(/<[^>]+>/g, "").replace(/[\d.,%→$+–-]+/g, ""));
+  const newsKey = (n) => hkey(`${n.kind}|${n.id}|${n.text}`);
+  const oppKey = (o) => hkey(`opp|${o.id}|${o.week}`);
+  const NEW_DOT = `<span class="new-dot" title="New since you last looked" aria-label="New"></span>`;
+  let VISIT = { base: null, at: null };
+  function visitSnap() {
+    const po = O ? O.playoffs.teams.find((t) => t.is_mine) : null;
+    const news = S ? [].concat(S.my_players || [], S.other_starters || [], S.free_agents || []).map(newsKey) : [];
+    return { odds: po ? po.odds : null, rec: record(recBy[D.me.roster_id] || {}), recap: (RC && RC.latest) || null,
+      todos: todos().map(todoKey), news: news.concat(((TM && TM.opportunities) || []).map(oppKey)) };
+  }
+  function initVisit() {
+    const now = Date.now(), v = store.get("visit", null);
+    let base = v ? v.base : null, at = v ? v.baseAt : null;
+    if (v && now - (v.last || 0) > 30 * 60000) { base = v.snap; at = v.at; }
+    VISIT = { base, at };
+    store.set("visit", { snap: visitSnap(), at: now, last: now, base, baseAt: at });
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") { const x = store.get("visit", null); if (x) { x.last = Date.now(); store.set("visit", x); } }
+    });
+  }
+  const isNew = (kind, key) => !!(VISIT.base && !(VISIT.base[kind] || []).includes(key));
+  // kind = "news" / "todos" marks one list as seen; no kind = everything
+  function markSeen(kind) {
+    if (!VISIT.base) return;
+    const now = visitSnap();
+    if (kind) VISIT.base[kind] = now[kind]; else VISIT.base = now;
+    const x = store.get("visit", null);
+    if (x) { x.base = VISIT.base; store.set("visit", x); }
+    renderBadges();
+  }
+  function sinceHtml() {
+    const b = VISIT.base;
+    if (!b) return "";
+    const s = visitSnap(), bits = [], pc = (v) => `${Math.round(100 * v)}%`;
+    if (s.rec !== b.rec) bits.push(`record ${esc(b.rec)} → <b>${esc(s.rec)}</b>`);
+    if (s.odds != null && b.odds != null && Math.round(100 * s.odds) !== Math.round(100 * b.odds)) bits.push(`playoff odds ${pc(b.odds)} → <b>${pc(s.odds)}</b>`);
+    if (s.recap && s.recap !== b.recap) bits.push(`<button type="button" class="linkish" data-act="recap">week ${esc(s.recap)} recap</button> is out`);
+    const nt = s.todos.filter((k) => !(b.todos || []).includes(k)).length;
+    if (nt) bits.push(`${nt} new to-do${nt > 1 ? "s" : ""}`);
+    const nn = s.news.filter((k) => !(b.news || []).includes(k)).length;
+    if (nn) bits.push(`<button type="button" class="linkish" data-act="go" data-tab="news">${nn} news item${nn > 1 ? "s" : ""}</button>`);
+    if (!bits.length) return "";
+    return `<div class="since">${NEW_DOT}<div><b>Since you last looked</b> <span class="subtle">${esc(agoText(Date.now() - VISIT.at))}</span>
+      <div class="since-t">${bits.join(" · ")}</div><button type="button" class="mini" data-act="seen">Mark seen</button></div></div>`;
+  }
+  // bottom-bar badges: Home = lineup to-dos + new to-dos; Moves = news you haven't seen
+  function renderBadges() {
+    document.querySelectorAll("#tabs .badge").forEach((x) => x.remove());
+    const put = (tab, n, label) => {
+      const b = document.querySelector(`#tabs button[data-tab="${tab}"]`);
+      if (b && n) b.insertAdjacentHTML("beforeend", `<span class="badge" aria-label="${n} ${label}">${n > 9 ? "9+" : n}</span>`);
+    };
+    put("home", todos().filter((t) => t.tag === "Lineup" || isNew("todos", todoKey(t))).length, "to-dos to look at");
+    const news = visitSnap().news;
+    put("moves", VISIT.base ? news.filter((k) => !(VISIT.base.news || []).includes(k)).length
+      : S ? S.my_players.length + S.other_starters.length + S.free_agents.length : 0, "new news items");
+  }
+
+  // ---------- Home layout: what matters today first, plus your pinned sections ----------
+  const HOME_ORDER = {
+    game: ["matchup", "todo", "team", "watch", "recap", "games"],
+    recap: ["recap", "todo", "matchup", "team", "watch", "games"],
+    waivers: ["todo", "recap", "matchup", "team", "watch", "games"],
+    prep: ["todo", "matchup", "team", "watch", "recap", "games"],
+  };
+  const MODE_NOTE = { game: "Game day: your matchup first", recap: "Recap day: last week first", waivers: "Waiver day: your to-dos first", prep: "Your to-dos first" };
+  function homeMode() {
+    let d = "";
+    try { d = new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: "America/New_York" }).format(new Date()); } catch (e) { /* old browser */ }
+    return { Thu: "game", Sun: "game", Mon: "game", Tue: "recap", Wed: "waivers" }[d] || "prep";
+  }
+  const PIN_SVG = `<svg viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 17v5"/><path d="M9 3h6l-1 5 3 4v2H7v-2l3-4-1-5z"/></svg>`;
+  function pinBtn(sec) {
+    const on = store.get("homePins", []).includes(sec);
+    return `<button type="button" class="hpin" data-act="pin" data-sec="${sec}" aria-pressed="${on}" aria-label="${on ? "Unpin this section" : "Pin this section to the top"}" title="${on ? "Unpin" : "Pin to top"}">${PIN_SVG}</button>`;
+  }
+  function togglePin(sec, quiet) {
+    const pins = store.get("homePins", []), on = pins.includes(sec);
+    store.set("homePins", on ? pins.filter((x) => x !== sec) : [sec].concat(pins));
+    renderHome();
+    if (!on) window.scrollTo(0, 0);
+    if (!quiet) toast(on ? "Unpinned from the top of Home" : "Pinned to the top of Home", () => togglePin(sec, true));
   }
 
   function renderHome() {
@@ -1422,22 +1509,31 @@
         <div class="l">Playoff odds ${po ? oddsDelta(me.roster_id) : ""}</div></div>
       <div class="stat"><div class="v">$${st.faab_remaining}</div><div class="l">FAAB left</div></div>
     </div>`;
+    html += sinceHtml();
+    const secs = {};
     if (mine) {
-      html += matchupCard(mine);
-      if (po && po.if_win_text) html += `<p class="subtle" style="margin:-4px 0 12px">Playoff odds if you win this week <b>${esc(po.if_win_text)}</b> · if you lose <b>${esc(po.if_lose_text)}</b> · projected ${num(po.proj_wins)} wins.</p>`;
+      secs.matchup = `<h2>Week ${esc(O.week)} matchup</h2>` + matchupCard(mine) +
+        (po && po.if_win_text ? `<p class="subtle" style="margin:8px 0 0">Playoff odds if you win this week <b>${esc(po.if_win_text)}</b> · if you lose <b>${esc(po.if_lose_text)}</b> · projected ${num(po.proj_wins)} wins.</p>` : "");
     }
-    html += todoHtml();
-    html += recapTeaser();
-    html += watchHtml();
-
+    secs.todo = todoHtml();
+    secs.recap = recapTeaser();
+    secs.watch = watchHtml();
     const view = store.get("homeView", "roster");
-    html += segHtml("home-seg", O ? [["roster", "Roster"], ["startsit", "Start/sit"], ["lineups", "Weekly lineups"], ["playoffs", "Playoffs"]] : [["roster", "Roster"]], view);
-    html += `<div id="home-body"></div>`;
+    secs.team = `<h2>Your team</h2>` + segHtml("home-seg", O ? [["roster", "Roster"], ["startsit", "Start/sit"], ["lineups", "Weekly lineups"], ["playoffs", "Playoffs"]] : [["roster", "Roster"]], view) +
+      `<div id="home-body"></div>`;
     if (O) {
       const mineK = O.playoffs.key_games.filter((k) => k.mine);
-      html += `<h2>Games that matter most</h2><div class="card">${mineK.map(keyRow).join("") || `<div class="empty">No games left.</div>`}</div>
+      secs.games = `<h2>Games that matter most</h2><div class="card">${mineK.map(keyRow).join("") || `<div class="empty">No games left.</div>`}</div>
         <p class="subtle">Your playoff odds depending on each result. Other teams' key games are in League → Playoff race.</p>`;
     }
+    const mode = homeMode(), pins = store.get("homePins", []).filter((x) => secs[x]);
+    const order = pins.concat(HOME_ORDER[mode].filter((x) => !pins.includes(x)));
+    html += `<p class="subtle hmode">${pins.length ? "Pinned sections first" : MODE_NOTE[mode]} · tap ${PIN_SVG} to pin a section</p>`;
+    order.forEach((k) => {
+      const body = secs[k];
+      if (!body) return;
+      html += `<section class="hsec" data-sec="${k}">${body.includes("</h2>") ? body.replace("</h2>", pinBtn(k) + "</h2>") : body}</section>`;
+    });
     html += `<details class="recent"><summary>How these numbers work</summary><div class="card card-pad subtle">
       <p><b>Projected score</b> = points already scored this week (final) + each remaining starter's projection (see Trades → How values work).
       "Likely" is ±1 standard deviation, the range a team lands in about two weeks in three.</p>
@@ -2650,6 +2746,7 @@
     }
     // come back to where you were in each tab (actions that jump somewhere specific pass keepScroll = false)
     window.scrollTo(0, keepScroll === false ? 0 : (SCROLL["tab-" + sub] || 0));
+    if (sub === "news" && VISIT.base) markSeen("news");
   }
 
   // Explanations are tucked behind an ⓘ next to the heading they belong to.
@@ -2822,6 +2919,8 @@
     else if (act === "hold") toggleHold(pid);
     else if (act === "ask") openAsk(b.dataset.kind, pid);
     else if (act === "player") openPlayer(pid);
+    else if (act === "pin") togglePin(b.dataset.sec);
+    else if (act === "seen") { markSeen(); renderHome(); renderNews(); toast("Marked as seen"); }
     else if (act === "recap") { store.set("leagueView", "recap"); renderLeague(); selectTab("league", true, false); }
     else if (act === "lab-team") { openInLab(Number(b.dataset.rid), [], []); }
     else if (act === "watch") toggleSet(WATCH, "watch", pid, b, "★ Watching", "☆ Watch");
@@ -2877,7 +2976,9 @@
   }
   showStatus(D.generated_at);
 
+  initVisit();
   renderHome(); renderLeague(); renderNews(); renderFaab(); renderTrades(); renderTradeLab(); renderNFL(); renderPlayers(); renderModel(); renderBrief(); renderMore(); renderGlossary();
+  renderBadges();
   tidyExplanations(document);
   new MutationObserver(() => tidyExplanations(document.querySelector("main"))).observe(document.querySelector("main"), { childList: true, subtree: true });
   document.querySelectorAll("#tabs button").forEach((b) => b.addEventListener("click", () => selectTab(b.dataset.tab)));
