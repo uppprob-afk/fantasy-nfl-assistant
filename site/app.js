@@ -125,7 +125,10 @@
   }
 
   const pct = (x) => (x == null ? "–" : Math.round(100 * x) + "%");
-  const tileHtml = (k, v, sub, cls) => `<div class="tile ${cls || ""}"><div class="k">${k}</div><div class="v">${v}</div>${sub ? `<div class="s">${sub}</div>` : ""}</div>`;
+  const tileHtml = (k, v, sub, cls) => { const g = glossFor(k);
+    return `<div class="tile ${cls || ""}${g ? " explainable" : ""}"${g ? ` data-explain="${esc(g)}" role="button" tabindex="0"` : ""}><div class="k">${k}${g ? ` <span class="q-mark">?</span>` : ""}</div><div class="v">${v}</div>${sub ? `<div class="s">${sub}</div>` : ""}</div>`; };
+  // tappable player name: opens the player sheet from anywhere
+  const plink = (pid, label) => (pid ? `<button type="button" class="plink" data-act="player" data-pid="${esc(pid)}">${esc(label)}</button>` : esc(label));
 
   // ---------- NFL teams: links, role section, team sheet ----------
   const TM = DATA.teams;
@@ -164,7 +167,7 @@
     const owner = (o) => (o == null ? `<span class="subtle">free agent</span>` : o === D.me.team_name ? `<b>you</b>` : esc(o));
     const depth = ["QB", "RB", "WR", "TE", "K"].filter((pos) => D2[pos] && D2[pos].length).map((pos) => `<div class="pd-h" style="margin-top:14px">${pos}</div>
       <div class="dc">${D2[pos].map((r) => `<div class="dc-row"><span class="dc-o">${r.order || "–"}</span>
-        <div class="dc-n"><div><b>${esc(r.name)}</b>${r.status ? ` <span class="chip ${r.status === "Questionable" ? "q" : "inj"}">${esc(r.status)}</span>` : ""} ${roleChip(r.label)}</div>
+        <div class="dc-n"><div><b>${plink(r.id, r.name)}</b>${r.status ? ` <span class="chip ${r.status === "Questionable" ? "q" : "inj"}">${esc(r.status)}</span>` : ""} ${roleChip(r.label)}</div>
           <div class="subtle">${r.share != null && r.kind ? `${Math.round(100 * r.share)}% ${KIND_TXT[r.kind]}` : ""}${r.ppg != null ? `${r.share != null && r.kind ? " · " : ""}${num(r.ppg)} pts/g` : ""} · ${owner(r.owner)}</div>
           ${r.contingency && r.proj != null && r.contingency.rate - r.proj >= 1.5 ? `<div class="subtle">If ${esc(r.contingency.if_out)} misses: <b>~${num(r.contingency.rate)}</b>/wk (from ${num(r.proj)})</div>` : ""}</div></div>`).join("")}</div>`).join("");
     return `<div class="subtle">${O.points_pg != null ? `<b>${num(O.points_pg)}</b> pts/g (${ord(O.ranks && O.ranks.points_pg)})` : ""}${
@@ -374,6 +377,7 @@
       if (v.rank) t.push(tileHtml("Rank", `${ab}${v.rank}`, `of ${v.rank_of}`));
       t.push(tileHtml("Value", `${Math.round(v.ros)}<small> pts</small>`, `${v.vor >= 0 ? "+" : ""}${Math.round(v.vor)} vs a free agent`));
       ros += `<div class="tiles head">${t.join("")}</div>
+        ${vsMineHtml(p.id)}
         <div class="subtle" style="margin-top:8px">${confChip(v.confidence)}${v.flag ? ` <span class="chip ${v.flag === "sell-high" ? "hot" : "ok-style"}">${esc(v.flag)}</span>` : ""}
           ${v.byes.length ? ` Bye: week ${v.byes.join(", ")}.` : ""}${v.prior_ppg != null ? ` Last season ${one(v.prior_ppg)}/g.` : ""}</div>`;
     }
@@ -721,7 +725,7 @@
       ? `<div class="act">Bid idea: <b>${money(n.suggestion.bid)}</b> · <span class="subtle">${esc(n.suggestion.reason)}</span></div>` : "";
     return `<div class="news">
       <div class="tag ${esc(tagCls)}">${esc(tag)}${sect}</div>
-      <div><span class="pname">${esc(n.name)}</span>${injuryChip(n)} <span class="pmeta">${esc(n.position)} · ${teamLink(n.team)}${who}${stats}</span></div>
+      <div><span class="pname">${plink(n.id, n.name)}</span>${injuryChip(n)} <span class="pmeta">${esc(n.position)} · ${teamLink(n.team)}${who}${stats}</span></div>
       <div class="txt">${esc(n.text)}</div>${action}${bid}${n.rivals && F && F.tendencies ? rivalsBlock(n) : ""}
       ${n.id && actionButtons(n.id) ? `<div class="acts">${actionButtons(n.id)}</div>` : ""}
     </div>`;
@@ -744,7 +748,7 @@
       html += `<h2>Opportunities this week</h2><p class="lead-text">Players whose next game is projected higher because a teammate ahead of them is out
         or doubtful (his share passes down the depth chart, as learned from past absences).</p>
         <div class="stack">${TM.opportunities.map((o) => `<div class="news"><div class="tag better">Opportunity · ${esc(o.pos)}</div>
-          <div><span class="pname">${esc(o.name)}</span> <span class="pmeta">${esc(o.pos)} · ${teamLink(o.team)} · ${o.owner ? esc(o.owner) : "free agent"}</span></div>
+          <div><span class="pname">${plink(o.id, o.name)}</span> <span class="pmeta">${esc(o.pos)} · ${teamLink(o.team)} · ${o.owner ? esc(o.owner) : "free agent"}</span></div>
           <div class="txt">${o.from.map(esc).join(" and ")} out → projects <b>${num(o.pts)}</b> in week ${esc(o.week)} (normally ${num(o.normal)}, +${num(o.gain)}).</div>
           <div class="acts">${actionButtons(o.id)}</div></div>`).join("")}</div>`;
     }
@@ -1189,6 +1193,68 @@
     draw();
   }
 
+  // ---------- player sheet (opened from any tappable name) ----------
+  function openPlayer(pid) {
+    const L = DATA.lab, r = (L && L.players[pid]) || null;
+    if (!CARDS[pid] && moreCards !== "loaded") { ensureMoreCards(() => openPlayer(pid)); return; }
+    const c = CARDS[pid];
+    const p = { id: pid, name: (r && r.n) || (c && c.role && c.role.name) || pid, position: (r && r.p) || (c && c.role && c.role.pos) || "",
+      team: (r && r.t) || (c && c.role && c.role.team) || "", injury_status: (r && r.s) || null };
+    const o = ownerOf(pid);
+    const owner = o === undefined ? "" : o === myRid() ? "your team" : o === null ? "free agent" : esc((L.rosters[String(o)] || {}).team_name || "");
+    $("player-title").innerHTML = `${esc(p.name)}${injuryChip(p)}`;
+    $("player-body").innerHTML = `<div class="pmeta" style="margin-bottom:10px">${esc(p.position)} · ${teamLink(p.team)}${owner ? ` · ${owner}` : ""}</div>
+      ${c ? pills(c, p.position) + `<div class="sheet-pd">${detailPanel(p, c)}</div>` : `<div class="empty">No details for this player yet.</div>`}`;
+    const d = $("player-sheet");
+    if (!d.open) { if (d.showModal) d.showModal(); else d.setAttribute("open", ""); }
+    const box = d.querySelector(".ask-box"); if (box) box.scrollTop = 0;
+  }
+  // "vs your player": the starter of mine he'd most likely replace
+  function vsMineHtml(pid) {
+    const L = DATA.lab;
+    if (!L || !L.players[pid] || ownerOf(pid) === myRid()) return "";
+    const P = L.players, me = String(myRid()), pos = P[pid].p;
+    const lineup = bestLineup(L.rosters[me].players || []);
+    const cands = lineup.filter(([slot, q]) => (FLEX_OK[slot] || [slot]).includes(pos) && q !== pid);
+    if (!cands.length) return "";
+    const [slot, mine] = cands.slice().sort((a, b) => P[a[1]].r - P[b[1]].r)[0];
+    const samePos = lineup.filter(([, q]) => P[q].p === P[mine].p).map(([, q]) => q).sort((a, b) => P[b].r - P[a].r);
+    const label = `${P[mine].p}${samePos.indexOf(mine) + 1}`;
+    const d = P[pid].r - P[mine].r;
+    const pw = playoffWeeksOf();
+    const pAvg = (q) => { const v = pw.map((w) => schedPts(q, w)).filter((y) => y != null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
+    const pa = pAvg(pid), pm = pAvg(mine);
+    return `<div class="vs-mine"><b>vs your ${esc(label)}</b> ${plink(mine, P[mine].n)} (${num(P[mine].r)}/wk${slot !== P[mine].p ? `, ${esc(slot)}` : ""}):
+      <b class="${d >= 0 ? "up" : "down"}">${d >= 0 ? "+" : ""}${num(d)}/wk</b>${pa != null && pm != null ? ` · playoff weeks ${num(pa)} vs ${num(pm)}` : ""}</div>`;
+  }
+  // brief confirmation with optional Undo
+  let toastTimer = null;
+  function toast(msg, undo) {
+    const t = $("toast");
+    t.innerHTML = `<span>${msg}</span>${undo ? `<button type="button" class="mini" id="toast-undo">Undo</button>` : ""}`;
+    t.hidden = false;
+    if (undo) $("toast-undo").addEventListener("click", () => { t.hidden = true; undo(); });
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { t.hidden = true; }, undo ? 5000 : 4000);
+  }
+  // tap a number tile for what it means
+  const GLOSS_ALIAS = [
+    [/^wopr/i, "WOPR"], [/air-yd/i, "Air-yards share"], [/tgt share|carry share/i, "Target share / carry share"],
+    [/^tds?$/i, "TDs vs expected"], [/floor|ceiling/i, "Floor / ceiling"], [/typical|in range/i, "Typical range"],
+    [/avg miss|^bias/i, "Avg miss / bias / in range"], [/all-play/i, "All-play"], [/^luck/i, "Luck"], [/^power/i, "Power ranking"],
+    [/value|vs fa/i, "Value vs FA"], [/^rank$|ros rank/i, "Rank (QB18…)"], [/avg finish/i, "Finish (e.g. WR12)"],
+    [/^projected$/i, "Projection"], [/win chance|best lineup/i, "Win chance"], [/playoff odds/i, "Playoff odds"],
+  ];
+  function glossFor(label) {
+    const t = String(label || "").replace(/<[^>]+>/g, "").trim();
+    const hit = GLOSS_ALIAS.find(([re]) => re.test(t));
+    return hit ? hit[1] : null;
+  }
+  function explain(term) {
+    const g = (GLOSSARY.find(([t]) => t === term) || [])[1];
+    if (g) toast(`<b>${esc(term)}</b>: ${esc(g)} <a href="#glossary" class="gl-link">Glossary →</a>`);
+  }
+
   // ---------- Playoff planner ----------
   function playoffWeeksOf() {
     const any = Object.values(CARDS).find((c) => (c.schedule || []).some((w) => w.playoff));
@@ -1244,7 +1310,7 @@
       });
     });
     html += `<h2>Problems to fix</h2>${probs.length ? `<div class="stack todo-list">${probs.map((q) => `<div class="todo"><span class="chip ${q.why === "bye" ? "lopsided" : "q"}">Wk ${q.w}</span>
-      <div class="todo-t"><b>${esc(P[q.p].n)}</b> (${esc(P[q.p].p)}, ${num(P[q.p].r)}/wk): ${esc(q.why)}.</div></div>`).join("")}</div>`
+      <div class="todo-t"><b>${plink(q.p, P[q.p].n)}</b> (${esc(P[q.p].p)}, ${num(P[q.p].r)}/wk): ${esc(q.why)}.</div></div>`).join("")}</div>`
       : `<div class="card"><div class="empty">No byes or tough matchups for your key players in the playoff weeks.</div></div>`}`;
     const posAvg = (t, pos) => { let tot = 0; strength[t].forEach((r) => r.lineup.forEach(([, p, pts]) => { if (P[p].p === pos) tot += pts; })); return tot / pw.length; };
     const gaps = ["QB", "RB", "WR", "TE"].map((pos) => ({ pos, mine: posAvg(key, pos), med: med(teams.map((t) => posAvg(t, pos))) }))
@@ -1263,7 +1329,7 @@
         && r.r > weakest(r.p) && r.r <= weakest(r.p) + 7)
       .map(([pid, r]) => ({ id: pid, avg: ppAvg(pid), boost: (ppAvg(pid) || 0) - r.r })).filter((a) => a.avg != null && a.boost >= -0.5)
       .sort((a, b) => b.avg - a.avg).slice(0, 5);
-    const row = (a, act) => `<div class="todo"><span class="chip ok-style">${esc(P[a.id].p)}</span><div class="todo-t"><b>${esc(P[a.id].n)}</b> (${esc(P[a.id].t)}${
+    const row = (a, act) => `<div class="todo"><span class="chip ok-style">${esc(P[a.id].p)}</span><div class="todo-t"><b>${plink(a.id, P[a.id].n)}</b> (${esc(P[a.id].t)}${
       P[a.id].o != null ? `, ${esc((L.rosters[String(P[a.id].o)] || {}).team_name || "")}` : ", free agent"}): <b>${num(a.avg)}</b> pts/wk in playoff weeks</div><div class="todo-a">${act}</div></div>`;
     html += `<h2>Ways to strengthen ${targetPos.join(" / ")} for the playoffs</h2>
       ${fas.length ? `<div class="pd-h">Free agents</div><div class="stack todo-list">${fas.map((a) => row(a, `<button type="button" class="mini" data-act="find" data-name="${esc(P[a.id].n)}">View</button>`)).join("")}</div>` : ""}
@@ -1282,7 +1348,7 @@
   function winPlanHtml() {
     const w = O && O.win_plan;
     if (!w) return "";
-    const n = (pid) => esc((O.names[pid] || {}).name || pid);
+    const n = (pid) => plink(pid, (O.names[pid] || {}).name || pid);
     const pc = (x) => `${Math.round(100 * x)}%`;
     const head = `<div class="tiles head">${tileHtml("Win chance now", pc(w.current_win), `lineup as set · ${num(w.mean_current)} proj`)}
       ${tileHtml("Best lineup", pc(w.best_win), `${num(w.mean_best)} proj · ${w.style === "underdog" ? "you're the underdog: chasing ceiling" : "you're favoured: protecting the floor"}`, w.best_win - w.current_win >= 0.01 ? "good" : "")}</div>`;
@@ -1304,7 +1370,7 @@
     const wp = O && O.win_plan;
     if (wp && wp.changes.length && wp.best_win - wp.current_win >= 0.005) wp.changes.forEach((c) => out.push({
       tag: "Lineup", cls: "lopsided", rank: 0,
-      text: `Start <b>${esc((O.names[c.in] || {}).name || c.in)}</b>${c.out ? ` over <b>${esc((O.names[c.out] || {}).name || c.out)}</b>` : ""}: win chance ${Math.round(100 * wp.current_win)}% → ${Math.round(100 * (c.win_alone ?? wp.best_win))}%.`,
+      text: `Start <b>${plink(c.in, (O.names[c.in] || {}).name || c.in)}</b>${c.out ? ` over <b>${plink(c.out, (O.names[c.out] || {}).name || c.out)}</b>` : ""}: win chance ${Math.round(100 * wp.current_win)}% → ${Math.round(100 * (c.win_alone ?? wp.best_win))}%.`,
       act: go("startsit", "Start/sit") }));
     if (O && !(wp && wp.changes.length)) O.start_sit.filter((r) => r.verdict === "problem" || r.verdict === "swap").forEach((r) => out.push({
       tag: "Lineup", cls: "lopsided", rank: r.verdict === "problem" ? 0 : 1,
@@ -1314,25 +1380,25 @@
     (me.notes || []).forEach((n) => out.push({ tag: "Roster", cls: "q", rank: 2, text: esc(n), act: "" }));
     (TM && TM.opportunities || []).filter((o) => o.owner == null || mine.has(o.id)).slice(0, 3).forEach((o) => out.push({
       tag: "Opportunity", cls: "balanced", rank: 3,
-      text: `<b>${esc(o.name)}</b> (${esc(o.pos)}, ${esc(o.team)}${o.owner == null ? ", free agent" : ", yours"}) projects <b>${num(o.pts)}</b> in week ${esc(o.week)}, up ${num(o.gain)} with ${o.from.map(esc).join(" and ")} out.`,
+      text: `<b>${plink(o.id, o.name)}</b> (${esc(o.pos)}, ${esc(o.team)}${o.owner == null ? ", free agent" : ", yours"}) projects <b>${num(o.pts)}</b> in week ${esc(o.week)}, up ${num(o.gain)} with ${o.from.map(esc).join(" and ")} out.`,
       act: o.owner == null ? `<button type="button" class="mini" data-act="find" data-name="${esc(o.name)}">View</button>` : "" }));
     (F && F.available || []).filter((p) => p.fit === "upgrade").slice(0, 2).forEach((p) => out.push({
       tag: "Waivers", cls: "ok-style", rank: 4,
-      text: `Bid <b>$${esc(p.suggestion.bid)}</b> on <b>${esc(p.name)}</b> (${esc(p.position)}): +${num(p.gain_per_week)} pts/wk for you${p.drop && p.drop.length ? `, cutting ${esc(p.drop[0].name)}` : ""}.`,
+      text: `Bid <b>$${esc(p.suggestion.bid)}</b> on <b>${plink(p.id, p.name)}</b> (${esc(p.position)}): +${num(p.gain_per_week)} pts/wk for you${p.drop && p.drop.length ? `, cutting ${esc(p.drop[0].name)}` : ""}.`,
       act: go("faab", "Waivers") }));
     if (TM) me.starters.filter((p) => p.id && p.position === "RB").forEach((p) => {
       const rows = (TM.depth[p.team] || {}).RB || [];
       const cuff = rows.find((r) => r.contingency && r.contingency.id === p.id && r.owner == null && r.proj != null && r.contingency.rate - r.proj >= 3);
       if (cuff) out.push({ tag: "Handcuff", cls: "ok-style", rank: 5,
-        text: `<b>${esc(cuff.name)}</b> is a free agent: about ${num(cuff.contingency.rate)} pts/wk if your <b>${esc(p.name)}</b> misses time.`,
+        text: `<b>${plink(cuff.id, cuff.name)}</b> is a free agent: about ${num(cuff.contingency.rate)} pts/wk if your <b>${plink(p.id, p.name)}</b> misses time.`,
         act: `<button type="button" class="mini" data-act="find" data-name="${esc(cuff.name)}">View</button>` });
     });
     (T && T.sell_high || []).filter((r) => r.roster_id === T.my_roster_id && !isHeld(r.id)).slice(0, 2).forEach((r) => out.push({
-      tag: "Sell high", cls: "hot", rank: 6, text: `<b>${esc(r.name)}</b> is scoring above what his usage supports: worth shopping while his value is high.`,
+      tag: "Sell high", cls: "hot", rank: 6, text: `<b>${plink(r.id, r.name)}</b> is scoring above what his usage supports: worth shopping while his value is high.`,
       act: `<button type="button" class="mini" data-act="shop" data-pid="${esc(r.id)}">Shop</button>` }));
     const idea = T && (T.ideas || []).find((t) => !t.give.some((p) => isHeld(p.id)) && t.balance !== "lopsided (tough sell)");
     if (idea) out.push({ tag: "Trade idea", cls: "balanced", rank: 7,
-      text: `Give ${idea.give.map((p) => `<b>${esc(p.name)}</b>`).join(" + ")}, get ${idea.get.map((p) => `<b>${esc(p.name)}</b>`).join(" + ")} with ${esc(idea.team_name)}: you +${num(idea.my_gain)}, them +${num(idea.their_gain)}.`,
+      text: `Give ${idea.give.map((p) => `<b>${plink(p.id, p.name)}</b>`).join(" + ")}, get ${idea.get.map((p) => `<b>${plink(p.id, p.name)}</b>`).join(" + ")} with ${esc(idea.team_name)}: you +${num(idea.my_gain)}, them +${num(idea.their_gain)}.`,
       act: go("trades", "Trade ideas") });
     return out.sort((a, b) => a.rank - b.rank);
   }
@@ -1426,7 +1492,7 @@
     const r = RC.weeks[String(w)], me = r.my_roster_id, m = r.mine, h = r.highlights;
     const tn = (rid) => esc((r.teams[String(rid)] || {}).team_name || rid);
     const ch = (t, b) => `<section class="pd-ch rc-ch"><h3>${t}</h3>${b}</section>`;
-    const plist = (rows, own) => rows.length ? `<div class="rc-list">${rows.map((x) => `<div class="rc-row"><span><b>${esc(x.name)}</b> <span class="subtle">${esc(x.pos || "")}${own && x.owner != null ? ` · ${x.owner === me ? "you" : tn(x.owner)}` : ""}</span></span>
+    const plist = (rows, own) => rows.length ? `<div class="rc-list">${rows.map((x) => `<div class="rc-row"><span><b>${plink(x.id, x.name)}</b> <span class="subtle">${esc(x.pos || "")}${own && x.owner != null ? ` · ${x.owner === me ? "you" : tn(x.owner)}` : ""}</span></span>
       <span>${num(x.actual)} <span class="subtle">vs ${num(x.proj)}</span> <b class="${x.diff >= 0 ? "up" : "down"}">${x.diff >= 0 ? "+" : ""}${num(x.diff)}</b></span></div>`).join("")}</div>` : `<div class="subtle">None.</div>`;
     let html = `<div class="rc-top">${weeks.length > 1 ? `<label class="subtle">Week <select id="rc-week">${weeks.map((x) => `<option value="${x}" ${x === w ? "selected" : ""}>${x}</option>`).join("")}</select></label>` : ""}
       ${r.has_pregame ? "" : `<span class="subtle">Pre-game projections and upsets are saved from week 5 on.</span>`}</div>`;
@@ -1443,7 +1509,7 @@
           ${tileHtml("Left on bench", num(m.left_on_bench), `best lineup ${num(m.optimal)}`)}</div>
         <div class="pd-h" style="margin-top:12px">Best calls</div>${plist(m.booms)}
         <div class="pd-h" style="margin-top:10px">Worst calls</div>${plist(m.busts)}`;
-      if (m.should_have_started.length) b += `<div class="subtle" style="margin-top:8px">Should have started: ${m.should_have_started.map((x) => `<b>${esc(x.name)}</b> (${num(x.pts)})`).join(", ")}.${
+      if (m.should_have_started.length) b += `<div class="subtle" style="margin-top:8px">Should have started: ${m.should_have_started.map((x) => `<b>${plink(x.id, x.name)}</b> (${num(x.pts)})`).join(", ")}.${
         m.optimal_would_win ? " The best possible lineup would have won." : !m.won && !m.tie ? " Even the best lineup would have lost." : ""}</div>`;
       html += ch("Your week", b);
     }
@@ -1466,12 +1532,12 @@
 
     // 3. players & waivers
     let pw = `<div class="pd-h">Booms</div>${plist(r.booms, true)}<div class="pd-h" style="margin-top:10px">Busts</div>${plist(r.busts, true)}`;
-    if (r.roles.length) pw += `<div class="pd-h" style="margin-top:12px">Role changes</div><div class="rc-list">${r.roles.map((x) => `<div class="rc-row"><span><b>${esc(x.name)}</b> <span class="subtle">${esc(x.pos)} · ${esc(x.team)} · ${x.owner === me ? "you" : tn(x.owner)}</span></span>
+    if (r.roles.length) pw += `<div class="pd-h" style="margin-top:12px">Role changes</div><div class="rc-list">${r.roles.map((x) => `<div class="rc-row"><span><b>${plink(x.id, x.name)}</b> <span class="subtle">${esc(x.pos)} · ${esc(x.team)} · ${x.owner === me ? "you" : tn(x.owner)}</span></span>
       <span class="${x.up ? "up" : "down"}">${Math.round(100 * x.normal)}% → ${Math.round(100 * x.share)}%${x.opportunity ? ` <span class="subtle">(starter out)</span>` : ""}</span></div>`).join("")}</div>
       <div class="subtle">Share of ${r.roles[0].kind === "carry" ? "carries / targets" : "targets / carries"} this week vs his normal role.</div>`;
-    if (r.injuries.length) pw += `<div class="pd-h" style="margin-top:12px">Injuries to watch next week</div><div class="rc-list">${r.injuries.map((x) => `<div class="rc-row"><span><b>${esc(x.name)}</b> <span class="subtle">${esc(x.pos || "")} · ${x.owner === me ? "you" : tn(x.owner)}</span></span>
+    if (r.injuries.length) pw += `<div class="pd-h" style="margin-top:12px">Injuries to watch next week</div><div class="rc-list">${r.injuries.map((x) => `<div class="rc-row"><span><b>${plink(x.id, x.name)}</b> <span class="subtle">${esc(x.pos || "")} · ${x.owner === me ? "you" : tn(x.owner)}</span></span>
       <span class="chip ${x.status === "Questionable" ? "q" : "inj"}">${esc(x.status)}</span></div>`).join("")}</div>`;
-    pw += `<div class="pd-h" style="margin-top:12px">Waiver results</div>${r.claims.length ? `<div class="rc-list">${r.claims.map((c) => `<div class="rc-row"><span><b>${esc(c.player.name)}</b> <span class="subtle">${esc(c.player.position)} → ${esc(c.winner)}</span></span>
+    pw += `<div class="pd-h" style="margin-top:12px">Waiver results</div>${r.claims.length ? `<div class="rc-list">${r.claims.map((c) => `<div class="rc-row"><span><b>${plink(c.player.id, c.player.name)}</b> <span class="subtle">${esc(c.player.position)} → ${esc(c.winner)}</span></span>
       <span>$${esc(c.bid)}${c.competing_bids ? ` <span class="subtle">vs $${esc(c.runner_up_bid)}${c.overpay > 0 ? `, overpaid $${esc(c.overpay)}` : ""}</span>` : ` <span class="subtle">uncontested</span>`}</span></div>`).join("")}</div>` : `<div class="subtle">No claims processed yet.</div>`}`;
     if (r.trades.length) pw += `<div class="pd-h" style="margin-top:12px">Trades</div>${r.trades.map((t) => `<div class="rc-trade">${t.moves.map((mv) =>
       `<div><b>${esc(mv.manager)}</b> got ${mv.added.map((p) => esc(p.name)).join(", ") || "nothing"}</div>`).join("")}</div>`).join("")}`;
@@ -1581,7 +1647,7 @@
     const posRow = Object.keys(str).map((k) => `<tr><td><b>${k}</b></td><td>${num(str[k])}</td><td class="${vm[k] > 0.5 ? "up" : vm[k] < -0.5 ? "down" : ""}">${vm[k] >= 0 ? "+" : ""}${num(vm[k])}</td></tr>`).join("");
     let roster = `<div class="card table-wrap"><table class="named"><thead><tr><th>Slot</th><th>Pts/wk</th><th>vs median</th></tr></thead><tbody>${posRow}</tbody></table></div>
       <div class="subtle">Needs: <b>${(x.tt.needs || []).join(", ") || "none"}</b> · Depth to spare: <b>${(x.tt.surplus || []).join(", ") || "none"}</b></div>
-      <div class="subtle">Best players: ${x.best.map((p) => `${esc(P[p].n)} (${ab(p)}, ${num(P[p].r)})`).join(", ")}</div>
+      <div class="subtle">Best players: ${x.best.map((p) => `${plink(p, P[p].n)} (${ab(p)}, ${num(P[p].r)})`).join(", ")}</div>
       ${x.hurt.length ? `<div class="subtle">Injured: ${x.hurt.map((p) => `${esc(P[p].n)} <span class="chip ${P[p].s === "Questionable" ? "q" : "inj"}">${esc(P[p].s)}</span>`).join(" ")}</div>` : ""}
       ${x.byes.length ? `<div class="subtle">Bye crunch: ${x.byes.map((b) => `week ${b.w} (${b.out.map((p) => esc(P[p].n)).join(", ")})`).join("; ")}</div>` : `<div class="subtle">No week with 2+ starters on bye.</div>`}`;
     // 4 schedule
@@ -2016,7 +2082,7 @@
     const shapes = ["any", ...[...new Set(o.offers.map((x) => x.shape))].sort()];
     const teams = [...new Set(o.offers.map((x) => String(x.partner)))];
     const rows = filteredOffers(o);
-    const names = (ids) => ids.map((p) => esc(P[p].n)).join(" + ");
+    const names = (ids) => ids.map((p) => plink(p, P[p].n)).join(" + ");
     const PRIMARY = ["winwin", "likely", "need", "value", "close"];
     const tags = (x) => { const c = PRIMARY.map((k) => OFFER_CATS.find((y) => y[0] === k)).find((y) => y[2](x));
       return c ? `<span class="chip ${c[0] === "close" ? "q" : c[0] === "value" ? "favours" : "balanced"}">${c[1]}</span>` : ""; };
@@ -2094,7 +2160,9 @@
     const more = $("omore"); if (more) more.addEventListener("click", () => { v.limit += 12; redraw(); });
     box.querySelectorAll("[data-offer]").forEach((b) => b.addEventListener("click", () => {
       const x = labState.offers.offers[Number(b.dataset.offer)];
+      const before = { partner: labState.partner, give: labState.give.slice(), get: labState.get.slice() };
       labState = Object.assign({}, labState, { partner: String(x.partner), give: x.give.slice(), get: x.get.slice() });
+      toast("Offer loaded into the Lab", () => { labState = Object.assign({}, labState, before); store.set("labState", labState); renderTradeLab(); });
       store.set("labState", labState);
       renderTradeLab();
       setTimeout(() => {
@@ -2128,15 +2196,17 @@
     window.scrollTo(0, 0);
   }
 
-  function toggleSet(set, key, pid, btn, onTxt, offTxt) {
+  function toggleSet(set, key, pid, btn, onTxt, offTxt, quiet) {
     if (set.has(pid)) set.delete(pid); else set.add(pid);
+    if (!quiet && key === "watch") toast(`${set.has(pid) ? "Watching" : "Stopped watching"} <b>${esc(pnm(pid))}</b>`, () => toggleSet(set, key, pid, btn, onTxt, offTxt, true));
     store.set(key, [...set]);
     document.querySelectorAll(`[data-act="${btn.dataset.act}"][data-pid="${CSS.escape(pid)}"]`).forEach((x) => {
       x.classList.toggle("on", set.has(pid)); x.textContent = set.has(pid) ? onTxt : offTxt; });
     if (key === "watch") { const w = $("watch-sec"); if (w) w.outerHTML = watchHtml(); PLAYER_INDEX = null; }
   }
-  function toggleCompare(pid) {
+  function toggleCompare(pid, quiet) {
     const i = COMPARE.indexOf(pid);
+    if (!quiet) toast(`${i >= 0 ? "Removed from" : "Added to"} compare: <b>${esc(pnm(pid))}</b>`, () => toggleCompare(pid, true));
     if (i >= 0) COMPARE.splice(i, 1); else { COMPARE.push(pid); if (COMPARE.length > 3) COMPARE.shift(); }
     store.set("compare", COMPARE);
     syncCompare();
@@ -2176,7 +2246,7 @@
     ];
     const best = (f) => { if (!f) return null; const v = cols.map(f); const m = Math.max(...v.filter((y) => y != null)); return v.map((y) => y != null && y === m && v.filter((z) => z === m).length < cols.length); };
     $("compare-body").innerHTML = `<div class="table-wrap"><table class="cmp"><thead><tr><th></th>${cols.map((x) =>
-        `<th>${esc(x.r.n || x.pid)}<div class="subtle">${esc(x.r.p || "")} · ${esc(x.r.t || "")}</div></th>`).join("")}</tr></thead>
+        `<th>${plink(x.pid, x.r.n || x.pid)}<div class="subtle">${esc(x.r.p || "")} · ${esc(x.r.t || "")}</div></th>`).join("")}</tr></thead>
       <tbody>${rows.map(([label, f, key]) => { const b2 = best(key); return `<tr><td class="cmp-k">${label}</td>${cols.map((x, i) =>
         `<td class="${b2 && b2[i] ? "cmp-best" : ""}">${f(x)}</td>`).join("")}</tr>`; }).join("")}</tbody></table></div>
       <p class="subtle">Green = best in that row. This week uses the next game's projection, range and matchup.</p>`;
@@ -2191,8 +2261,9 @@
     return `<div id="watch-sec"><h2>Watchlist <span class="muted">${ids.length}</span></h2><div class="stack">${rows}</div></div>`;
   }
 
-  function toggleHold(pid) {
+  function toggleHold(pid, quiet) {
     if (HOLDS.has(pid)) HOLDS.delete(pid); else HOLDS.add(pid);
+    if (!quiet) toast(`${HOLDS.has(pid) ? "Holding" : "No longer holding"} <b>${esc(pnm(pid))}</b>`, () => toggleHold(pid, true));
     store.set("holds", [...HOLDS]);
     if (ENGINE) ENGINE.setHolds([...HOLDS]);
     // Re-draw, keeping open player panels open and the page where it was.
@@ -2558,7 +2629,10 @@
   }
   // `exact` = a sub-tab was picked directly (some sub-tabs share their section's name,
   // e.g. "trades" = Ideas, so the name alone would jump back to the last sub-tab).
-  function selectTab(name, exact) {
+  const SCROLL = {};
+  function selectTab(name, exact, keepScroll) {
+    const visible = [...document.querySelectorAll(".tab-panel")].find((x) => !x.hidden);
+    if (visible) SCROLL[visible.id] = window.scrollY;
     const sec = sectionOf(name);
     const sub = SECTIONS[name] && !exact ? (lastSub[sec] || SECTIONS[sec][0][0]) : name;
     lastSub[sec] = sub;
@@ -2574,7 +2648,8 @@
         else history.pushState({ tab: sub }, "", "#" + sub);
       } catch (e) { /* file:// may block */ }
     }
-    window.scrollTo(0, 0);
+    // come back to where you were in each tab (actions that jump somewhere specific pass keepScroll = false)
+    window.scrollTo(0, keepScroll === false ? 0 : (SCROLL["tab-" + sub] || 0));
   }
 
   // Explanations are tucked behind an ⓘ next to the heading they belong to.
@@ -2628,6 +2703,8 @@
     ["Luck", "Actual wins minus the wins your all-play record would give: positive = winning more than your scores deserve."],
     ["Power ranking", "Blend of points scored, projected strength and lineup efficiency (results count more as the season goes on)."],
     ["Trade balance", "Balanced, favours you, lopsided (tough sell) or they'd likely decline: from both teams' rest-of-season gains."],
+    ["Win chance", "Share of thousands of simulated matchups you win with a lineup, using each player's learned floor, range and ceiling and your opponent's projected range."],
+    ["Playoff odds", "Share of 10,000 simulated rest-of-seasons (real schedule, current standings) in which the team makes the playoffs."],
     ["Avg miss / bias / in range", "Model accuracy: average points it misses by, whether it runs high or low, and how often scores land in the typical range (~68% is right)."],
   ];
   function renderGlossary() {
@@ -2733,6 +2810,8 @@
   }
 
   document.addEventListener("click", (e) => {
+    const ex = e.target.closest(".tile.explainable");
+    if (ex && !e.target.closest("[data-act]")) { explain(ex.dataset.explain); return; }
     const b = e.target.closest("[data-act]");
     if (!b) return;
     e.preventDefault(); e.stopPropagation();
@@ -2742,12 +2821,14 @@
     else if (act === "pitch") openInLab(b.dataset.partner, [pid], [], { suggest: true });
     else if (act === "hold") toggleHold(pid);
     else if (act === "ask") openAsk(b.dataset.kind, pid);
-    else if (act === "recap") { store.set("leagueView", "recap"); renderLeague(); selectTab("league", true); }
+    else if (act === "player") openPlayer(pid);
+    else if (act === "recap") { store.set("leagueView", "recap"); renderLeague(); selectTab("league", true, false); }
     else if (act === "lab-team") { openInLab(Number(b.dataset.rid), [], []); }
     else if (act === "watch") toggleSet(WATCH, "watch", pid, b, "★ Watching", "☆ Watch");
     else if (act === "compare") toggleCompare(pid);
     else if (act === "compare-open") openCompare();
     else if (act === "compare-clear") { COMPARE = []; store.set("compare", COMPARE); syncCompare(); }
+    else if (act === "collapse" && b.closest("dialog")) { const dl = b.closest("dialog"); if (dl.open) dl.close(); }
     else if (act === "collapse") {
       const panel = b.closest(".trade-detail");
       if (panel) { panel.hidden = true; panel.innerHTML = ""; panel.dataset.pid = "";
@@ -2758,12 +2839,12 @@
     else if (act === "go") {
       if (b.dataset.tab === "startsit") { store.set("homeView", "startsit"); renderHome(); selectTab("home", true);
         setTimeout(() => { const el = $("home-seg"); if (el) el.scrollIntoView({ block: "start", behavior: "smooth" }); }, 50); }
-      else selectTab(b.dataset.tab, true);
+      else selectTab(b.dataset.tab, true, false);
     }
     else if (act === "find") {
       SEARCH = Object.assign(SEARCH || {}, { q: b.dataset.name, pos: "ALL", own: "all", team: "", roles: [], status: "any", flags: [] });
       store.set("playerSearch", SEARCH);
-      renderPlayers(); selectTab("players", true);
+      renderPlayers(); selectTab("players", true, false);
     }
     else if (act === "team") openTeam(b.dataset.team);
     else if (act === "improve") runImprove();
@@ -2824,7 +2905,7 @@
     if (known.includes(h)) { NAV.restoring = true; selectTab(h, true); NAV.restoring = false; }
   });
   // dialogs (team sheet, Ask Claude): Back closes them
-  ["team-sheet", "ask", "compare"].forEach((id) => {
+  ["team-sheet", "ask", "compare", "player-sheet"].forEach((id) => {
     const d = $(id);
     if (!d) return;
     const close = () => { if (!d.open) return false; d.close(); return true; };

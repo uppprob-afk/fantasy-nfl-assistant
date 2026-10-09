@@ -427,6 +427,22 @@ kept), then hill-climbs single bench swaps while win chance rises ≥ 0.4 pts. R
 sit pairs with the win chance if only that swap is made. Home → Start/sit shows it first; the
 to-do list uses it (falls back to slot-by-slot verdicts when there is no plan).
 
+## Player sheet, toasts, explain, scroll memory
+
+- `plink(pid, label)` renders a tappable name (`button.plink[data-act=player]`); use it anywhere a
+  player's name appears (to-dos, recap, offers, team sheet, planner, win plan, compare, news).
+  The click handler calls `openPlayer(pid)`, which fills `dialog#player-sheet` with `pills` +
+  `detailPanel` (loads `cards_more.js` first if needed). It is a Back-button layer like the others.
+- `vsMineHtml(pid)` (in the card's "Rest of season" chapter): the player against my weakest
+  starter he could replace (via `bestLineup`), per week and over the playoff weeks.
+- `toast(msg, undo)`: one line at the bottom (`#toast`, aria-live). Hold, Watch, Compare and
+  loading an offer into the Lab show one with Undo (the toggles take a `quiet` flag so Undo
+  doesn't toast again).
+- Tiles with a glossary entry (`glossFor(label)`, aliases in `GLOSS_ALIAS`) get `.explainable`
+  and a "?" mark; tapping shows the definition (`explain`).
+- `selectTab(name, exact, keepScroll)` remembers each tab's scroll position (`SCROLL`); pass
+  `keepScroll = false` when jumping to a specific item (go / find / recap links).
+
 ## Freshness
 
 The header subtitle shows "Updated <relative time>" (`showUpdated`, refreshed every minute;

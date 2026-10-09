@@ -441,6 +441,27 @@ tr.detail-row .card { background: var(--surface); border: 1px solid var(--border
   .tiles.head { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
 
+/* ---------- player names, player sheet, toast, explain ---------- */
+.plink { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-align: inherit;
+  text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--accent) 45%, transparent); text-underline-offset: 3px; }
+.plink:hover { color: var(--accent); }
+dialog#player-sheet { border: 0; padding: 0; background: transparent; width: min(640px, calc(100vw - 24px)); max-height: calc(100vh - 32px); color: var(--text); }
+dialog#player-sheet::backdrop { background: rgba(0, 0, 0, .45); }
+dialog#player-sheet .ask-box { max-height: calc(100vh - 32px); overflow-y: auto; box-sizing: border-box; }
+.sheet-pd .pd { padding: 12px 0 0; }
+.sheet-pd .pd-sticky { display: none; }
+.vs-mine { margin-top: 8px; padding: 8px 10px; border-radius: var(--r-md); background: var(--surface-2); font-size: 13.5px; }
+#toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(80px + env(safe-area-inset-bottom)); z-index: 40;
+  width: min(520px, calc(100vw - 24px)); box-sizing: border-box; display: flex; gap: 10px; align-items: center; justify-content: space-between;
+  background: var(--text); color: var(--bg); border-radius: var(--r-md); padding: 10px 12px 10px 14px; font-size: 13.5px;
+  box-shadow: 0 10px 30px -12px rgba(0, 0, 0, .5); }
+#toast[hidden] { display: none; }
+#toast .mini { background: transparent; color: var(--bg); border-color: color-mix(in srgb, var(--bg) 40%, transparent); }
+#toast .gl-link { color: var(--bg); text-decoration: underline; }
+.tile.explainable { cursor: pointer; }
+.tile .q-mark { display: inline-block; width: 13px; height: 13px; line-height: 13px; text-align: center; border-radius: 50%;
+  font-size: 9px; background: var(--surface-3); color: var(--muted); margin-left: 2px; vertical-align: 1px; }
+
 /* ---------- compare + watchlist ---------- */
 #compare-tray { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(76px + env(safe-area-inset-bottom));
   z-index: 30; width: min(560px, calc(100vw - 24px)); box-sizing: border-box; display: flex; gap: 10px; align-items: center;
