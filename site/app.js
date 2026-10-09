@@ -1272,6 +1272,7 @@
       if (po && po.if_win_text) html += `<p class="subtle" style="margin:-4px 0 12px">Playoff odds if you win this week <b>${esc(po.if_win_text)}</b> · if you lose <b>${esc(po.if_lose_text)}</b> · projected ${num(po.proj_wins)} wins.</p>`;
     }
     html += todoHtml();
+    html += recapTeaser();
     html += watchHtml();
 
     const view = store.get("homeView", "roster");
@@ -1314,6 +1315,99 @@
   // Weekly scores: one row per team, recent weeks as score pills (score + that week's league
   // rank, coloured by rank, with W/L); tap a team for every game, schedule luck and consistency.
   const ordinal = (n) => n + (n % 100 >= 11 && n % 100 <= 13 ? "th" : ["th", "st", "nd", "rd"][n % 10] || "th");
+  // ---------- Weekly recap ----------
+  const RC = DATA.recap;
+  const tnm = (rid) => esc(((RC && RC.weeks[String(RC.latest)] || {}).teams || {})[String(rid)] ? RC.weeks[String(RC.latest)].teams[String(rid)].team_name : (recBy[rid] || {}).team_name || rid);
+  function recapTeaser() {
+    if (!RC || !RC.latest) return "";
+    const r = RC.weeks[String(RC.latest)], m = r.mine;
+    if (!m) return "";
+    const res = m.tie ? "Tied" : m.won ? "Won" : "Lost";
+    const odds = m.odds_before != null && m.odds_after != null ? ` · playoff odds ${Math.round(100 * m.odds_before)}% → ${Math.round(100 * m.odds_after)}%` : "";
+    return `<h2>Week ${r.week} recap</h2><div class="stack"><div class="recap-teaser">
+      <div><span class="chip ${m.won ? "balanced" : m.tie ? "" : "lopsided"}">${res}</span> <b>${num(m.pts)}–${num(m.opp_pts)}</b> vs ${tnm(m.opp)}
+        <div class="subtle">${ordinal(m.rank)} highest score of ${Object.keys(r.scores).length}${odds}${m.left_on_bench > 0.5 ? ` · ${num(m.left_on_bench)} left on the bench` : ""}</div></div>
+      <button type="button" class="mini" data-act="recap">Read the recap</button></div></div>`;
+  }
+  function recapHtml(week) {
+    if (!RC || !RC.latest) return `<div class="card"><div class="empty">The first recap appears after a week is completed.</div></div>`;
+    const weeks = Object.keys(RC.weeks).map(Number).sort((a, b) => b - a);
+    const w = weeks.includes(Number(week)) ? Number(week) : RC.latest;
+    const r = RC.weeks[String(w)], me = r.my_roster_id, m = r.mine, h = r.highlights;
+    const tn = (rid) => esc((r.teams[String(rid)] || {}).team_name || rid);
+    const ch = (t, b) => `<section class="pd-ch rc-ch"><h3>${t}</h3>${b}</section>`;
+    const plist = (rows, own) => rows.length ? `<div class="rc-list">${rows.map((x) => `<div class="rc-row"><span><b>${esc(x.name)}</b> <span class="subtle">${esc(x.pos || "")}${own && x.owner != null ? ` · ${x.owner === me ? "you" : tn(x.owner)}` : ""}</span></span>
+      <span>${num(x.actual)} <span class="subtle">vs ${num(x.proj)}</span> <b class="${x.diff >= 0 ? "up" : "down"}">${x.diff >= 0 ? "+" : ""}${num(x.diff)}</b></span></div>`).join("")}</div>` : `<div class="subtle">None.</div>`;
+    let html = `<div class="rc-top">${weeks.length > 1 ? `<label class="subtle">Week <select id="rc-week">${weeks.map((x) => `<option value="${x}" ${x === w ? "selected" : ""}>${x}</option>`).join("")}</select></label>` : ""}
+      ${r.has_pregame ? "" : `<span class="subtle">Pre-game projections and upsets are saved from week 5 on.</span>`}</div>`;
+
+    // 1. your week
+    if (m) {
+      const res = m.tie ? "Tied" : m.won ? "Won" : "Lost";
+      let b = `<div class="rc-hero"><div><span class="chip ${m.won ? "balanced" : m.tie ? "" : "lopsided"}">${res}</span>
+          <div class="rc-score">${num(m.pts)} <span class="subtle">–</span> ${num(m.opp_pts)}</div><div class="subtle">vs ${tn(m.opp)}${m.margin != null ? ` · by ${num(m.margin)}` : ""}</div></div>
+        <div class="rc-side">${ordinal(m.rank)}<small>of ${Object.keys(r.scores).length} scores</small></div></div>
+        <div class="tiles head">${m.proj != null ? tileHtml("vs projection", `${m.pts - m.proj >= 0 ? "+" : ""}${num(m.pts - m.proj)}`, `projected ${num(m.proj)}`) : ""}
+          ${m.win_prob != null ? tileHtml("Pre-game win chance", `${Math.round(100 * m.win_prob)}%`, "") : ""}
+          ${m.odds_before != null && m.odds_after != null ? tileHtml("Playoff odds", `${Math.round(100 * m.odds_after)}%`, `from ${Math.round(100 * m.odds_before)}%`) : ""}
+          ${tileHtml("Left on bench", num(m.left_on_bench), `best lineup ${num(m.optimal)}`)}</div>
+        <div class="pd-h" style="margin-top:12px">Best calls</div>${plist(m.booms)}
+        <div class="pd-h" style="margin-top:10px">Worst calls</div>${plist(m.busts)}`;
+      if (m.should_have_started.length) b += `<div class="subtle" style="margin-top:8px">Should have started: ${m.should_have_started.map((x) => `<b>${esc(x.name)}</b> (${num(x.pts)})`).join(", ")}.${
+        m.optimal_would_win ? " The best possible lineup would have won." : !m.won && !m.tie ? " Even the best lineup would have lost." : ""}</div>`;
+      html += ch("Your week", b);
+    }
+
+    // 2. league round-up
+    const hl = (label, body) => body ? `<div class="tile"><div class="k">${label}</div><div class="rc-hl">${body}</div></div>` : "";
+    let lr = `<div class="tiles rc-tiles">${hl("Top score", h.top ? `${tn(h.top.rid)} <b>${num(h.top.pts)}</b>` : "")}
+      ${hl("Lowest score", h.low ? `${tn(h.low.rid)} <b>${num(h.low.pts)}</b>` : "")}
+      ${hl("Closest game", h.closest ? `${tn(h.closest.winner)} beat ${tn(h.closest.loser)} by <b>${num(h.closest.margin)}</b>` : "")}
+      ${hl("Biggest blowout", h.blowout ? `${tn(h.blowout.winner)} by <b>${num(h.blowout.margin)}</b>` : "")}
+      ${hl("Biggest upset", h.upset ? `${tn(h.upset.winner)} won with a <b>${Math.round(100 * h.upset.winner_pregame)}%</b> pre-game chance` : "")}
+      ${hl("Luckiest win", h.luckiest_win ? `${tn(h.luckiest_win.winner)}: only the ${ordinal(h.luckiest_win.rank)} best score, still won` : "")}
+      ${hl("Unluckiest loss", h.unluckiest_loss ? `${tn(h.unluckiest_loss.loser)}: ${ordinal(h.unluckiest_loss.rank)} best score, would have beaten ${h.unluckiest_loss.beaten}` : "")}</div>
+      <div class="pd-h" style="margin-top:12px">Every game</div>
+      <div class="rc-list">${r.games.slice().sort((a, b) => b.w_pts - a.w_pts).map((g) => `<div class="rc-row ${g.winner === me || g.loser === me ? "rc-mine" : ""}"><span><b>${tn(g.winner)}</b> ${num(g.w_pts)} <span class="subtle">def.</span> ${tn(g.loser)} ${num(g.l_pts)}</span>
+        <span class="subtle">${g.winner_pregame != null ? `${Math.round(100 * g.winner_pregame)}% pre-game` : `by ${num(g.margin)}`}</span></div>`).join("")}</div>`;
+    if (r.movers.length) lr += `<div class="pd-h" style="margin-top:12px">Power ranking movers</div><div class="rc-list">${r.movers.map((x) => `<div class="rc-row"><span>${tn(x.rid)}</span>
+      <span class="${x.change > 0 ? "up" : "down"}">#${x.from} → #${x.to} ${x.change > 0 ? "▲" : "▼"}${Math.abs(x.change)}</span></div>`).join("")}</div>`;
+    html += ch("League round-up", lr);
+
+    // 3. players & waivers
+    let pw = `<div class="pd-h">Booms</div>${plist(r.booms, true)}<div class="pd-h" style="margin-top:10px">Busts</div>${plist(r.busts, true)}`;
+    if (r.roles.length) pw += `<div class="pd-h" style="margin-top:12px">Role changes</div><div class="rc-list">${r.roles.map((x) => `<div class="rc-row"><span><b>${esc(x.name)}</b> <span class="subtle">${esc(x.pos)} · ${esc(x.team)} · ${x.owner === me ? "you" : tn(x.owner)}</span></span>
+      <span class="${x.up ? "up" : "down"}">${Math.round(100 * x.normal)}% → ${Math.round(100 * x.share)}%${x.opportunity ? ` <span class="subtle">(starter out)</span>` : ""}</span></div>`).join("")}</div>
+      <div class="subtle">Share of ${r.roles[0].kind === "carry" ? "carries / targets" : "targets / carries"} this week vs his normal role.</div>`;
+    if (r.injuries.length) pw += `<div class="pd-h" style="margin-top:12px">Injuries to watch next week</div><div class="rc-list">${r.injuries.map((x) => `<div class="rc-row"><span><b>${esc(x.name)}</b> <span class="subtle">${esc(x.pos || "")} · ${x.owner === me ? "you" : tn(x.owner)}</span></span>
+      <span class="chip ${x.status === "Questionable" ? "q" : "inj"}">${esc(x.status)}</span></div>`).join("")}</div>`;
+    pw += `<div class="pd-h" style="margin-top:12px">Waiver results</div>${r.claims.length ? `<div class="rc-list">${r.claims.map((c) => `<div class="rc-row"><span><b>${esc(c.player.name)}</b> <span class="subtle">${esc(c.player.position)} → ${esc(c.winner)}</span></span>
+      <span>$${esc(c.bid)}${c.competing_bids ? ` <span class="subtle">vs $${esc(c.runner_up_bid)}${c.overpay > 0 ? `, overpaid $${esc(c.overpay)}` : ""}</span>` : ` <span class="subtle">uncontested</span>`}</span></div>`).join("")}</div>` : `<div class="subtle">No claims processed yet.</div>`}`;
+    if (r.trades.length) pw += `<div class="pd-h" style="margin-top:12px">Trades</div>${r.trades.map((t) => `<div class="rc-trade">${t.moves.map((mv) =>
+      `<div><b>${esc(mv.manager)}</b> got ${mv.added.map((p) => esc(p.name)).join(", ") || "nothing"}</div>`).join("")}</div>`).join("")}`;
+    html += ch("Players &amp; waivers", pw);
+
+    // 4. model report & look-ahead
+    let ml = "";
+    if (r.model) ml += `<div class="tiles head">${tileHtml("Avg miss", `${num(r.model.mae)}<small> pts</small>`, `${r.model.games} player-games`)}${tileHtml("In range", `${Math.round(100 * r.model.coverage)}%`, "target ~68%")}${tileHtml("Bias", `${r.model.bias >= 0 ? "+" : ""}${num(r.model.bias)}`, "")}</div>`;
+    if (r.model_changes && r.model_changes.length) ml += `<div class="subtle" style="margin-top:8px">Newly learned: ${r.model_changes.slice(0, 5).map((c) => esc(c.label)).join("; ")}.</div>`;
+    if (w === RC.latest && O) {
+      const nx = O.matchups.find((x) => x.is_mine);
+      if (nx) { const [a, b] = nx.teams[0].roster_id === me ? nx.teams : [nx.teams[1], nx.teams[0]];
+        ml += `<div class="pd-h" style="margin-top:12px">Week ${esc(O.week)} preview</div><div>You vs <b>${esc(b.team_name)}</b>: ${num(a.mean)} vs ${num(b.mean)} projected, <b>${Math.round(100 * a.win_prob)}%</b> to win.</div>`; }
+      const td = todos().slice(0, 3);
+      if (td.length) ml += `<div class="pd-h" style="margin-top:10px">Key decisions</div><ul class="tight">${td.map((t) => `<li>${t.text}</li>`).join("")}</ul>`;
+      const kg = O.playoffs && O.playoffs.key_games ? O.playoffs.key_games.filter((k) => !k.mine).slice(0, 3) : [];
+      if (kg.length) ml += `<div class="pd-h" style="margin-top:10px">Other games that matter for your odds</div><div class="rc-list">${kg.map(keyRow).join("")}</div>`;
+    }
+    html += ch("Model &amp; look-ahead", ml || `<div class="subtle">No model report for this week.</div>`);
+    return `<div class="card card-pad rc">${html}</div>`;
+  }
+  function wireRecap() {
+    const sel = $("rc-week");
+    if (sel) sel.addEventListener("change", () => { store.set("recapWeek", Number(sel.value)); $("league-body").innerHTML = recapHtml(Number(sel.value)); wireRecap(); });
+  }
+
   // ---------- League → Teams: one scouting profile per team ----------
   const FLEX_OK = { FLEX: ["RB", "WR", "TE"], WRRB_FLEX: ["RB", "WR"], REC_FLEX: ["WR", "TE"], SUPER_FLEX: ["QB", "RB", "WR", "TE"] };
   function bestLineup(pids) {
@@ -1510,7 +1604,7 @@
 
   function renderLeague() {
     const view = store.get("leagueView", "standings");
-    let html = segHtml("league-seg", [["teams", "Teams"], ["standings", "Standings"], ["race", "Playoff race"], ["power", "Power"]], view)
+    let html = segHtml("league-seg", [["teams", "Teams"], ["recap", "Recap"], ["standings", "Standings"], ["race", "Playoff race"], ["power", "Power"]], view)
       + `<div id="league-body"></div>`;
     html += weeklyChart();
     if (O) html += `<h2>Week ${esc(O.week)} matchups</h2>${O.matchups.map(matchupCard).join("")}`;
@@ -1526,6 +1620,7 @@
     const draw = (v) => {
       const body = $("league-body");
       if (v === "teams") { body.innerHTML = teamsScouting(); return; }
+      if (v === "recap") { body.innerHTML = recapHtml(store.get("recapWeek", null)); wireRecap(); return; }
       if (v === "race" && O) {
         const P = O.playoffs;
         const seed = {};
@@ -2557,6 +2652,7 @@
     else if (act === "pitch") openInLab(b.dataset.partner, [pid], [], { suggest: true });
     else if (act === "hold") toggleHold(pid);
     else if (act === "ask") openAsk(b.dataset.kind, pid);
+    else if (act === "recap") { store.set("leagueView", "recap"); renderLeague(); selectTab("league", true); }
     else if (act === "lab-team") { openInLab(Number(b.dataset.rid), [], []); }
     else if (act === "watch") toggleSet(WATCH, "watch", pid, b, "★ Watching", "☆ Watch");
     else if (act === "compare") toggleCompare(pid);
