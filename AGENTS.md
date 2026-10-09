@@ -427,6 +427,20 @@ kept), then hill-climbs single bench swaps while win chance rises ≥ 0.4 pts. R
 sit pairs with the win chance if only that swap is made. Home → Start/sit shows it first; the
 to-do list uses it (falls back to slot-by-slot verdicts when there is no plan).
 
+## Trade Lab shortlist and "Copy offer"
+
+- `engine().scoreOffer(partner, give, get)` (lab.js) scores one offer exactly like
+  `exploreTrades` (gains, fits, chance accepted via the shared `acceptance` helper), or returns
+  null when a player is no longer on that roster.
+- Shortlist (`SHORT`, `store` "shortlist", max 30): ☆ Save on offer cards and on the trade you
+  built (`starBtn`, `data-act="star"` with `data-src` offer / built / short). Shown at the top of
+  the Lab in `#lab-short` (`shortHtml`, a fold-out that remembers open/closed), re-scored on every
+  render with "since you saved it" changes, and "no longer possible" when a player has moved.
+  `toggleShort` has Undo; `refreshShort` updates every star.
+- "Copy offer" (`offerText` / `copyOffer`): a short message for Sleeper chat with the players
+  (name, position, team), the positions it fills for them and their weekly gain. It never
+  mentions my own gain. Falls back to the share sheet, then to showing the text.
+
 ## Colours, labels and charts
 
 - Chip colours have one meaning each: `.chip.good` (green, good for you), `.chip.warn` (amber,

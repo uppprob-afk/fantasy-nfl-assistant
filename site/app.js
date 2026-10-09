@@ -2131,7 +2131,7 @@
       <div class="gains" style="margin:8px 0"><span class="gain me">You ${signed(res.gainMe)} pts ROS (${signed(res.perWeekMe)}/wk)</span>
         <span class="gain">Them ${signed(res.gainThem)} pts</span></div>
       <div class="subtle">${esc(VERDICT[res.balance] || "")}</div>${whyHtml}${
-        ""}<div class="acts"><button type="button" class="mini" data-act="improve">Optimise this deal</button><button type="button" class="mini" data-act="ask" data-kind="trade">Ask Claude</button>${
+        ""}<div class="acts"><button type="button" class="mini" data-act="improve">Optimise this deal</button>${starBtn("built", 0, isShort(labState))}${copyBtn("built", 0)}<button type="button" class="mini" data-act="ask" data-kind="trade">Ask Claude</button>${
         labState.offers && labState.offers.offers.length > 1 ? `<button type="button" class="mini" data-act="jump-offers">See other suggested offers ↓</button>` : ""}</div>
         <div id="lab-improve"></div></div>`;
     html += `<h2>Players in the deal</h2><div class="card card-pad has-detail"><div class="swap">
@@ -2196,6 +2196,7 @@
     host.innerHTML = `<h2>Trade Lab</h2><p class="lead-text">Build any trade and see what it does to both teams for the rest of the season.
       Numbers update as you tap. Suggestions, not advice.</p>
       ${check.ok ? "" : `<div class="alert">Heads up: the in-browser maths differs from the last update by ${num(check.maxDiff)} pts. Refresh after the next update.</div>`}
+      <div id="lab-short">${shortHtml()}</div>
       <label class="subtle" for="lab-partner">Trade with</label>
       <select id="lab-partner">${opts}</select>
       <div class="lab-filter"><input id="lab-q" type="search" placeholder="Filter players" value="${esc(LAB_FILTER.q)}" autocomplete="off">
@@ -2244,6 +2245,7 @@
     $("lab-clear").addEventListener("click", () => { labState = { partner: labState.partner, give: [], get: [] }; renderTradeLab(); });
     $("lab-suggest").addEventListener("click", () => runSuggestions());
     wireOffers();
+    wireShort();
     if (labState.autoSuggest) { labState.autoSuggest = false; runSuggestions(); }
     host.querySelectorAll(".pick").forEach((b) => b.addEventListener("click", () => {
       const list = labState[b.dataset.side];
@@ -2311,7 +2313,8 @@
           <span class="chance" title="Rough chance they accept: from their gain, whether it fills a need and how good the players look on recent scoring">
             <span class="chance-bar"><span style="width:${pc}%"></span></span>${pc}% accept</span></div>
         <div class="acts"><button type="button" class="mini" data-offer="${x.i}">Load</button>
-          <button type="button" class="mini" data-offer="${x.i}" data-improve="1">${x.gainThem <= 0 ? "Find a sweetener" : "Optimise"}</button></div></div>`;
+          <button type="button" class="mini" data-offer="${x.i}" data-improve="1">${x.gainThem <= 0 ? "Find a sweetener" : "Optimise"}</button>
+          ${starBtn("offer", x.i, isShort(x))}${copyBtn("offer", x.i)}</div></div>`;
     };
     return `<h2>Suggested offers <span class="muted">${o.offers.length} found</span></h2>
       <div class="ocats seg" id="ocat">${OFFER_CATS.map(([k, label]) => `<button type="button" data-cat="${k}" aria-pressed="${k === v.cat}" ${counts[k] ? "" : "disabled"}>${label} <small>${counts[k]}</small></button>`).join("")}</div>
@@ -2325,6 +2328,91 @@
         Deals that would cost you more than 4 points, or are wildly uneven in total value, are left out.</p>
         <p><b>Chance accepted</b> is a rough guide: it rises with their gain, if the deal fills one of their weak spots, and if the players they get
         look better on this season's scoring (managers judge on what they've seen). It isn't learned from real acceptances, so treat it as a ranking.</p></div></details>`;
+  }
+
+  // ---------- Trade shortlist + "Copy offer" ----------
+  // Starred offers are kept on this device and re-scored with the latest data every time.
+  let SHORT = store.get("shortlist", []);
+  const offerKey = (x) => `${x.partner}|${x.give.slice().sort().join(",")}|${x.get.slice().sort().join(",")}`;
+  const isShort = (x) => SHORT.some((s) => offerKey(s) === offerKey(x));
+  function offerFrom(b) {
+    const i = Number(b.dataset.i);
+    if (b.dataset.src === "offer") return labState.offers && labState.offers.offers[i];
+    if (b.dataset.src === "short") return SHORT[i];
+    return { partner: labState.partner, give: labState.give.slice(), get: labState.get.slice() };
+  }
+  const starLabel = (on) => (on ? "★ Saved" : "☆ Save");
+  const starBtn = (src, i, on) => `<button type="button" class="mini" data-act="star" data-src="${src}" data-i="${i}" aria-pressed="${on}">${starLabel(on)}</button>`;
+  const copyBtn = (src, i) => `<button type="button" class="mini" data-act="copy-offer" data-src="${src}" data-i="${i}">Copy offer</button>`;
+  function toggleShort(x, quiet) {
+    if (!x) return;
+    const had = isShort(x);
+    if (had) SHORT = SHORT.filter((s) => offerKey(s) !== offerKey(x));
+    else {
+      const sc = engine().scoreOffer(x.partner, x.give, x.get) || x;
+      const entry = x.at ? x : { partner: String(x.partner), give: x.give.slice(), get: x.get.slice(), at: Date.now(),
+        was: { gainMe: sc.gainMe, gainThem: sc.gainThem, chance: sc.chance } };
+      SHORT = [entry].concat(SHORT).slice(0, 30);
+    }
+    store.set("shortlist", SHORT);
+    refreshShort();
+    if (!quiet) toast(had ? "Removed from your shortlist" : "Saved to your shortlist", () => toggleShort(x, true));
+  }
+  function refreshShort() {
+    const box = $("lab-short");
+    if (box) { box.innerHTML = shortHtml(); wireShort(); }
+    document.querySelectorAll('[data-act="star"]:not([data-src="short"])').forEach((b) => {
+      const on = isShort(offerFrom(b) || { partner: "", give: [], get: [] });
+      b.setAttribute("aria-pressed", String(on)); b.textContent = starLabel(on);
+    });
+  }
+  function wireShort() {
+    const d = document.querySelector("#lab-short details");
+    if (d) d.addEventListener("toggle", () => store.set("shortOpen", d.open));
+  }
+  function shortHtml() {
+    if (!SHORT.length) return "";
+    const L = DATA.lab, P = L.players, R = L.rosters, E = engine();
+    const names = (ids) => ids.map((p) => (P[p] ? plink(p, P[p].n) : esc(p))).join(" + ");
+    const pc = (v) => `${Math.round(100 * v)}%`;
+    const rows = SHORT.map((s, i) => {
+      const x = E.scoreOffer(s.partner, s.give, s.get), team = R[s.partner] ? esc(R[s.partner].team_name) : "A team";
+      if (!x) return `<div class="trade offer"><div class="trade-head"><div class="pname">${team}</div><span class="chip bad">no longer possible</span></div>
+        <div style="margin:4px 0 6px">Give <b>${names(s.give)}</b> · get <b>${names(s.get)}</b></div>
+        <div class="subtle">A player in this deal has moved teams or been dropped.</div>
+        <div class="acts"><button type="button" class="mini" data-act="star" data-src="short" data-i="${i}">Remove</button></div></div>`;
+      const w = s.was || {}, moved = [];
+      if (w.gainMe != null && Math.abs(x.gainMe - w.gainMe) >= 1) moved.push(`you ${signed(w.gainMe)} → ${signed(x.gainMe)}`);
+      if (w.chance != null && Math.abs(x.chance - w.chance) >= 0.05) moved.push(`chance ${pc(w.chance)} → ${pc(x.chance)}`);
+      const p = Math.round(100 * x.chance);
+      return `<div class="trade offer"><div class="trade-head"><div class="pname">${team}</div><span class="subtle">${esc(x.shape)} · saved ${esc(agoText(Date.now() - s.at))}</span></div>
+        <div style="margin:4px 0 6px">Give <b>${names(s.give)}</b> · get <b>${names(s.get)}</b></div>
+        <div class="gains"><span class="gain me">You ${signed(x.gainMe)}</span><span class="gain">Them ${signed(x.gainThem)}</span>
+          <span class="chance"><span class="chance-bar"><span style="width:${p}%"></span></span>${p}% accept</span></div>
+        ${moved.length ? `<div class="subtle">Since you saved it: ${moved.join(" · ")}</div>` : ""}
+        <div class="acts"><button type="button" class="mini" data-act="load-short" data-i="${i}">Load</button>${copyBtn("short", i)}
+          <button type="button" class="mini" data-act="star" data-src="short" data-i="${i}">Remove</button></div></div>`;
+    }).join("");
+    return `<details class="recent short-list"${store.get("shortOpen", true) ? " open" : ""}><summary>★ Your shortlist (${SHORT.length})</summary>
+      <p class="subtle">Offers you starred, re-scored with the latest data each time (gains are rest-of-season points). Saved on this device.</p>
+      <div class="stack">${rows}</div></details>`;
+  }
+  // a message for Sleeper chat: what they get and why it helps them (never your own gain)
+  function offerText(x) {
+    const L = DATA.lab, P = L.players, sc = engine().scoreOffer(x.partner, x.give, x.get) || x;
+    const who = (ids) => ids.map((p) => `${P[p].n} (${P[p].p}, ${P[p].t})`).join(" + ");
+    let t = `Trade idea: my ${who(x.give)} for your ${who(x.get)}.`;
+    const helps = (sc.fits || []).filter((f) => f.startsWith("fills their")).map((f) => f.replace("fills their ", "").replace(" need", ""));
+    if (helps.length) t += ` It strengthens your ${helps.join(" and ")} spot${helps.length > 1 ? "s" : ""}.`;
+    if (sc.gainThem >= 1) t += ` By my numbers it adds about ${num(sc.gainThem / L.weeks.length)} pts a week to your starting lineup for the rest of the season.`;
+    return t + " Interested?";
+  }
+  async function copyOffer(x) {
+    if (!x) return;
+    const text = offerText(x);
+    try { await navigator.clipboard.writeText(text); toast("Offer copied. Paste it into your Sleeper chat with them."); return; } catch (e) { /* fall through */ }
+    if (navigator.share) { try { await navigator.share({ text }); return; } catch (e) { /* cancelled */ } }
+    toast(`Copy this: ${esc(text)}`);
   }
 
   let IMPROVE = null;
@@ -3041,6 +3129,15 @@
     else if (act === "ask") openAsk(b.dataset.kind, pid);
     else if (act === "player") openPlayer(pid);
     else if (act === "pin") togglePin(b.dataset.sec);
+    else if (act === "star") toggleShort(offerFrom(b));
+    else if (act === "copy-offer") copyOffer(offerFrom(b));
+    else if (act === "load-short") {
+      const x = SHORT[Number(b.dataset.i)], before = { partner: labState.partner, give: labState.give.slice(), get: labState.get.slice() };
+      labState = Object.assign({}, labState, { partner: String(x.partner), give: x.give.slice(), get: x.get.slice() });
+      store.set("labState", labState); renderTradeLab();
+      toast("Offer loaded into the Lab", () => { labState = Object.assign({}, labState, before); store.set("labState", labState); renderTradeLab(); });
+      setTimeout(() => { const r = $("lab-result"); if (r) r.scrollIntoView({ block: "start", behavior: "smooth" }); }, 60);
+    }
     else if (act === "seen") { markSeen(); renderHome(); renderNews(); toast("Marked as seen"); }
     else if (act === "recap") { store.set("leagueView", "recap"); renderLeague(); selectTab("league", true, false); }
     else if (act === "lab-team") { openInLab(Number(b.dataset.rid), [], []); }
