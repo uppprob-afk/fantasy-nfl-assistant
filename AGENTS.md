@@ -405,6 +405,17 @@ with that team (`lab-team`), Ask Claude (`kind: "team"`, `teamText`).
   least-privilege (Pages / id-token only on the deploy job). Python: `yaml.safe_load`, no
   shell / eval / pickle; dependencies checked with `uv run --with pip-audit pip-audit`.
 
+## Playoff planner (Home → Playoffs)
+
+`playoffPlanHtml()` (client-side, from cards' `schedule` entries flagged `playoff`, which come
+from `run.playoff_weeks`): your path (odds, projected wins, #1 seed, trade deadline from
+`T.trade_deadline`, playoff weeks, strength of schedule until then); playoff-week strength (each
+team's best lineup per playoff week from its current roster via `teamWeekLineup`, your rank vs
+the league); problems (byes / tough matchups for your 8+ pt players in playoff weeks); position
+gaps vs the league median; fixes at the weakest positions (free agents with the best playoff
+weeks; realistic trade targets = rate between your weakest starter there and +7, playoff
+schedule at least as good as usual); handcuffs for your RB starters.
+
 ## Start/sit for win chance
 
 `startsit.plan` (called in `build_outlook`, output `O.win_plan`): 3,000 simulated weeks; each of
