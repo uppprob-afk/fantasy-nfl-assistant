@@ -57,6 +57,7 @@ nfl_assistant/
   players.py              names, injury, IR eligibility, name lookup
   dashboard.py            standings, rosters, season points
   faab.py                 waiver log, clearing prices, market prices, bid ideas
+  recap.py                weekly recap for the last completed week (+ pre-game / power history files)
   roles.py                opportunity games, team volume x share x efficiency, learned share inheritance
   scanner.py              diff vs previous snapshot (injuries, depth, teams, drops)
   projections.py          rest-of-season projection engine (rate, spread, confidence, weekly)
@@ -332,6 +333,22 @@ sorts (`SORTS`). State in localStorage `playerSearch`; 40 results at a time. Row
   handcuffs for my RB starters (contingency >= 3 pts over their projection), my sell-high
   players (not held) and the best non-lopsided trade idea; 5 shown, rest under "more".
   Buttons use `data-act="go"` (tab) / `"find"` (opens Players with a name search) / `"shop"`.
+
+## Weekly recap
+
+`run.build_recap` → `site/data/recap.*` (`{weeks: {W: recap}, latest}`), kept per week in
+`data/recaps.json`. Each run also saves `data/pregame.json` (each team's projection / win chance
+for the current week, refreshed until that matchup has points on the board) and
+`data/weekly_state.json` (power ranks as of each week). `recap.build` for the last completed
+week: my result, margin, score rank, vs projection, pre-game win chance, playoff odds before /
+after (from odds_history), best / worst calls (starters vs the projection ledger), points left
+on the bench (optimal lineup on actual points) and whether it would have won; league highlights
+(top / low score, closest, blowout, biggest upset by pre-game chance, luckiest win = lowest
+score rank that won, unluckiest loss), every game, power movers; league-wide booms / busts
+(±8 vs projection), role changes (share ±15 pts vs normal, flagged when a starter was out),
+injuries on this week's starters, waiver claims processed after the week, trades; the model's
+live score for the week and newly learned settings. Site: Home teaser (`recapTeaser`) and
+League → Recap (`recapHtml`, week picker, look-ahead from `O` / `todos()` / key games).
 
 ## League → Teams (scouting profiles)
 
