@@ -1189,11 +1189,35 @@
     draw();
   }
 
+  // ---------- start/sit for the best chance to win ----------
+  function winPlanHtml() {
+    const w = O && O.win_plan;
+    if (!w) return "";
+    const n = (pid) => esc((O.names[pid] || {}).name || pid);
+    const pc = (x) => `${Math.round(100 * x)}%`;
+    const head = `<div class="tiles head">${tileHtml("Win chance now", pc(w.current_win), `lineup as set · ${num(w.mean_current)} proj`)}
+      ${tileHtml("Best lineup", pc(w.best_win), `${num(w.mean_best)} proj · ${w.style === "underdog" ? "you're the underdog: chasing ceiling" : "you're favoured: protecting the floor"}`, w.best_win - w.current_win >= 0.01 ? "good" : "")}</div>`;
+    const rows = w.changes.length ? `<div class="stack" style="margin-top:12px">${w.changes.map((c) => `<div class="todo"><span class="chip balanced">Swap</span>
+        <div class="todo-t">Start <b>${n(c.in)}</b> (${num(c.in_pts)})${c.out ? `, sit <b>${n(c.out)}</b> (${num(c.out_pts)})` : ""}${
+          c.win_alone != null ? `: win chance ${pc(w.current_win)} → <b>${pc(c.win_alone)}</b>` : ""}</div></div>`).join("")}</div>
+        <p class="subtle">Other players may shuffle between slots (e.g. into FLEX) to fit the change.</p>`
+      : `<p class="subtle" style="margin-top:10px">Your lineup as set already gives the best chance to win.</p>`;
+    return `<h2>Best chance to win</h2><p class="lead-text">Simulates your matchup ${w.sims.toLocaleString()} times using each player's learned floor, range and ceiling
+      (Questionable players sometimes score 0) against your opponent's projected range, then picks the lineup that wins most often.
+      That's not always the highest projection: underdogs gain from high-ceiling players, favourites from safe floors. Players who've played are locked.</p>
+      ${head}${rows}`;
+  }
+
   // ---------- "This week" to-do list: the decisions the dashboard already knows about ----------
   function todos() {
     const me = D.me, out = [], mine = new Set([...me.starters, ...me.bench, ...me.ir].map((p) => p.id).filter(Boolean));
     const go = (tab, label) => `<button type="button" class="mini" data-act="go" data-tab="${tab}">${label}</button>`;
-    if (O) O.start_sit.filter((r) => r.verdict === "problem" || r.verdict === "swap").forEach((r) => out.push({
+    const wp = O && O.win_plan;
+    if (wp && wp.changes.length && wp.best_win - wp.current_win >= 0.005) wp.changes.forEach((c) => out.push({
+      tag: "Lineup", cls: "lopsided", rank: 0,
+      text: `Start <b>${esc((O.names[c.in] || {}).name || c.in)}</b>${c.out ? ` over <b>${esc((O.names[c.out] || {}).name || c.out)}</b>` : ""}: win chance ${Math.round(100 * wp.current_win)}% → ${Math.round(100 * (c.win_alone ?? wp.best_win))}%.`,
+      act: go("startsit", "Start/sit") }));
+    if (O && !(wp && wp.changes.length)) O.start_sit.filter((r) => r.verdict === "problem" || r.verdict === "swap").forEach((r) => out.push({
       tag: "Lineup", cls: "lopsided", rank: r.verdict === "problem" ? 0 : 1,
       text: r.alt ? `Start <b>${esc(nm(r.alt).name)}</b> over <b>${esc(nm(r.starter).name)}</b> at ${esc(r.slot)}: ${num(r.alt_pts)} vs ${num(r.starter_pts)} projected${r.p_alt ? `, wins ${Math.round(100 * r.p_alt)}% of the time` : ""}.`
         : `Lineup problem at ${esc(r.slot)}: ${esc(nm(r.starter).name)}. ${esc(r.why || "")}`,
@@ -1272,7 +1296,7 @@
     const draw = (v) => {
       const body = $("home-body");
       if (v === "startsit" && O) {
-        body.innerHTML = `<p class="lead-text">Your set lineup vs the best bench option at each slot. Players whose games have started are locked.</p>
+        body.innerHTML = winPlanHtml() + `<h2>Slot by slot</h2><p class="lead-text">Your set lineup vs the best bench option at each slot. Players whose games have started are locked.</p>
           <div class="card">${O.start_sit.length ? O.start_sit.map(startSitRow).join("") : `<div class="empty">Nothing to decide: all your games have started.</div>`}</div>`;
       } else if (v === "lineups" && O) {
         body.innerHTML = lineupsHtml();
