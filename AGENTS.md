@@ -57,6 +57,7 @@ nfl_assistant/
   players.py              names, injury, IR eligibility, name lookup
   dashboard.py            standings, rosters, season points
   faab.py                 waiver log, clearing prices, market prices, bid ideas
+  recap.py                weekly recap for the last completed week (+ pre-game / power history files)
   roles.py                opportunity games, team volume x share x efficiency, learned share inheritance
   scanner.py              diff vs previous snapshot (injuries, depth, teams, drops)
   projections.py          rest-of-season projection engine (rate, spread, confidence, weekly)
@@ -64,6 +65,7 @@ nfl_assistant/
   trades.py               trade values (ROS optimal lineups) + mutual-benefit trade ideas
   outlook.py              win chances, start/sit, weekly lineups, playoff simulation
   teams.py                NFL teams: depth charts, position strength vs league, offence, roles / job security
+  startsit.py             start/sit for the best chance to win (simulated matchup, learned ranges)
   tendencies.py           manager FAAB habits + likely rivals / bid-to-win
   cards.py                player cards: last/next 3, finishes, consistency, opportunity, game log, schedule, value
   lab.py                  compact data for the in-browser Trade Lab (site/lab.js)
@@ -333,6 +335,22 @@ sorts (`SORTS`). State in localStorage `playerSearch`; 40 results at a time. Row
   players (not held) and the best non-lopsided trade idea; 5 shown, rest under "more".
   Buttons use `data-act="go"` (tab) / `"find"` (opens Players with a name search) / `"shop"`.
 
+## Weekly recap
+
+`run.build_recap` → `site/data/recap.*` (`{weeks: {W: recap}, latest}`), kept per week in
+`data/recaps.json`. Each run also saves `data/pregame.json` (each team's projection / win chance
+for the current week, refreshed until that matchup has points on the board) and
+`data/weekly_state.json` (power ranks as of each week). `recap.build` for the last completed
+week: my result, margin, score rank, vs projection, pre-game win chance, playoff odds before /
+after (from odds_history), best / worst calls (starters vs the projection ledger), points left
+on the bench (optimal lineup on actual points) and whether it would have won; league highlights
+(top / low score, closest, blowout, biggest upset by pre-game chance, luckiest win = lowest
+score rank that won, unluckiest loss), every game, power movers; league-wide booms / busts
+(±8 vs projection), role changes (share ±15 pts vs normal, flagged when a starter was out),
+injuries on this week's starters, waiver claims processed after the week, trades; the model's
+live score for the week and newly learned settings. Site: Home teaser (`recapTeaser`) and
+League → Recap (`recapHtml`, week picker, look-ahead from `O` / `todos()` / key games).
+
 ## League → Teams (scouting profiles)
 
 `teamsScouting()` (League segment "Teams", ordered by playoff odds) builds one `details.tm`
@@ -397,6 +415,17 @@ the league); problems (byes / tough matchups for your 8+ pt players in playoff w
 gaps vs the league median; fixes at the weakest positions (free agents with the best playoff
 weeks; realistic trade targets = rate between your weakest starter there and +7, playoff
 schedule at least as good as usual); handcuffs for your RB starters.
+
+## Start/sit for win chance
+
+`startsit.plan` (called in `build_outlook`, output `O.win_plan`): 3,000 simulated weeks; each of
+my players is drawn from his learned quantiles for this week (`weekly[w].q`, scaled back to a
+full game and zeroed with probability 1 − availability so Questionable players sometimes score
+0), players who already played are fixed at actual points, the opponent ~ Normal(mean, sd).
+Common random numbers for every lineup. Starts from the highest-projected lineup (locked slots
+kept), then hill-climbs single bench swaps while win chance rises ≥ 0.4 pts. Reported as start /
+sit pairs with the win chance if only that swap is made. Home → Start/sit shows it first; the
+to-do list uses it (falls back to slot-by-slot verdicts when there is no plan).
 
 ## Freshness
 

@@ -10,7 +10,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from . import brief, cards, dashboard, faab, factors, lab, league, lineups, model, nflverse, outlook, projections, roles, scanner, teams, tendencies, trades, waivers
+from . import (brief, cards, dashboard, faab, factors, lab, league, lineups, model, nflverse, outlook, projections,
+               recap, roles, scanner, startsit, teams, tendencies, trades, waivers)
 from .config import ROOT, ConfigError, load_config
 from .output import prune, write_site_data, write_snapshot
 from .players import find_player, ir_allowed_statuses, player_brief, player_name, slim_players
@@ -505,6 +506,18 @@ def build_outlook(ctx: dict, managers: dict, proj: dict, weeks: list[int], slots
 
     my_starters = this.get(my_rid, {}).get("starters", [])
     sit = outlook.start_sit(my_starters, roster_of[my_rid], proj, cw, slots)
+    win_plan = None
+    mine_m = next((m for m in ctx["matchups"].get(cw, []) if m["roster_id"] == my_rid), None)
+    opp_m = next((x for x in matchups if x["is_mine"]), None)
+    if mine_m and opp_m:
+        opp = opp_m["teams"][1]
+        win_plan = startsit.plan(my_starters, roster_of[my_rid], proj, cw, slots, mine_m.get("players_points") or {},
+                                 opp["mean"], opp["sd"])
+        if win_plan:
+            for x in win_plan["changes"]:
+                for k in ("in", "out"):
+                    if x[k]:
+                        name(x[k])
     for r in sit:
         name(r["starter"])
         if r["alt"]:
@@ -564,7 +577,7 @@ def build_outlook(ctx: dict, managers: dict, proj: dict, weeks: list[int], slots
                      "if_a_text": outlook.round_odds(k["if_a"], conf), "if_b_text": outlook.round_odds(k["if_b"], conf)})
     return {"generated_at": now.isoformat(timespec="minutes"), "week": cw, "weeks": weeks,
             "reg_season_end": weeks[-1] if weeks else cw, "playoff_teams": n_playoff,
-            "my_roster_id": my_rid, "slots": slots, "matchups": matchups, "start_sit": sit,
+            "my_roster_id": my_rid, "slots": slots, "matchups": matchups, "start_sit": sit, "win_plan": win_plan,
             "lineups": {str(rid): {str(w): v for w, v in ws.items()} for rid, ws in lineups_by_team.items()},
             "managers": {str(rid): managers[rid] for rid in roster_of},
             "playoffs": {"teams": teams, "key_games": keys, "sims": sim["n"], "confidence": conf,
@@ -594,6 +607,42 @@ def build_teams(ctx: dict, nfl: dict, proj: dict, managers: dict, now) -> tuple[
              "offence": teams.offence(totals, nfl["games"], sched, season, next_week),
              "strength": teams.position_strength(totals, dlogs, sched, season), "depth": depth,
              "opportunities": teams.opportunities(proj, owners)}, roles)
+
+
+# --- weekly recap ---------------------------------------------------------------------
+def build_recap(ctx: dict, managers: dict, slots: list[str], outlook_data: dict, league_data: dict,
+                faab_data: dict, roles: dict, model_page: dict, data_dir: Path) -> dict:
+    """Save this week's pre-game numbers and power ranks; build the recap for the last completed
+    week (kept per week, so earlier recaps stay available)."""
+    cw = ctx["current_week"]
+    pregame = recap.save_pregame(data_dir / "pregame.json", cw, outlook_data.get("matchups") or [])
+    state = recap.save_state(data_dir / "weekly_state.json", cw, league_data.get("power") or [])
+    history_path = data_dir / "recaps.json"
+    done = ctx["completed_weeks"]
+    if not done:
+        return {"weeks": {}, "latest": None}
+    w = done[-1]
+    players = ctx["players"]
+    rostered = {pid: r["roster_id"] for r in ctx["rosters"] for pid in (r.get("players") or [])}
+    ids = {p for m in ctx["matchups"].get(w, []) for p in (m.get("players") or [])} | set(rostered)
+    led = json.loads((data_dir / "projection_ledger.json").read_text()) if (data_dir / "projection_ledger.json").exists() else {}
+    live = model_page.get("live") or {}
+    hist = model_page.get("history") or []
+    prev, last = (hist[-2] if len(hist) > 1 else None), (hist[-1] if hist else None)
+    new_changes = [c for c in (last or {}).get("changed", [])
+                   if not any(c["key"] == p["key"] and abs(c["to"] - p["to"]) < 1e-9 for p in (prev or {}).get("changed", []))]
+    r = recap.build(
+        w, ctx["matchups"].get(w, []),
+        {rid: {"team_name": m["team_name"], "label": m["label"]} for rid, m in managers.items()},
+        ctx["my_roster"]["roster_id"], slots,
+        {pid: (players.get(pid) or {}).get("position") for pid in ids},
+        {pid: player_name(players.get(pid), pid) for pid in ids},
+        led, pregame, state, league_data.get("odds_history") or [], faab_data.get("waiver_log") or [],
+        faab_data.get("other_moves") or [], roles, rostered,
+        {pid: (players.get(pid) or {}).get("injury_status") for pid in ids},
+        (live.get("by_week") or {}).get(w) or (live.get("by_week") or {}).get(str(w)), new_changes)
+    allr = recap.save_recap(history_path, r)
+    return {"weeks": allr, "latest": w}
 
 
 # --- model scorecard (backtest + live ledger + what it learned) ----------------------
@@ -833,7 +882,10 @@ def main() -> int:
                 | {o["id"] for o in teams_data.get("opportunities", [])})
     write_site_data(site_data, "cards", prune({pid: c for pid, c in all_cards.items() if pid in core_ids}))
     write_site_data(site_data, "cards_more", prune({pid: c for pid, c in all_cards.items() if pid not in core_ids}))
-    write_site_data(site_data, "model", build_model_page(ctx, mdl, proj, points, pool_ids, now, ROOT / "data"))
+    model_page = build_model_page(ctx, mdl, proj, points, pool_ids, now, ROOT / "data")
+    write_site_data(site_data, "model", model_page)
+    write_site_data(site_data, "recap", build_recap(ctx, managers, slots, outlook_data, league_data, faab_data, roles,
+                                                    model_page, ROOT / "data"))
     brief_md = brief.build_brief(dash, faab_data, scan, trade_data, outlook_data)
     (site_data / "claude_brief.md").write_text(brief_md, encoding="utf-8")
     write_site_data(site_data, "brief", {"generated_at": now.isoformat(timespec="minutes"), "markdown": brief_md})
