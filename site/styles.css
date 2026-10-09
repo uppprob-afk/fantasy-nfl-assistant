@@ -157,10 +157,11 @@ details.recent > .card { margin-top: 6px; }
   display: inline-block; font-size: 11px; font-weight: 600; line-height: 18px; border-radius: 6px; padding: 0 6px;
   margin-left: 6px; vertical-align: 1px; background: var(--surface-2); color: var(--text-2); white-space: nowrap;
 }
-.chip.inj, .chip.lopsided, .chip.ss.problem, .chip.mu-tough { background: var(--bad-soft); color: var(--bad); }
-.chip.q, .chip.unv, .chip.favours, .chip.ss.close, .chip.conf.low { background: var(--warn-soft); color: var(--warn); }
-.chip.balanced, .chip.mu-easy, .chip.conf.high { background: var(--good-soft); color: var(--good); }
-.chip.nick, .chip.ok-style, .chip.ss.swap { background: var(--accent-soft); color: var(--accent); }
+/* one meaning per colour: green = good for you, amber = caution / act, red = problem, blue = info */
+.chip.bad, .chip.ss.problem, .chip.mu-tough { background: var(--bad-soft); color: var(--bad); }
+.chip.warn, .chip.unv, .chip.ss.close, .chip.conf.low { background: var(--warn-soft); color: var(--warn); }
+.chip.good, .chip.mu-easy, .chip.conf.high { background: var(--good-soft); color: var(--good); }
+.chip.info, .chip.nick, .chip.ss.swap { background: var(--accent-soft); color: var(--accent); }
 .chip.ok { background: transparent; color: var(--good); padding: 0 2px; margin-left: 4px; }
 .chip.conf { text-transform: lowercase; }
 .chip.ss.keep { background: var(--surface-2); color: var(--muted); }
@@ -555,6 +556,33 @@ details.tm > summary::-webkit-details-marker { display: none; }
 .since .mini { margin-top: 8px; }
 .new-dot { display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; background: var(--accent); flex: none; vertical-align: 1px; }
 .linkish { padding: 0; border: 0; background: none; color: var(--accent); font: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+
+/* ---------- charts (inline SVG) ---------- */
+.chart { margin: 14px 0 6px; }
+.chart figcaption { margin-bottom: 4px; }
+.ch-svg { display: block; width: 100%; height: auto; overflow: visible; touch-action: pan-y; }
+.ch-grid { stroke: var(--border); stroke-width: 1; }
+.ch-y, .ch-x { fill: var(--muted); font-size: 10px; font-family: inherit; }
+.ch-y { text-anchor: end; } .ch-x { text-anchor: middle; }
+.ch-line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.ch-line.main { stroke: var(--accent); }
+.ch-line.proj { stroke: var(--accent); stroke-dasharray: 5 4; opacity: .8; }
+.ch-line.ref { stroke: var(--muted); stroke-dasharray: 3 3; stroke-width: 1.5; }
+.ch-dot { stroke: var(--surface); stroke-width: 2; }
+.ch-dot.main { fill: var(--accent); }
+.ch-dot.proj { fill: var(--surface); stroke: var(--accent); stroke-width: 1.5; }
+.ch-band { fill: var(--accent); opacity: .14; }
+.ch-bandline { stroke: var(--accent); stroke-width: 6; stroke-linecap: round; opacity: .18; }
+.ch-last { fill: var(--text); font-size: 11px; font-weight: 650; font-family: inherit; paint-order: stroke; stroke: var(--surface); stroke-width: 3px; }
+.ch-guide { stroke: var(--text-2); stroke-width: 1; stroke-dasharray: 2 2; }
+.ch-hit { fill: transparent; cursor: crosshair; }
+.ch-read { min-height: 1.4em; margin-top: 2px; font-size: 12.5px; }
+.ch-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--text-2); margin-bottom: 4px; }
+.ch-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.ch-sw { display: inline-block; width: 16px; height: 0; border-top: 2px solid var(--accent); }
+.ch-sw.proj { border-top-style: dashed; }
+.ch-sw.ref { border-top: 2px dashed var(--muted); }
+.ch-sw.band { height: 10px; border: 0; border-radius: 2px; background: color-mix(in srgb, var(--accent) 18%, transparent); }
 
 /* ---------- tile stacks: one rounded tile per item, space between ---------- */
 .stack { display: grid; gap: 10px; margin-bottom: 12px; }

@@ -13,7 +13,7 @@
 
   function injuryChip(p) {
     if (!p.injury_status) return "";
-    const cls = p.injury_status === "Questionable" ? "q" : "inj";
+    const cls = p.injury_status === "Questionable" ? "warn" : "bad";
     const title = p.injury_body_part ? ` title="${esc(p.injury_body_part)}"` : "";
     return `<span class="chip ${cls}"${title}>${esc(p.injury_status)}</span>`;
   }
@@ -134,8 +134,8 @@
   const TM = DATA.teams;
   const teamLink = (t) => (TM && t && TM.depth && TM.depth[t]
     ? `<button type="button" class="tlink" data-act="team" data-team="${esc(t)}" title="${esc((TM.names || {})[t] || t)} depth chart">${esc(t)}</button>` : esc(t || ""));
-  const LABEL_CLS = { "Locked in": "balanced", "Starter": "balanced", "Lead role": "balanced", "Rising": "balanced",
-    "Committee": "q", "One injury away": "ok-style", "Losing work": "lopsided", "Depth": "", "Unproven": "", "Backup": "" };
+  const LABEL_CLS = { "Locked in": "good", "Starter": "good", "Lead role": "good", "Rising": "good",
+    "Committee": "warn", "One injury away": "info", "Losing work": "bad", "Depth": "", "Unproven": "", "Backup": "" };
   const roleChip = (label) => `<span class="chip ${LABEL_CLS[label] || ""}">${esc(label)}</span>`;
   const KIND_TXT = { carry: "of RB carries", target: "of targets", snap: "of snaps" };
   function roleSection(c) {
@@ -167,7 +167,7 @@
     const owner = (o) => (o == null ? `<span class="subtle">free agent</span>` : o === D.me.team_name ? `<b>you</b>` : esc(o));
     const depth = ["QB", "RB", "WR", "TE", "K"].filter((pos) => D2[pos] && D2[pos].length).map((pos) => `<div class="pd-h" style="margin-top:14px">${pos}</div>
       <div class="dc">${D2[pos].map((r) => `<div class="dc-row"><span class="dc-o">${r.order || "–"}</span>
-        <div class="dc-n"><div><b>${plink(r.id, r.name)}</b>${r.status ? ` <span class="chip ${r.status === "Questionable" ? "q" : "inj"}">${esc(r.status)}</span>` : ""} ${roleChip(r.label)}</div>
+        <div class="dc-n"><div><b>${plink(r.id, r.name)}</b>${r.status ? ` <span class="chip ${r.status === "Questionable" ? "warn" : "bad"}">${esc(r.status)}</span>` : ""} ${roleChip(r.label)}</div>
           <div class="subtle">${r.share != null && r.kind ? `${Math.round(100 * r.share)}% ${KIND_TXT[r.kind]}` : ""}${r.ppg != null ? `${r.share != null && r.kind ? " · " : ""}${num(r.ppg)} pts/g` : ""} · ${owner(r.owner)}</div>
           ${r.contingency && r.proj != null && r.contingency.rate - r.proj >= 1.5 ? `<div class="subtle">If ${esc(r.contingency.if_out)} misses: <b>~${num(r.contingency.rate)}</b>/wk (from ${num(r.proj)})</div>` : ""}</div></div>`).join("")}</div>`).join("");
     return `<div class="subtle">${O.points_pg != null ? `<b>${num(O.points_pg)}</b> pts/g (${ord(O.ranks && O.ranks.points_pg)})` : ""}${
@@ -378,7 +378,7 @@
       t.push(tileHtml("Value", `${Math.round(v.ros)}<small> pts</small>`, `${v.vor >= 0 ? "+" : ""}${Math.round(v.vor)} vs a free agent`));
       ros += `<div class="tiles head">${t.join("")}</div>
         ${vsMineHtml(p.id)}
-        <div class="subtle" style="margin-top:8px">${confChip(v.confidence)}${v.flag ? ` <span class="chip ${v.flag === "sell-high" ? "hot" : "ok-style"}">${esc(v.flag)}</span>` : ""}
+        <div class="subtle" style="margin-top:8px">${confChip(v.confidence)}${v.flag ? ` <span class="chip info">${esc(v.flag)}</span>` : ""}
           ${v.byes.length ? ` Bye: week ${v.byes.join(", ")}.` : ""}${v.prior_ppg != null ? ` Last season ${one(v.prior_ppg)}/g.` : ""}</div>`;
     }
     { let h2 = ""; const html0 = html; html = "";
@@ -425,7 +425,7 @@
       html += chapter("Role &amp; usage", roleSection(c) + usage); }
 
     // 4. Track record
-    { const html0 = html; html = "";
+    { const html0 = html; html = playerChart(p.id, c);
       if (k.games) html += `<div class="tiles head">${tileHtml("Season", `${one(k.ppg)}<small>/g</small>`, `${k.games} game${k.games > 1 ? "s" : ""}`)}${
         tileHtml("Avg finish", `${ab}${k.avg_finish}`, `best ${ab}${k.best_finish}`)}</div>`;
     if (k.games) {
@@ -473,7 +473,7 @@
     const c = CARDS[p.id];
     const reason = p.check && p.check.status === "unverified"
       ? `<div class="pmeta" style="color:var(--warn)">${esc(p.check.reason)}</div>` : "";
-    const irNote = slot !== "IR" && p.ir_eligible ? `<span class="chip q">IR-eligible</span>` : "";
+    const irNote = slot !== "IR" && p.ir_eligible ? `<span class="chip warn">IR-eligible</span>` : "";
     if (!c) {
       return `<div class="prow"><span class="slot ${esc(cls)}">${esc(label)}</span>
         <div><div class="pname">${esc(p.name)}${injuryChip(p)}${irNote}${checkChip(p)}</div>
@@ -538,7 +538,7 @@
     const on = { quiet: "bargain_bid", warm: "competitive_bid", hot: "safe_bid" }[s.demand];
     const lvl = (k, label) => L[k] == null ? "" : `<span class="level ${k === on ? "on" : ""}">${label} ${money(L[k])}</span>`;
     const heat = p.count != null
-      ? `<span class="chip ${s.demand === "hot" ? "hot" : "warm"}">${Number(p.count).toLocaleString()} adds</span>` : "";
+      ? `<span class="chip ${s.demand === "hot" ? "warn" : ""}">${Number(p.count).toLocaleString()} adds</span>` : "";
     const owner = p.rostered_by ? `<div class="subtle" style="color:var(--warn)">Already rostered by ${esc(p.rostered_by)}</div>` : "";
     const comps = p.comparables && p.comparables.length
       ? `<div class="subtle">Similar claims: ${p.comparables.map((c) => `${esc(c.name)} ${money(c.bid)} (needed ${money(c.clearing_price)})`).join(" · ")}</div>` : "";
@@ -555,7 +555,7 @@
     </div>`;
   }
 
-  const FIT = { upgrade: ["Upgrade", "balanced"], depth: ["Depth", "ok-style"], none: ["Bench only", ""] };
+  const FIT = { upgrade: ["Upgrade", "good"], depth: ["Depth", "info"], none: ["Bench only", ""] };
   function waiverCard(p) {
     const s = p.suggestion || {}, L = s.levels || {}, c = CARDS[p.id];
     const lvl = (k, label) => L[k] == null ? "" : `<span class="level ${k === s.level ? "on" : ""}">${label} ${money(L[k])}</span>`;
@@ -567,7 +567,7 @@
     const cut = p.drop && p.drop.length ? ` · you'd cut ${p.drop.map((d) => esc(d.name)).join(", ")}` : "";
     return `<details class="wv" data-pid="${esc(p.id)}"><summary class="wv-sum">
         <div class="wv-head">
-          <div class="pname">${esc(p.name)}${injuryChip(p)} <span class="chip ${fitCls}">${fitLabel}</span>${p.trending ? ` <span class="chip warm" title="Sleeper-wide adds, last 48h">trending</span>` : ""}</div>
+          <div class="pname">${esc(p.name)}${injuryChip(p)} <span class="chip ${fitCls}">${fitLabel}</span>${p.trending ? ` <span class="subtle" title="Sleeper-wide adds, last 48h">· trending ↑</span>` : ""}</div>
           <div class="pmeta">${esc(p.position)} · ${teamLink(p.team)}${p.pos_rank ? ` · ${esc(p.position)}${p.pos_rank} rest of season` : ""} · ${num(p.proj_rate)}/wk proj</div>
           <div class="wv-impact">${impact}${cut}</div>
           ${c && c.role && c.role.contingency && c.value && c.role.contingency.rate - c.value.rate >= 2 ? `<div class="wv-impact">Handcuff: <b>~${num(c.role.contingency.rate)}</b>/wk if ${esc(c.role.contingency.if_out)} misses</div>` : ""}
@@ -602,14 +602,14 @@
   }
 
   function tendencyCard(t) {
-    const styleCls = { "big spender": "hot", stingy: "ok-style", "middle of the pack": "conf" }[t.style] || "conf";
+    const styleCls = { "big spender": "warn", stingy: "info" }[t.style] || "";
     const pos = Object.entries(t.positions).map(([k, v]) => `<span class="level">${esc(k)} ×${v}</span>`).join("");
     return `<div class="bid-card ${t.roster_id === F.my_roster_id ? "mine-bg" : ""}">
       <div class="bid-head"><div><span class="pname">${managerName(t)}</span>
         <div class="pmeta">${esc(t.team_name)} · waiver #${esc(t.waiver_position ?? "–")}</div></div>
         <span class="chip ${styleCls}">${esc(t.style)}</span></div>
       <div class="subtle" style="margin-top:4px">
-        <b>${money(t.remaining)}</b> left${t.nearly_out ? ` <span class="chip inj">nearly out</span>` : ""} ·
+        <b>${money(t.remaining)}</b> left${t.nearly_out ? ` <span class="chip bad">nearly out</span>` : ""} ·
         ${t.bids} bid${t.bids === 1 ? "" : "s"} (${t.won} won, ${t.outbid} outbid, ${t.invalid} invalid) · ${t.fa_adds} free-agent pickup${t.fa_adds === 1 ? "" : "s"}</div>
       ${t.bids ? `<div class="subtle">Typical bid ${money(t.typical_bid)}, biggest ${money(t.max_bid)} · overpaid ${money(t.overpaid_total)} across ${t.overpaid_claims} claim${t.overpaid_claims === 1 ? "" : "s"}</div>` : ""}
       ${pos ? `<div class="levels">${pos}</div>` : ""}
@@ -794,7 +794,7 @@
   }
 
   function tradeCard(t) {
-    const cls = t.balance.startsWith("balanced") ? "balanced" : t.balance.startsWith("favours") ? "favours" : "lopsided";
+    const cls = t.balance.startsWith("balanced") ? "good" : t.balance.startsWith("favours") ? "warn" : "bad";
     const n = T.weeks.length || 1;
     return `<div class="trade has-detail">
       <div class="trade-head">
@@ -1252,6 +1252,122 @@
     if (g) toast(`<b>${esc(term)}</b>: ${esc(g)} <a href="#glossary" class="gl-link">Glossary →</a>`);
   }
 
+  // ---------- Charts: small inline SVG line charts with a tap / hover readout ----------
+  // o.x = labels ("" = no label), o.series = [{ name, vals, kind: "main" | "proj" | "ref" }],
+  // o.band = { lo, hi } (optional range), o.tips = one readout per x, o.fmt = axis labels.
+  // Lines carry identity; text stays in text colours. One y-axis, starting at 0.
+  function niceStep(x) {
+    const p = Math.pow(10, Math.floor(Math.log10(Math.max(x, 1e-9)))), m = x / p;
+    return p * (m <= 1 ? 1 : m <= 2 ? 2 : m <= 2.5 ? 2.5 : m <= 5 ? 5 : 10);
+  }
+  function lineChart(o) {
+    const n = o.x.length;
+    if (n < 2) return "";
+    const W = 340, H = 150, L = 34, R = 12, T = 10, B = 22, fmt = o.fmt || ((v) => num(v, 0));
+    const vals = [].concat(...o.series.map((s) => s.vals), o.band ? o.band.hi : []).filter((v) => v != null);
+    const step = o.step || niceStep((o.yMax || Math.max(...vals, 1)) / 3);
+    const top = o.yMax || Math.ceil(Math.max(...vals, 1) / step) * step;
+    const X = (i) => L + (W - L - R) * i / (n - 1), Y = (v) => T + (H - T - B) * (1 - Math.min(v, top) / top);
+    const f1 = (v) => v.toFixed(1);
+    let g = "";
+    for (let v = 0; v <= top + 1e-9; v += step) {
+      g += `<line class="ch-grid" x1="${L}" x2="${W - R}" y1="${f1(Y(v))}" y2="${f1(Y(v))}"/><text class="ch-y" x="${L - 6}" y="${f1(Y(v) + 3.5)}">${esc(fmt(v))}</text>`;
+    }
+    const every = Math.ceil(n / 8);
+    o.x.forEach((lab, i) => { if (lab && (i % every === 0 || i === n - 1)) g += `<text class="ch-x" x="${f1(X(i))}" y="${H - 6}">${esc(lab)}</text>`; });
+    // runs of consecutive non-null points
+    const runs = (arr) => { const out = []; let cur = []; arr.forEach((v, i) => { if (v == null) { if (cur.length) out.push(cur); cur = []; } else cur.push(i); }); if (cur.length) out.push(cur); return out; };
+    if (o.band) runs(o.band.lo.map((v, i) => (v == null || o.band.hi[i] == null ? null : v))).forEach((r) => {
+      const up = r.map((i) => `${f1(X(i))},${f1(Y(o.band.hi[i]))}`), down = r.slice().reverse().map((i) => `${f1(X(i))},${f1(Y(o.band.lo[i]))}`);
+      if (r.length === 1) { const i = r[0]; g += `<line class="ch-bandline" x1="${f1(X(i))}" x2="${f1(X(i))}" y1="${f1(Y(o.band.hi[i]))}" y2="${f1(Y(o.band.lo[i]))}"/>`; }
+      else g += `<polygon class="ch-band" points="${up.concat(down).join(" ")}"/>`;
+    });
+    o.series.forEach((s) => {
+      runs(s.vals).forEach((r) => {
+        if (r.length > 1) g += `<polyline class="ch-line ${s.kind}" points="${r.map((i) => `${f1(X(i))},${f1(Y(s.vals[i]))}`).join(" ")}"/>`;
+        if (s.kind !== "ref") r.forEach((i) => { g += `<circle class="ch-dot ${s.kind}" cx="${f1(X(i))}" cy="${f1(Y(s.vals[i]))}" r="3.5"/>`; });
+      });
+    });
+    // direct label on the last main value
+    const main = o.series.find((s) => s.kind === "main");
+    if (main) {
+      const li = main.vals.map((v, i) => (v == null ? -1 : i)).filter((i) => i >= 0).pop();
+      const right = X(li) < W - R - 36;      // beside the dot, not on the line
+      if (li != null && li >= 0) g += `<text class="ch-last" text-anchor="${right ? "start" : "end"}" x="${f1(X(li) + (right ? 7 : -7))}" y="${f1(Math.max(Y(main.vals[li]) + 4, T + 8))}">${esc(fmt(main.vals[li]))}</text>`;
+    }
+    // hit columns for the readout
+    const colW = (W - L - R) / (n - 1);
+    g += `<line class="ch-guide" x1="0" x2="0" y1="${T}" y2="${H - B}" visibility="hidden"/>`;
+    o.x.forEach((_, i) => {
+      g += `<rect class="ch-hit" x="${f1(Math.max(L, X(i) - colW / 2))}" y="0" width="${f1(Math.min(colW, W - R - Math.max(L, X(i) - colW / 2) + (i === n - 1 ? R : 0)))}" height="${H}" data-x="${f1(X(i))}" data-tip="${esc(o.tips[i] || "")}"/>`;
+    });
+    const legend = o.series.length + (o.band ? 1 : 0) > 1 ? `<div class="ch-legend">${o.series.map((s) => `<span><i class="ch-sw ${s.kind}"></i>${esc(s.name)}</span>`).join("")}${
+      o.band ? `<span><i class="ch-sw band"></i>${esc(o.band.name || "Typical range")}</span>` : ""}</div>` : "";
+    return `<figure class="chart">${o.title ? `<figcaption class="pd-h">${esc(o.title)}</figcaption>` : ""}${legend}
+      <svg class="ch-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(o.label || o.title || "Chart")}">${g}</svg>
+      <div class="ch-read subtle" aria-live="polite">${esc(o.hint || "Tap the chart for each point.")}</div></figure>`;
+  }
+  function chartReadout(e) {
+    const h = e.target.closest && e.target.closest(".ch-hit");
+    if (!h) return;
+    const fig = h.closest(".chart"), guide = fig.querySelector(".ch-guide");
+    guide.setAttribute("x1", h.dataset.x); guide.setAttribute("x2", h.dataset.x); guide.setAttribute("visibility", "visible");
+    fig.querySelector(".ch-read").textContent = h.dataset.tip;
+  }
+  document.addEventListener("pointermove", chartReadout);
+  document.addEventListener("pointerdown", chartReadout);
+
+  // playoff odds after every update this season
+  function oddsChart(rid, title) {
+    const s = oddsSeries(rid);
+    if (s.length < 2) return "";
+    const day = (at) => { try { return new Date(at).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }); } catch (e) { return at.slice(0, 10); } };
+    return lineChart({ title, label: `Playoff odds by update: from ${Math.round(100 * s[0].v)}% to ${Math.round(100 * s[s.length - 1].v)}%`,
+      x: s.map((p, i) => (i === 0 || p.week !== s[i - 1].week ? `W${p.week}` : "")), yMax: 100, step: 25, fmt: (v) => `${Math.round(v)}%`,
+      series: [{ name: "Playoff odds", vals: s.map((p) => 100 * p.v), kind: "main" }],
+      tips: s.map((p, i) => `${day(p.at)} (week ${p.week}): ${Math.round(100 * p.v)}%${i ? ` (${p.v >= s[i - 1].v ? "+" : "−"}${Math.abs(Math.round(100 * (p.v - s[i - 1].v)))})` : ""}`),
+      hint: "Each point is one update. Tap for the date." });
+  }
+  // a team's weekly score against the league median
+  function scoreChart(rid, title) {
+    const games = ((LG && LG.weekly) || {})[String(rid)] || [], med = (LG && LG.medians) || {};
+    if (games.length < 2) return "";
+    const above = games.filter((g) => med[g.week] != null && g.pts > med[g.week]).length;
+    return lineChart({ title, label: `Weekly score vs league median: above in ${above} of ${games.length} weeks`,
+      x: games.map((g) => `W${g.week}`),
+      series: [{ name: "Score", vals: games.map((g) => g.pts), kind: "main" }, { name: "League median", vals: games.map((g) => med[g.week] ?? null), kind: "ref" }],
+      tips: games.map((g) => { const m = med[g.week]; return `Week ${g.week}: ${num(g.pts)}${m != null ? ` vs median ${num(m)} (${g.pts >= m ? "+" : "−"}${num(Math.abs(g.pts - m))})` : ""}${g.result ? ` · ${g.result === "W" ? "won" : g.result === "L" ? "lost" : "tied"}` : ""}`; }),
+      hint: `Above the median in ${above} of ${games.length} weeks. Tap for each week.` });
+  }
+  // a player's weekly points so far, then his projection and typical range for the weeks left
+  function playerChart(pid, c) {
+    const L = DATA.lab, r = L && L.players[pid], v = c && c.value;
+    const played = ((c && c.log) || []).filter((g) => !g.bye);
+    const past = {}; played.forEach((g) => { const pts = g.pts != null ? g.pts : g.calc; if (pts != null) past[g.week] = g; });
+    const weeks = [];
+    const last = r ? L.weeks[L.weeks.length - 1] : Math.max(0, ...Object.keys(past).map(Number));
+    for (let w = 1; w <= last; w++) weeks.push(w);
+    if (weeks.length < 2 || (!played.length && !r)) return "";
+    const cw = L ? L.current_week : 99, rate = (v && v.rate) || (r && r.r) || 0, rg = v && v.range;
+    const proj = (w) => { if (!r || w < cw) return null; const i = L.weeks.indexOf(w); return i < 0 ? null : r.w[i]; };
+    const scale = (w, k) => { const m = proj(w); if (m == null || m <= 0) return null;
+      return rg && rate ? m * rg[k] / rate : Math.max(0, m + (k === 1 ? -1 : 1) * Math.sqrt(r.v[L.weeks.indexOf(w)] || 0)); };
+    const act = (w) => (past[w] ? (past[w].pts != null ? past[w].pts : past[w].calc) : null);
+    const ab = POS_ABBR[(r && r.p) || ""] || (r && r.p) || "";
+    return lineChart({ title: "Week by week", label: `Weekly fantasy points, then projections for the weeks left`,
+      x: weeks.map((w) => `W${w}`),
+      series: [{ name: "Scored", vals: weeks.map(act), kind: "main" }, { name: "Projected", vals: weeks.map(proj).map((x) => (x === 0 ? null : x)), kind: "proj" }],
+      band: { lo: weeks.map((w) => scale(w, 1)), hi: weeks.map((w) => scale(w, 3)), name: "Typical range" },
+      tips: weeks.map((w) => {
+        const g = past[w], m = proj(w), i = r ? L.weeks.indexOf(w) : -1;
+        if (g) return `Week ${w} vs ${g.opp || "?"}: ${one(act(w))} pts${g.finish ? ` (${ab}${g.finish})` : ""}${g.partial ? ", partial game" : ""}`;
+        if (m === 0 && i >= 0) return `Week ${w}: bye`;
+        if (m != null) return `Week ${w} ${r.op[i] || ""}: projected ${one(m)} (typically ${one(scale(w, 1))}–${one(scale(w, 3))})`;
+        return `Week ${w}: didn't play`;
+      }),
+      hint: "Tap the chart for each week." });
+  }
+
   // ---------- Playoff planner ----------
   function playoffWeeksOf() {
     const any = Object.values(CARDS).find((c) => (c.schedule || []).some((w) => w.playoff));
@@ -1279,7 +1395,8 @@
       ${tileHtml("Playoff odds", po.odds_text || "–", `${num(po.proj_wins)} projected wins · top ${O.playoff_teams} make it`)}
       ${tileHtml("#1 seed", po.seed1 != null ? pct(po.seed1) : "–", "")}
       ${tileHtml("Trade deadline", dl ? `Week ${dl}` : "–", dl ? (dl >= cw ? `${dl - cw} week${dl - cw === 1 ? "" : "s"} away` : "passed") : "")}
-      ${tileHtml("Playoffs", pw.length ? `Weeks ${pw[0]}–${pw[pw.length - 1]}` : "–", x.sosRank ? `${ordinal(x.sosRank)} hardest schedule until then` : "")}</div>`;
+      ${tileHtml("Playoffs", pw.length ? `Weeks ${pw[0]}–${pw[pw.length - 1]}` : "–", x.sosRank ? `${ordinal(x.sosRank)} hardest schedule until then` : "")}</div>
+      ${oddsChart(me, "Your playoff odds this season")}`;
     if (!pw.length) return html + `<p class="subtle">Playoff-week projections aren't available yet.</p>`;
     const teams = Object.keys(L.rosters);
     const strength = {};
@@ -1306,7 +1423,7 @@
         else if (sw.matchup === "tough" && lu.includes(p)) probs.push({ p, w, why: `tough matchup ${sw.home === false ? "@" : "vs "}${sw.opp}` });
       });
     });
-    html += `<h2>Problems to fix</h2>${probs.length ? `<div class="stack todo-list">${probs.map((q) => `<div class="todo"><span class="chip ${q.why === "bye" ? "lopsided" : "q"}">Wk ${q.w}</span>
+    html += `<h2>Problems to fix</h2>${probs.length ? `<div class="stack todo-list">${probs.map((q) => `<div class="todo"><span class="chip ${q.why === "bye" ? "bad" : "warn"}">Wk ${q.w}</span>
       <div class="todo-t"><b>${plink(q.p, P[q.p].n)}</b> (${esc(P[q.p].p)}, ${num(P[q.p].r)}/wk): ${esc(q.why)}.</div></div>`).join("")}</div>`
       : `<div class="card"><div class="empty">No byes or tough matchups for your key players in the playoff weeks.</div></div>`}`;
     const posAvg = (t, pos) => { let tot = 0; strength[t].forEach((r) => r.lineup.forEach(([, p, pts]) => { if (P[p].p === pos) tot += pts; })); return tot / pw.length; };
@@ -1326,7 +1443,7 @@
         && r.r > weakest(r.p) && r.r <= weakest(r.p) + 7)
       .map(([pid, r]) => ({ id: pid, avg: ppAvg(pid), boost: (ppAvg(pid) || 0) - r.r })).filter((a) => a.avg != null && a.boost >= -0.5)
       .sort((a, b) => b.avg - a.avg).slice(0, 5);
-    const row = (a, act) => `<div class="todo"><span class="chip ok-style">${esc(P[a.id].p)}</span><div class="todo-t"><b>${plink(a.id, P[a.id].n)}</b> (${esc(P[a.id].t)}${
+    const row = (a, act) => `<div class="todo"><span class="chip">${esc(P[a.id].p)}</span><div class="todo-t"><b>${plink(a.id, P[a.id].n)}</b> (${esc(P[a.id].t)}${
       P[a.id].o != null ? `, ${esc((L.rosters[String(P[a.id].o)] || {}).team_name || "")}` : ", free agent"}): <b>${num(a.avg)}</b> pts/wk in playoff weeks</div><div class="todo-a">${act}</div></div>`;
     html += `<h2>Ways to strengthen ${targetPos.join(" / ")} for the playoffs</h2>
       ${fas.length ? `<div class="pd-h">Free agents</div><div class="stack todo-list">${fas.map((a) => row(a, `<button type="button" class="mini" data-act="find" data-name="${esc(P[a.id].n)}">View</button>`)).join("")}</div>` : ""}
@@ -1349,7 +1466,7 @@
     const pc = (x) => `${Math.round(100 * x)}%`;
     const head = `<div class="tiles head">${tileHtml("Win chance now", pc(w.current_win), `lineup as set · ${num(w.mean_current)} proj`)}
       ${tileHtml("Best lineup", pc(w.best_win), `${num(w.mean_best)} proj · ${w.style === "underdog" ? "you're the underdog: chasing ceiling" : "you're favoured: protecting the floor"}`, w.best_win - w.current_win >= 0.01 ? "good" : "")}</div>`;
-    const rows = w.changes.length ? `<div class="stack" style="margin-top:12px">${w.changes.map((c) => `<div class="todo"><span class="chip balanced">Swap</span>
+    const rows = w.changes.length ? `<div class="stack" style="margin-top:12px">${w.changes.map((c) => `<div class="todo"><span class="chip warn">Swap</span>
         <div class="todo-t">Start <b>${n(c.in)}</b> (${num(c.in_pts)})${c.out ? `, sit <b>${n(c.out)}</b> (${num(c.out_pts)})` : ""}${
           c.win_alone != null ? `: win chance ${pc(w.current_win)} → <b>${pc(c.win_alone)}</b>` : ""}</div></div>`).join("")}</div>
         <p class="subtle">Other players may shuffle between slots (e.g. into FLEX) to fit the change.</p>`
@@ -1366,35 +1483,35 @@
     const go = (tab, label) => `<button type="button" class="mini" data-act="go" data-tab="${tab}">${label}</button>`;
     const wp = O && O.win_plan;
     if (wp && wp.changes.length && wp.best_win - wp.current_win >= 0.005) wp.changes.forEach((c) => out.push({
-      tag: "Lineup", cls: "lopsided", rank: 0,
+      tag: "Lineup", cls: "warn", rank: 0,
       text: `Start <b>${plink(c.in, (O.names[c.in] || {}).name || c.in)}</b>${c.out ? ` over <b>${plink(c.out, (O.names[c.out] || {}).name || c.out)}</b>` : ""}: win chance ${Math.round(100 * wp.current_win)}% → ${Math.round(100 * (c.win_alone ?? wp.best_win))}%.`,
       act: go("startsit", "Start/sit") }));
     if (O && !(wp && wp.changes.length)) O.start_sit.filter((r) => r.verdict === "problem" || r.verdict === "swap").forEach((r) => out.push({
-      tag: "Lineup", cls: "lopsided", rank: r.verdict === "problem" ? 0 : 1,
+      tag: "Lineup", cls: r.verdict === "problem" ? "bad" : "warn", rank: r.verdict === "problem" ? 0 : 1,
       text: r.alt ? `Start <b>${esc(nm(r.alt).name)}</b> over <b>${esc(nm(r.starter).name)}</b> at ${esc(r.slot)}: ${num(r.alt_pts)} vs ${num(r.starter_pts)} projected${r.p_alt ? `, wins ${Math.round(100 * r.p_alt)}% of the time` : ""}.`
         : `Lineup problem at ${esc(r.slot)}: ${esc(nm(r.starter).name)}. ${esc(r.why || "")}`,
       act: go("startsit", "Start/sit") }));
-    (me.notes || []).forEach((n) => out.push({ tag: "Roster", cls: "q", rank: 2, text: esc(n), act: "" }));
+    (me.notes || []).forEach((n) => out.push({ tag: "Roster", cls: "warn", rank: 2, text: esc(n), act: "" }));
     (TM && TM.opportunities || []).filter((o) => o.owner == null || mine.has(o.id)).slice(0, 3).forEach((o) => out.push({
-      tag: "Opportunity", cls: "balanced", rank: 3,
+      tag: "Opportunity", cls: "good", rank: 3,
       text: `<b>${plink(o.id, o.name)}</b> (${esc(o.pos)}, ${esc(o.team)}${o.owner == null ? ", free agent" : ", yours"}) projects <b>${num(o.pts)}</b> in week ${esc(o.week)}, up ${num(o.gain)} with ${o.from.map(esc).join(" and ")} out.`,
       act: o.owner == null ? `<button type="button" class="mini" data-act="find" data-name="${esc(o.name)}">View</button>` : "" }));
     (F && F.available || []).filter((p) => p.fit === "upgrade").slice(0, 2).forEach((p) => out.push({
-      tag: "Waivers", cls: "ok-style", rank: 4,
+      tag: "Waivers", cls: "info", rank: 4,
       text: `Bid <b>$${esc(p.suggestion.bid)}</b> on <b>${plink(p.id, p.name)}</b> (${esc(p.position)}): +${num(p.gain_per_week)} pts/wk for you${p.drop && p.drop.length ? `, cutting ${esc(p.drop[0].name)}` : ""}.`,
       act: go("faab", "Waivers") }));
     if (TM) me.starters.filter((p) => p.id && p.position === "RB").forEach((p) => {
       const rows = (TM.depth[p.team] || {}).RB || [];
       const cuff = rows.find((r) => r.contingency && r.contingency.id === p.id && r.owner == null && r.proj != null && r.contingency.rate - r.proj >= 3);
-      if (cuff) out.push({ tag: "Handcuff", cls: "ok-style", rank: 5,
+      if (cuff) out.push({ tag: "Handcuff", cls: "info", rank: 5,
         text: `<b>${plink(cuff.id, cuff.name)}</b> is a free agent: about ${num(cuff.contingency.rate)} pts/wk if your <b>${plink(p.id, p.name)}</b> misses time.`,
         act: `<button type="button" class="mini" data-act="find" data-name="${esc(cuff.name)}">View</button>` });
     });
     (T && T.sell_high || []).filter((r) => r.roster_id === T.my_roster_id && !isHeld(r.id)).slice(0, 2).forEach((r) => out.push({
-      tag: "Sell high", cls: "hot", rank: 6, text: `<b>${plink(r.id, r.name)}</b> is scoring above what his usage supports: worth shopping while his value is high.`,
+      tag: "Sell high", cls: "info", rank: 6, text: `<b>${plink(r.id, r.name)}</b> is scoring above what his usage supports: worth shopping while his value is high.`,
       act: `<button type="button" class="mini" data-act="shop" data-pid="${esc(r.id)}">Shop</button>` }));
     const idea = T && (T.ideas || []).find((t) => !t.give.some((p) => isHeld(p.id)) && t.balance !== "lopsided (tough sell)");
-    if (idea) out.push({ tag: "Trade idea", cls: "balanced", rank: 7,
+    if (idea) out.push({ tag: "Trade idea", cls: "info", rank: 7,
       text: `Give ${idea.give.map((p) => `<b>${plink(p.id, p.name)}</b>`).join(" + ")}, get ${idea.get.map((p) => `<b>${plink(p.id, p.name)}</b>`).join(" + ")} with ${esc(idea.team_name)}: you +${num(idea.my_gain)}, them +${num(idea.their_gain)}.`,
       act: go("trades", "Trade ideas") });
     return out.sort((a, b) => a.rank - b.rank);
@@ -1577,7 +1694,7 @@
     const res = m.tie ? "Tied" : m.won ? "Won" : "Lost";
     const odds = m.odds_before != null && m.odds_after != null ? ` · playoff odds ${Math.round(100 * m.odds_before)}% → ${Math.round(100 * m.odds_after)}%` : "";
     return `<h2>Week ${r.week} recap</h2><div class="stack"><div class="recap-teaser">
-      <div><span class="chip ${m.won ? "balanced" : m.tie ? "" : "lopsided"}">${res}</span> <b>${num(m.pts)}–${num(m.opp_pts)}</b> vs ${tnm(m.opp)}
+      <div><span class="chip ${m.won ? "good" : m.tie ? "" : "bad"}">${res}</span> <b>${num(m.pts)}–${num(m.opp_pts)}</b> vs ${tnm(m.opp)}
         <div class="subtle">${ordinal(m.rank)} highest score of ${Object.keys(r.scores).length}${odds}${m.left_on_bench > 0.5 ? ` · ${num(m.left_on_bench)} left on the bench` : ""}</div></div>
       <button type="button" class="mini" data-act="recap">Read the recap</button></div></div>`;
   }
@@ -1596,7 +1713,7 @@
     // 1. your week
     if (m) {
       const res = m.tie ? "Tied" : m.won ? "Won" : "Lost";
-      let b = `<div class="rc-hero"><div><span class="chip ${m.won ? "balanced" : m.tie ? "" : "lopsided"}">${res}</span>
+      let b = `<div class="rc-hero"><div><span class="chip ${m.won ? "good" : m.tie ? "" : "bad"}">${res}</span>
           <div class="rc-score">${num(m.pts)} <span class="subtle">–</span> ${num(m.opp_pts)}</div><div class="subtle">vs ${tn(m.opp)}${m.margin != null ? ` · by ${num(m.margin)}` : ""}</div></div>
         <div class="rc-side">${ordinal(m.rank)}<small>of ${Object.keys(r.scores).length} scores</small></div></div>
         <div class="tiles head">${m.proj != null ? tileHtml("vs projection", `${m.pts - m.proj >= 0 ? "+" : ""}${num(m.pts - m.proj)}`, `projected ${num(m.proj)}`) : ""}
@@ -1607,6 +1724,7 @@
         <div class="pd-h" style="margin-top:10px">Worst calls</div>${plist(m.busts)}`;
       if (m.should_have_started.length) b += `<div class="subtle" style="margin-top:8px">Should have started: ${m.should_have_started.map((x) => `<b>${plink(x.id, x.name)}</b> (${num(x.pts)})`).join(", ")}.${
         m.optimal_would_win ? " The best possible lineup would have won." : !m.won && !m.tie ? " Even the best lineup would have lost." : ""}</div>`;
+      b += scoreChart(me, "Your season: score vs league median");
       html += ch("Your week", b);
     }
 
@@ -1632,7 +1750,7 @@
       <span class="${x.up ? "up" : "down"}">${Math.round(100 * x.normal)}% → ${Math.round(100 * x.share)}%${x.opportunity ? ` <span class="subtle">(starter out)</span>` : ""}</span></div>`).join("")}</div>
       <div class="subtle">Share of ${r.roles[0].kind === "carry" ? "carries / targets" : "targets / carries"} this week vs his normal role.</div>`;
     if (r.injuries.length) pw += `<div class="pd-h" style="margin-top:12px">Injuries to watch next week</div><div class="rc-list">${r.injuries.map((x) => `<div class="rc-row"><span><b>${plink(x.id, x.name)}</b> <span class="subtle">${esc(x.pos || "")} · ${x.owner === me ? "you" : tn(x.owner)}</span></span>
-      <span class="chip ${x.status === "Questionable" ? "q" : "inj"}">${esc(x.status)}</span></div>`).join("")}</div>`;
+      <span class="chip ${x.status === "Questionable" ? "warn" : "bad"}">${esc(x.status)}</span></div>`).join("")}</div>`;
     pw += `<div class="pd-h" style="margin-top:12px">Waiver results</div>${r.claims.length ? `<div class="rc-list">${r.claims.map((c) => `<div class="rc-row"><span><b>${plink(c.player.id, c.player.name)}</b> <span class="subtle">${esc(c.player.position)} → ${esc(c.winner)}</span></span>
       <span>$${esc(c.bid)}${c.competing_bids ? ` <span class="subtle">vs $${esc(c.runner_up_bid)}${c.overpay > 0 ? `, overpaid $${esc(c.overpay)}` : ""}</span>` : ` <span class="subtle">uncontested</span>`}</span></div>`).join("")}</div>` : `<div class="subtle">No claims processed yet.</div>`}`;
     if (r.trades.length) pw += `<div class="pd-h" style="margin-top:12px">Trades</div>${r.trades.map((t) => `<div class="rc-trade">${t.moves.map((mv) =>
@@ -1719,9 +1837,9 @@
     const s = x.st, ap = x.ap || {}, po = x.po || {}, ab = (p) => POS_ABBR[P[p].p] || P[p].p;
     const form = x.ws.games.slice(-3).map((g) => { const r = x.W.rankOf[g.week][x.key], n = x.W.teamsIn[g.week];
       return `<span class="fpill ${r === 1 ? "f-boom" : r <= 3 ? "f-start" : r > n - 3 ? "f-bust" : "f-mid"}" title="Week ${g.week}: ${num(g.pts)}">W${g.week} ${ordinal(r)}</span>`; }).join("");
-    const luck = ap.luck == null ? "" : ap.luck >= 0.75 ? `<span class="chip q">lucky +${num(ap.luck)}</span>` : ap.luck <= -0.75 ? `<span class="chip ok-style">unlucky ${num(ap.luck)}</span>` : "";
-    const tags = [...x.strong.map((k) => `<span class="chip balanced">strong ${k}</span>`), ...x.weak.map((k) => `<span class="chip lopsided">thin ${k}</span>`),
-      ...(x.tt.needs || []).filter((k) => !x.weak.includes(k)).map((k) => `<span class="chip q">needs ${k}</span>`)].join("");
+    const need = x.weak.length ? `<span class="chip bad">thin ${x.weak[0]}</span>` : (x.tt.needs || []).length ? `<span class="chip warn">needs ${x.tt.needs[0]}</span>` : "";
+    const luck = ap.luck == null ? "" : ap.luck >= 0.75 ? `<span class="chip warn">lucky +${num(ap.luck)}</span>` : ap.luck <= -0.75 ? `<span class="chip info">unlucky ${num(ap.luck)}</span>` : "";
+    const tags = [need, x.strong.length ? `<span class="chip good">strong ${x.strong[0]}</span>` : "", luck].filter(Boolean).slice(0, 2).join("");
     const tile = (k, v, sub) => tileHtml(k, v, sub);
     const ch = (t, b) => (b ? `<section class="pd-ch"><h3>${t}</h3>${b}</section>` : "");
     // 1 snapshot
@@ -1737,14 +1855,15 @@
     const last3 = x.ws.games.slice(-3).map((g) => g.pts);
     let form2 = `<div class="role-weeks">${allWeeks}</div>
       <div class="subtle">Season ${num(wsr.avg)}/wk${last3.length ? ` · last ${last3.length} ${num(last3.reduce((a, b) => a + b, 0) / last3.length)}/wk` : ""} · high ${num(wsr.high)} · low ${num(wsr.low)}${
-        wsr.sd != null ? ` · ${wsr.sd <= x.W.sdMedian ? "steady" : "boom-or-bust"} (±${num(wsr.sd)})` : ""}${x.th.efficiency != null ? ` · lineup efficiency ${Math.round(100 * x.th.efficiency)}%` : ""}</div>`;
+        wsr.sd != null ? ` · ${wsr.sd <= x.W.sdMedian ? "steady" : "boom-or-bust"} (±${num(wsr.sd)})` : ""}${x.th.efficiency != null ? ` · lineup efficiency ${Math.round(100 * x.th.efficiency)}%` : ""}</div>
+      ${scoreChart(x.rid, "Score vs league median")}${oddsChart(x.rid, "Playoff odds this season")}`;
     // 3 roster
     const vm = x.tt.vs_median || {}, str = x.tt.strength || {};
     const posRow = Object.keys(str).map((k) => `<tr><td><b>${k}</b></td><td>${num(str[k])}</td><td class="${vm[k] > 0.5 ? "up" : vm[k] < -0.5 ? "down" : ""}">${vm[k] >= 0 ? "+" : ""}${num(vm[k])}</td></tr>`).join("");
     let roster = `<div class="card table-wrap"><table class="named"><thead><tr><th>Slot</th><th>Pts/wk</th><th>vs median</th></tr></thead><tbody>${posRow}</tbody></table></div>
       <div class="subtle">Needs: <b>${(x.tt.needs || []).join(", ") || "none"}</b> · Depth to spare: <b>${(x.tt.surplus || []).join(", ") || "none"}</b></div>
       <div class="subtle">Best players: ${x.best.map((p) => `${plink(p, P[p].n)} (${ab(p)}, ${num(P[p].r)})`).join(", ")}</div>
-      ${x.hurt.length ? `<div class="subtle">Injured: ${x.hurt.map((p) => `${esc(P[p].n)} <span class="chip ${P[p].s === "Questionable" ? "q" : "inj"}">${esc(P[p].s)}</span>`).join(" ")}</div>` : ""}
+      ${x.hurt.length ? `<div class="subtle">Injured: ${x.hurt.map((p) => `${esc(P[p].n)} <span class="chip ${P[p].s === "Questionable" ? "warn" : "bad"}">${esc(P[p].s)}</span>`).join(" ")}</div>` : ""}
       ${x.byes.length ? `<div class="subtle">Bye crunch: ${x.byes.map((b) => `week ${b.w} (${b.out.map((p) => esc(P[p].n)).join(", ")})`).join("; ")}</div>` : `<div class="subtle">No week with 2+ starters on bye.</div>`}`;
     // 4 schedule
     const tn = (r) => esc((recBy[r] || {}).team_name || r);
@@ -1773,10 +1892,10 @@
     }
     const delta = oddsDelta(x.rid);
     return `<details class="tm ${isMe ? "mine-bg" : ""}"><summary class="tm-sum">
-        <div class="tm-head"><div class="t">${esc(s.team_name)}${isMe ? ` <span class="chip ok-style">you</span>` : ""}</div>
+        <div class="tm-head"><div class="t">${esc(s.team_name)}${isMe ? ` <span class="chip info">you</span>` : ""}</div>
           <div class="m">${esc(s.label || "")} · ${record(s)} · #${s.rank}${x.pw ? ` · power #${x.pw.rank}` : ""}</div></div>
         <div class="tm-odds"><b>${esc(po.odds_text || "–")}</b><small>playoffs ${delta}</small></div>
-        <div class="tm-line">${form}${luck}${tags}</div>
+        <div class="tm-line">${form}${tags}</div>
       </summary>
       <div class="pd">${ch("Snapshot", snap)}${ch("Form", form2)}${ch("Roster", roster)}${ch("Schedule", sched)}${ch("Manager", mgr)}${ch(isMe ? "Ask" : "Trade fit with you", fit)}</div>
     </details>`;
@@ -1830,7 +1949,7 @@
         return `<div class="ws-game"><div><b>W${g.week}</b> ${opp ? `vs ${esc(opp)}` : ""}
             <div class="subtle">${ordinal(r)} of ${n} · would have beaten ${n - r} of ${n - 1}</div></div>
           <div class="sc">${num(g.pts)}${g.opp_pts != null ? ` – ${num(g.opp_pts)}` : ""}</div>
-          <div>${g.result ? `<span class="chip ${g.result === "W" ? "balanced" : g.result === "L" ? "lopsided" : ""}">${g.result}${margin != null ? ` ${margin >= 0 ? "+" : ""}${num(margin)}` : ""}</span>` : ""}</div></div>`;
+          <div>${g.result ? `<span class="chip ${g.result === "W" ? "good" : g.result === "L" ? "bad" : ""}">${g.result}${margin != null ? ` ${margin >= 0 ? "+" : ""}${num(margin)}` : ""}</span>` : ""}</div></div>`;
       }).join("");
       return `<details class="ws ${rid === String(D.me.roster_id) ? "mine-bg" : ""}" data-rid="${rid}"><summary class="ws-row">
           <div class="ws-head"><div class="t">${esc(s.team_name)} <span class="chev">▸</span></div>
@@ -1845,6 +1964,7 @@
             ${a ? tileHtml("All-play", `${a.w}–${a.l}${a.t ? "–" + a.t : ""}`, `luck ${a.luck >= 0 ? "+" : ""}${num(a.luck)} wins`, a.luck >= 1 ? "warn" : a.luck <= -1 ? "good" : "") : ""}
             ${t.sd != null ? tileHtml("Consistency", `±${num(t.sd)}`, steady) : ""}
           </div>
+          ${scoreChart(rid, "Score vs league median")}
           <div class="pd-sec"><div class="pd-h">Every game</div>${games}</div>
         </div></details>`;
     }).join("");
@@ -1962,7 +2082,7 @@
       const r = P[pid];
       return `<button type="button" class="pick ${chosen.includes(pid) ? "on" : ""}" data-side="${side}" data-pid="${esc(pid)}" data-pos="${esc(r.p)}" data-name="${esc(r.n.toLowerCase())}"
         aria-pressed="${chosen.includes(pid)}"><span class="slot ${esc(r.p)}">${esc(r.p)}</span>
-        <span class="pick-name">${esc(r.n)}${r.s ? ` <span class="chip ${r.s === "Questionable" ? "q" : "inj"}">${esc(r.s)}</span>` : ""}</span>
+        <span class="pick-name">${esc(r.n)}${r.s ? ` <span class="chip ${r.s === "Questionable" ? "warn" : "bad"}">${esc(r.s)}</span>` : ""}</span>
         <span class="pick-val">${num(r.r)}</span></button>`;
     }).join("");
   }
@@ -1991,11 +2111,11 @@
     const L = DATA.lab, E = engine(), P = L.players;
     const conf = L.confidence;
     const name = (pid) => esc(P[pid].n);
-    const cls = res.balance.startsWith("balanced") ? "balanced" : (res.balance.startsWith("favours you") ? "favours" : "lopsided");
+    const cls = res.balance.startsWith("balanced") ? "good" : (res.balance.startsWith("favours you") ? "warn" : "bad");
     const tile = (pid) => {
       const r = P[pid];
       return `<div class="tp" data-pid="${esc(pid)}" role="button" tabindex="0"><div class="pl">${esc(r.n)}${
-        r.s ? ` <span class="chip ${r.s === "Questionable" ? "q" : "inj"}">${esc(r.s)}</span>` : ""}${CARDS[pid] ? ` <span class="chev">▸</span>` : ""}</div>
+        r.s ? ` <span class="chip ${r.s === "Questionable" ? "warn" : "bad"}">${esc(r.s)}</span>` : ""}${CARDS[pid] ? ` <span class="chev">▸</span>` : ""}</div>
         <div class="pmeta">${esc(r.p)} · ${esc(r.t)} · <b>${num(r.r)}</b>/wk (${num(Math.max(r.r - r.sd, 0), 0)}–${num(r.r + r.sd, 0)})</div>
         <div class="pmeta">ROS ${num(r.ros, 0)} · ${E.vor(pid) >= 0 ? "+" : ""}${num(E.vor(pid), 0)} vs repl. ${confChip(r.c)}</div></div>`;
     };
@@ -2181,7 +2301,7 @@
     const names = (ids) => ids.map((p) => plink(p, P[p].n)).join(" + ");
     const PRIMARY = ["winwin", "likely", "need", "value", "close"];
     const tags = (x) => { const c = PRIMARY.map((k) => OFFER_CATS.find((y) => y[0] === k)).find((y) => y[2](x));
-      return c ? `<span class="chip ${c[0] === "close" ? "q" : c[0] === "value" ? "favours" : "balanced"}">${c[1]}</span>` : ""; };
+      return c ? `<span class="chip ${c[0] === "close" || c[0] === "value" ? "warn" : "good"}">${c[1]}</span>` : ""; };
     const card = (x) => {
       const pc = Math.round(100 * x.chance);
       return `<div class="trade offer"><div class="trade-head"><div class="pname">${esc(R[x.partner].team_name)}</div><span class="subtle">${esc(x.shape)}${x.built ? " · your trade" : ""}</span></div>
@@ -2769,6 +2889,7 @@
   }
 
   const GLOSSARY = [
+    ["Colours", "Green = good for you, amber = caution or something to act on, red = a problem, blue = information. Charts: solid line = what happened, dashed line = projection (or the league median), shaded band = typical range. Tap a chart for each point."],
     ["Projection", "Expected fantasy points for a game (league scoring), from this season, last season, usage, matchup, injuries, weather and game script. Learns from its own track record (see Model)."],
     ["Typical range", "Where the player lands about two weeks in three: the 16th–84th percentile of results, learned from the backtest. Lopsided: big weeks stretch further above than bad weeks fall below."],
     ["Floor / ceiling", "A 1-in-10 bad week and a 1-in-10 great week (10th and 90th percentile)."],
