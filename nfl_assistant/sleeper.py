@@ -10,7 +10,7 @@ from pathlib import Path
 
 import httpx
 
-RETRY_STATUS = {429, 500, 502, 503, 504}
+RETRY_STATUS = {429}           # plus every 5xx (incl. Cloudflare's 520-530 when Sleeper is briefly down)
 
 
 class SleeperClient:
@@ -36,7 +36,7 @@ class SleeperClient:
             self.calls += 1
             try:
                 resp = self._http.get(url, params=params)
-                if resp.status_code not in RETRY_STATUS:
+                if resp.status_code not in RETRY_STATUS and resp.status_code < 500:
                     resp.raise_for_status()
                     return resp.json()
                 problem = f"HTTP {resp.status_code}"
