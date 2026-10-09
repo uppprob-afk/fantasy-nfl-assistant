@@ -427,6 +427,23 @@ kept), then hill-climbs single bench swaps while win chance rises ≥ 0.4 pts. R
 sit pairs with the win chance if only that swap is made. Home → Start/sit shows it first; the
 to-do list uses it (falls back to slot-by-slot verdicts when there is no plan).
 
+## Colours, labels and charts
+
+- Chip colours have one meaning each: `.chip.good` (green, good for you), `.chip.warn` (amber,
+  caution / something to act on), `.chip.bad` (red, a problem), `.chip.info` (blue, information);
+  no class = neutral. Use these names for new chips (the old `q` / `inj` / `balanced` /
+  `lopsided` / `favours` / `ok-style` names are gone). Keep to 1–2 labels per item: team tiles show
+  the biggest problem, then the biggest strength, then luck. The glossary has a "Colours" entry.
+- `lineChart(o)`: a small inline SVG line chart (one y-axis from 0, gridlines, 2px lines, a
+  direct label on the latest value, legend when there is more than one series or a band). Series
+  kinds: `main` (solid), `proj` (dashed, hollow dots), `ref` (dashed grey, no dots); optional
+  `band` (shaded range). Each x has an invisible `.ch-hit` column; `chartReadout` (pointer
+  events) moves the guide line and writes `o.tips[i]` into `.ch-read`.
+- Charts: `oddsChart(rid)` (playoff odds after every update; Home → Playoffs and team
+  profiles), `scoreChart(rid)` (weekly score vs league median; recap "Your week", Weekly
+  scores team rows, team profiles), `playerChart(pid, card)` (points so far, then projection
+  with the typical range scaled from `value.range`; top of the card's Track record chapter).
+
 ## Home layout, "since you last looked", badges
 
 - Home is built as named sections (`matchup`, `todo`, `team`, `watch`, `recap`, `games`) in
