@@ -1189,6 +1189,95 @@
     draw();
   }
 
+  // ---------- Playoff planner ----------
+  function playoffWeeksOf() {
+    const any = Object.values(CARDS).find((c) => (c.schedule || []).some((w) => w.playoff));
+    return any ? any.schedule.filter((w) => w.playoff).map((w) => w.week) : [];
+  }
+  const schedPts = (pid, w) => { const c = CARDS[pid]; const x = c && (c.schedule || []).find((s) => s.week === w); return x ? (x.bye ? 0 : x.pts || 0) : null; };
+  function teamWeekLineup(pids, w) {
+    const P = DATA.lab.players, used = new Set(), out = [];
+    const pool = pids.filter((p) => P[p] && schedPts(p, w) != null).sort((a, b) => schedPts(b, w) - schedPts(a, w));
+    DATA.lab.slots.forEach((slot) => {
+      const ok = FLEX_OK[slot] || [slot];
+      const pick = pool.find((p) => !used.has(p) && ok.includes(P[p].p));
+      if (pick) { used.add(pick); out.push([slot, pick, schedPts(pick, w)]); }
+    });
+    return { total: out.reduce((a, x) => a + x[2], 0), lineup: out };
+  }
+  function playoffPlanHtml() {
+    const L = DATA.lab, P = L.players, me = myRid(), key = String(me);
+    const pw = playoffWeeksOf();
+    const po = O.playoffs.teams.find((t) => t.is_mine) || {};
+    const x = teamProfile(me);
+    const dl = T && T.trade_deadline, cw = L.current_week;
+    const pct = (v) => `${Math.round(100 * v)}%`;
+    let html = `<h2>Your path</h2><div class="tiles head">
+      ${tileHtml("Playoff odds", po.odds_text || "–", `${num(po.proj_wins)} projected wins · top ${O.playoff_teams} make it`)}
+      ${tileHtml("#1 seed", po.seed1 != null ? pct(po.seed1) : "–", "")}
+      ${tileHtml("Trade deadline", dl ? `Week ${dl}` : "–", dl ? (dl >= cw ? `${dl - cw} week${dl - cw === 1 ? "" : "s"} away` : "passed") : "")}
+      ${tileHtml("Playoffs", pw.length ? `Weeks ${pw[0]}–${pw[pw.length - 1]}` : "–", x.sosRank ? `${ordinal(x.sosRank)} hardest schedule until then` : "")}</div>`;
+    if (!pw.length) return html + `<p class="subtle">Playoff-week projections aren't available yet.</p>`;
+    const teams = Object.keys(L.rosters);
+    const strength = {};
+    teams.forEach((t) => { strength[t] = pw.map((w) => teamWeekLineup(L.rosters[t].players || [], w)); });
+    const avg = (t) => strength[t].reduce((a, r) => a + r.total, 0) / pw.length;
+    const order = teams.slice().sort((a, b) => avg(b) - avg(a));
+    const myRank = order.indexOf(key) + 1;
+    const med = (arr) => { const v = arr.slice().sort((a, b) => a - b); const m = v.length; return m % 2 ? v[(m - 1) / 2] : (v[m / 2 - 1] + v[m / 2]) / 2; };
+    html += `<h2>Playoff-week strength</h2><p class="lead-text">Your best possible lineup in each fantasy-playoff week (projections with that week's matchups and byes),
+      ranked against every team's current roster.</p>
+      <div class="card table-wrap"><table class="named"><thead><tr><th>Week</th><th>You</th><th>League median</th><th>Your rank</th></tr></thead><tbody>
+      ${pw.map((w, i) => { const tots = teams.map((t) => strength[t][i].total); const mine = strength[key][i].total;
+        const rk = 1 + tots.filter((v) => v > mine).length;
+        return `<tr><td>Wk ${w}</td><td><b>${num(mine)}</b></td><td>${num(med(tots))}</td><td>${ordinal(rk)} of ${teams.length}</td></tr>`; }).join("")}</tbody></table></div>
+      <p class="subtle">Overall: <b>${ordinal(myRank)}</b> strongest playoff-week roster of ${teams.length} (${num(avg(key))} vs median ${num(med(teams.map(avg)))}).</p>`;
+    const myPids = L.rosters[key].players || [];
+    const probs = [];
+    pw.forEach((w, i) => {
+      const lu = strength[key][i].lineup.map(([, p]) => p);
+      myPids.filter((p) => P[p] && P[p].r >= 8).forEach((p) => {
+        const c = CARDS[p], sw = c && (c.schedule || []).find((s) => s.week === w);
+        if (!sw) return;
+        if (sw.bye) probs.push({ p, w, why: "bye" });
+        else if (sw.matchup === "tough" && lu.includes(p)) probs.push({ p, w, why: `tough matchup ${sw.home === false ? "@" : "vs "}${sw.opp}` });
+      });
+    });
+    html += `<h2>Problems to fix</h2>${probs.length ? `<div class="stack todo-list">${probs.map((q) => `<div class="todo"><span class="chip ${q.why === "bye" ? "lopsided" : "q"}">Wk ${q.w}</span>
+      <div class="todo-t"><b>${esc(P[q.p].n)}</b> (${esc(P[q.p].p)}, ${num(P[q.p].r)}/wk): ${esc(q.why)}.</div></div>`).join("")}</div>`
+      : `<div class="card"><div class="empty">No byes or tough matchups for your key players in the playoff weeks.</div></div>`}`;
+    const posAvg = (t, pos) => { let tot = 0; strength[t].forEach((r) => r.lineup.forEach(([, p, pts]) => { if (P[p].p === pos) tot += pts; })); return tot / pw.length; };
+    const gaps = ["QB", "RB", "WR", "TE"].map((pos) => ({ pos, mine: posAvg(key, pos), med: med(teams.map((t) => posAvg(t, pos))) }))
+      .map((g) => Object.assign(g, { gap: g.mine - g.med })).sort((a, b) => a.gap - b.gap);
+    const weak = gaps.filter((g) => g.gap < -1).map((g) => g.pos);
+    html += `<p class="subtle">Playoff-week points by position vs the league median: ${gaps.map((g) => `${g.pos} <b class="${g.gap >= 0 ? "up" : "down"}">${g.gap >= 0 ? "+" : ""}${num(g.gap)}</b>`).join(" · ")}.</p>`;
+    const ppAvg = (pid) => { const v = pw.map((w) => schedPts(pid, w)).filter((y) => y != null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
+    const targetPos = weak.length ? weak : [gaps[0].pos];
+    const fas = (F && F.available || []).filter((a) => targetPos.includes(a.position)).map((a) => ({ id: a.id, avg: ppAvg(a.id) })).filter((a) => a.avg != null && P[a.id])
+      .sort((a, b) => b.avg - a.avg).slice(0, 4);
+    // realistic upgrades: a bit better than my weakest starter there, with a playoff schedule at
+    // least as good as their usual (not just the league's stars)
+    const myStart = strength[key][0].lineup.map(([, p]) => p);
+    const weakest = (pos) => Math.min(...myStart.filter((p) => P[p].p === pos).map((p) => P[p].r), 99);
+    const others = Object.entries(P).filter(([pid, r]) => r.o != null && r.o !== me && targetPos.includes(r.p) && CARDS[pid]
+        && r.r > weakest(r.p) && r.r <= weakest(r.p) + 7)
+      .map(([pid, r]) => ({ id: pid, avg: ppAvg(pid), boost: (ppAvg(pid) || 0) - r.r })).filter((a) => a.avg != null && a.boost >= -0.5)
+      .sort((a, b) => b.avg - a.avg).slice(0, 5);
+    const row = (a, act) => `<div class="todo"><span class="chip ok-style">${esc(P[a.id].p)}</span><div class="todo-t"><b>${esc(P[a.id].n)}</b> (${esc(P[a.id].t)}${
+      P[a.id].o != null ? `, ${esc((L.rosters[String(P[a.id].o)] || {}).team_name || "")}` : ", free agent"}): <b>${num(a.avg)}</b> pts/wk in playoff weeks</div><div class="todo-a">${act}</div></div>`;
+    html += `<h2>Ways to strengthen ${targetPos.join(" / ")} for the playoffs</h2>
+      ${fas.length ? `<div class="pd-h">Free agents</div><div class="stack todo-list">${fas.map((a) => row(a, `<button type="button" class="mini" data-act="find" data-name="${esc(P[a.id].n)}">View</button>`)).join("")}</div>` : ""}
+      ${others.length ? `<div class="pd-h" style="margin-top:10px">Trade targets <span class="subtle">· realistic upgrades with good playoff schedules</span></div><div class="stack todo-list">${others.map((a) => row(a, `<button type="button" class="mini" data-act="trade-for" data-pid="${esc(a.id)}">Trade for</button>`)).join("")}</div>` : ""}
+      ${dl && dl >= cw ? `<p class="subtle">Trades must be done by week ${dl}${dl - cw <= 2 ? ": that's soon" : ""}.</p>` : ""}`;
+    const cuffs = [];
+    if (TM) (D.me.starters || []).filter((p) => p.id && p.position === "RB").forEach((p) => {
+      const r = ((TM.depth[p.team] || {}).RB || []).find((y) => y.contingency && y.contingency.id === p.id && y.proj != null && y.contingency.rate - y.proj >= 3);
+      if (r) cuffs.push(`<b>${esc(r.name)}</b> (${r.owner == null ? "free agent" : r.owner === D.me.team_name ? "yours" : esc(r.owner)}): ~${num(r.contingency.rate)} pts/wk if ${esc(p.name)} misses`);
+    });
+    if (cuffs.length) html += `<h2>Playoff insurance</h2><div class="card card-pad"><ul class="tight">${cuffs.map((c) => `<li>${c}</li>`).join("")}</ul></div>`;
+    return html;
+  }
+
   // ---------- "This week" to-do list: the decisions the dashboard already knows about ----------
   function todos() {
     const me = D.me, out = [], mine = new Set([...me.starters, ...me.bench, ...me.ir].map((p) => p.id).filter(Boolean));
@@ -1251,7 +1340,7 @@
     html += watchHtml();
 
     const view = store.get("homeView", "roster");
-    html += segHtml("home-seg", O ? [["roster", "Roster"], ["startsit", "Start/sit"], ["lineups", "Weekly lineups"]] : [["roster", "Roster"]], view);
+    html += segHtml("home-seg", O ? [["roster", "Roster"], ["startsit", "Start/sit"], ["lineups", "Weekly lineups"], ["playoffs", "Playoffs"]] : [["roster", "Roster"]], view);
     html += `<div id="home-body"></div>`;
     if (O) {
       const mineK = O.playoffs.key_games.filter((k) => k.mine);
@@ -1270,6 +1359,7 @@
 
     const draw = (v) => {
       const body = $("home-body");
+      if (v === "playoffs" && O) { body.innerHTML = playoffPlanHtml(); return; }
       if (v === "startsit" && O) {
         body.innerHTML = `<p class="lead-text">Your set lineup vs the best bench option at each slot. Players whose games have started are locked.</p>
           <div class="card">${O.start_sit.length ? O.start_sit.map(startSitRow).join("") : `<div class="empty">Nothing to decide: all your games have started.</div>`}</div>`;
