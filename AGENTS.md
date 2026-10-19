@@ -427,6 +427,20 @@ kept), then hill-climbs single bench swaps while win chance rises ≥ 0.4 pts. R
 sit pairs with the win chance if only that swap is made. Home → Start/sit shows it first; the
 to-do list uses it (falls back to slot-by-slot verdicts when there is no plan).
 
+## Trade report card (League → Trades)
+
+`tradelog.py` scores every completed league trade for each side: points the received players
+scored in that roster's starting lineup since the trade week (matchup `starters` +
+`players_points`; bench doesn't count) plus rest-of-season value above a free agent now
+(`ros_value`, only while still on that roster). A side is ahead at `WIN_MARGIN` (8) points;
+FAAB and picks are listed, not scored. `remember_values` saves each player's value the first
+time a trade is seen (`data/trade_values.json`, kept by the private repo's history), flagged
+`late` when first seen more than a week after the trade (the site then hides "when made").
+`run.build_trade_report` → `trades.json` `report`; `leagueTradesHtml` draws it.
+Lab data gets `trade_counts` (completed trades per roster); `lab.js` `activity(t)` nudges the
+chance accepted up for managers who trade more than average and down for those who don't
+(0.3 per trade from the league average, capped at ±0.5 on the logit scale).
+
 ## Trade deadline plan (Moves → Trades)
 
 `deadlineHtml()` at the top of Trades while the deadline is ahead: stance from my playoff odds

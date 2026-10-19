@@ -1975,9 +1975,37 @@
       <div class="stack ws-card">${rows}</div>`;
   }
 
+  // ---------- League → Trades: the trade report card ----------
+  function leagueTradesHtml() {
+    const R = T && T.report, me = myRid();
+    let html = `<h2>Trade report card</h2><p class="lead-text">Every trade this season, scored for each side: points the players it got have scored
+      <b>in its starting lineup</b> since the trade, plus their rest-of-season value now (projected points above a free agent), counted only while
+      they're still on that roster. A side is "ahead" when it leads by ${R ? num(R.win_margin, 0) : 8}+ points. FAAB and picks are listed, not scored.</p>`;
+    if (!R || !R.trades.length) return html + `<div class="card"><div class="empty">No trades in the league yet this season.</div></div>`;
+    const tn = (rid) => `${esc((recBy[rid] || {}).team_name || rid)}${rid === me ? ` <span class="chip info">you</span>` : ""}`;
+    const rows = Object.entries(R.summary).sort((a, b) => b[1].net - a[1].net).map(([rid, s]) =>
+      `<tr class="${Number(rid) === me ? "mine" : ""}"><td>${tn(Number(rid))}</td><td>${s.made}</td><td class="${s.net > 0.5 ? "up" : s.net < -0.5 ? "down" : ""}">${signed(s.net)}</td></tr>`).join("");
+    html += `<div class="card table-wrap"><table class="named"><thead><tr><th>Team</th><th>Trades</th><th>Net pts</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <p class="subtle">Net = each trade's total for that team minus the other side's, added up.</p>`;
+    const card = (t) => {
+      const mine = t.sides.some((s) => s.rid === me);
+      const verdict = t.winner == null ? `<span class="chip">Even so far</span>`
+        : `<span class="chip ${mine ? (t.winner === me ? "good" : "bad") : "info"}">${esc((recBy[t.winner] || {}).team_name || "")} ahead by ${num(t.margin)}</span>`;
+      const side = (s) => `<div class="rt-side"><div class="rt-team">${tn(s.rid)} <span class="rt-total">${num(s.total)}</span></div>
+        ${s.got.map((g) => `<div class="rt-p"><b>${P_LINK(g)}</b> <span class="subtle">${esc(g.pos || "")}</span>
+          <div class="subtle">${num(g.pts)} pts in the lineup${g.starts ? ` (${g.starts} start${g.starts === 1 ? "" : "s"})` : ""} · ${!g.still ? "no longer on the roster" : g.ros > 0 ? `${num(g.ros)} still to come` : "no value left above a free agent"}${
+            g.then != null && !t.late_value ? ` · worth ${num(g.then)} when made` : ""}</div></div>`).join("") || `<div class="subtle">No players.</div>`}
+        ${s.faab > 0 ? `<div class="subtle">+ $${esc(s.faab)} FAAB</div>` : ""}${s.picks.length ? `<div class="subtle">+ ${s.picks.map(esc).join(", ")} pick${s.picks.length > 1 ? "s" : ""}</div>` : ""}</div>`;
+      return `<div class="trade rt${mine ? " mine-bg" : ""}"><div class="trade-head"><div class="pname">Week ${esc(t.week)}</div>${verdict}</div>
+        <div class="rt-sides">${t.sides.map(side).join("")}</div></div>`;
+    };
+    return html + `<div class="stack" style="margin-top:12px">${R.trades.map(card).join("")}</div>`;
+  }
+  const P_LINK = (g) => (CARDS[g.id] || (DATA.lab && DATA.lab.players[g.id]) ? plink(g.id, g.name) : esc(g.name));
+
   function renderLeague() {
     const view = store.get("leagueView", "standings");
-    let html = segHtml("league-seg", [["teams", "Teams"], ["recap", "Recap"], ["standings", "Standings"], ["race", "Playoff race"], ["power", "Power"]], view)
+    let html = segHtml("league-seg", [["teams", "Teams"], ["recap", "Recap"], ["trades", "Trades"], ["standings", "Standings"], ["race", "Playoff race"], ["power", "Power"]], view)
       + `<div id="league-body"></div>`;
     html += weeklyChart();
     if (O) html += `<h2>Week ${esc(O.week)} matchups</h2>${O.matchups.map(matchupCard).join("")}`;
@@ -1993,6 +2021,7 @@
     const draw = (v) => {
       const body = $("league-body");
       if (v === "teams") { body.innerHTML = teamsScouting(); return; }
+      if (v === "trades") { body.innerHTML = leagueTradesHtml(); return; }
       if (v === "recap") { body.innerHTML = recapHtml(store.get("recapWeek", null)); wireRecap(); return; }
       if (v === "race" && O) {
         const P = O.playoffs;

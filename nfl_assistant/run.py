@@ -29,6 +29,7 @@ from . import (
     startsit,
     teams,
     tendencies,
+    tradelog,
     trades,
     waivers,
 )
@@ -467,6 +468,18 @@ def build_trades(ctx: dict, managers: dict, proj: dict, weeks: list[int], slots:
             "trades_closed": bool(trade_deadline and ctx["current_week"] > int(trade_deadline))}
 
 
+def build_trade_report(ctx: dict, proj: dict, weeks: list[int], trade_data: dict, data_dir: Path) -> dict:
+    """Every trade in the league this season, scored for both sides (League → Trades)."""
+    txs = [t for week in sorted(ctx["transactions"]) for t in ctx["transactions"][week]]
+    repl = trade_data["replacement"]
+    then = tradelog.remember_values(data_dir / "trade_values.json", txs, proj, repl, len(weeks), ctx["current_week"])
+    ids = {pid for t in tradelog.completed_trades(txs) for pid in (t.get("adds") or {})}
+    names = {pid: player_brief(pid, ctx["players"])["name"] for pid in ids}
+    positions = {pid: (ctx["players"].get(pid) or {}).get("position") for pid in ids}
+    return tradelog.report(txs, ctx["matchups"], ctx["completed_weeks"], proj, repl, len(weeks),
+                           ctx["rosters"], names, positions, then)
+
+
 # --- part 2: matchups, start/sit, lineups, playoffs --------------------------------
 def pairs_by_week(entries: list[dict]) -> list[tuple[int, int]]:
     groups = defaultdict(list)
@@ -816,11 +829,13 @@ def build_lab(ctx: dict, managers: dict, proj: dict, weeks: list[int], slots: li
                 "actual": {r["id"]: r["pts"] for r in t["players"] if r["id"] and r["status"] == "played"}}
     names = {pid: {"name": player_brief(pid, ctx["players"])["name"]} for pid in proj}
     roster_size = roster_limit(ctx["league"])
-    return lab.build_lab_data(proj, weeks, slots, ctx["rosters"], managers, names,
+    data = lab.build_lab_data(proj, weeks, slots, ctx["rosters"], managers, names,
                               sim_standings(ctx["rosters"]), sim_schedule(ctx, weeks), this_week,
                               ctx["my_roster"]["roster_id"], outlook_data["playoff_teams"],
                               outlook_data["playoffs"]["confidence"], trade_data["replacement"],
                               roster_size, ctx["current_week"])
+    data["trade_counts"] = trade_data["history"]["trades_made"]   # who actually trades (chance accepted)
+    return data
 
 
 # --- player cards ----------------------------------------------------------------
@@ -878,6 +893,7 @@ def main() -> int:
     proj, proj_weeks, slots = build_projections(ctx, nfl, mdl["learned"]["params"], now.date().isoformat(), cache_dir)
     say("Looking for trade ideas...")
     trade_data = build_trades(ctx, managers, proj, proj_weeks, slots, scan, now)
+    trade_data["report"] = build_trade_report(ctx, proj, proj_weeks, trade_data, ROOT / "data")
     pool_ids = build_available(ctx, proj, proj_weeks, slots, faab_data)
     # cards for every projected player (rostered, waiver pool and the rest) - player search uses them
     all_cards = build_cards(ctx, proj, points, proj_weeks, nfl, trade_data, list(set(pool_ids) | set(proj)))
