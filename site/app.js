@@ -845,10 +845,7 @@
       html += `<div class="alert">The trade deadline (week ${esc(T.trade_deadline)}) has passed. Values are still shown for reference.</div>`;
     }
     html += `<p class="disclaimer">Suggestions, not advice · rest-of-season projections (weeks ${esc(T.weeks[0])}–${esc(T.weeks[n - 1])}).</p>`;
-    if (T.trade_deadline && !T.trades_closed) {
-      const left = T.trade_deadline - T.current_week;
-      html += `<div class="status-note">Trade deadline: <b>week ${esc(T.trade_deadline)}</b> (${left <= 0 ? "this week" : `${left} week${left === 1 ? "" : "s"} away`}).</div>`;
-    }
+    html += deadlineHtml();
 
     html += `<h2>Trade ideas</h2><p class="lead-text">Each idea improves <b>both</b> teams' projected optimal lineups for every remaining week
       (byes included), counting only points above free-agent level, with injury cover and roster limits (the side receiving
@@ -1510,6 +1507,10 @@
     (T && T.sell_high || []).filter((r) => r.roster_id === T.my_roster_id && !isHeld(r.id)).slice(0, 2).forEach((r) => out.push({
       tag: "Sell high", cls: "info", rank: 6, text: `<b>${plink(r.id, r.name)}</b> is scoring above what his usage supports: worth shopping while his value is high.`,
       act: `<button type="button" class="mini" data-act="shop" data-pid="${esc(r.id)}">Shop</button>` }));
+    const dl = deadlineLeft();
+    if (dl != null && dl <= 2) out.push({ tag: "Deadline", cls: "warn", rank: 1.5,
+      text: `Trade deadline ${dl <= 0 ? "is this week" : `in ${dl} week${dl === 1 ? "" : "s"}`}: see your deadline plan (best deals for your playoff weeks).`,
+      act: `<button type="button" class="mini" data-act="deadline-open">Plan</button>` });
     const idea = T && (T.ideas || []).find((t) => !t.give.some((p) => isHeld(p.id)) && t.balance !== "lopsided (tough sell)");
     if (idea) out.push({ tag: "Trade idea", cls: "info", rank: 7,
       text: `Give ${idea.give.map((p) => `<b>${plink(p.id, p.name)}</b>`).join(" + ")}, get ${idea.get.map((p) => `<b>${plink(p.id, p.name)}</b>`).join(" + ")} with ${esc(idea.team_name)}: you +${num(idea.my_gain)}, them +${num(idea.their_gain)}.`,
@@ -2339,6 +2340,7 @@
     const i = Number(b.dataset.i);
     if (b.dataset.src === "offer") return labState.offers && labState.offers.offers[i];
     if (b.dataset.src === "short") return SHORT[i];
+    if (b.dataset.src === "deadline") { const pl = store.get("deadlinePlan", null); return pl && pl.picks[i]; }
     return { partner: labState.partner, give: labState.give.slice(), get: labState.get.slice() };
   }
   const starLabel = (on) => (on ? "★ Saved" : "☆ Save");
@@ -2489,6 +2491,138 @@
       $("lab-offers").innerHTML = offersHtml(res);
       wireOffers();
     }, 30);
+  }
+
+  // ---------- Trade deadline plan (Moves → Trades) ----------
+  // Your stance from your playoff odds, then every reasonable trade with every team, re-ranked by
+  // what it does for your playoff weeks (not just the regular season), with playoff odds for the
+  // best few. Built on demand (it checks thousands of trades) and kept until the next data update.
+  const deadlineLeft = () => (T && T.trade_deadline && !T.trades_closed ? T.trade_deadline - T.current_week : null);
+  function stanceOf(odds) {
+    if (odds >= 0.6) return { key: "contender", label: "Contender", cls: "good",
+      text: "You're likely in. Trade for the playoff weeks: players with good matchups then, and cover for your weakest playoff spot." };
+    if (odds >= 0.3) return { key: "bubble", label: "On the bubble", cls: "warn",
+      text: "Every regular-season win matters. Favour trades that add points every week from now on, then think about the playoffs." };
+    return { key: "longshot", label: "Long shot", cls: "bad",
+      text: "You need a big swing. Take on risk: boom-or-bust players with high ceilings are worth more to you than safe ones." };
+  }
+  // my best lineup over the playoff weeks for a roster
+  const playoffTotal = (pids, pw) => pw.reduce((a, w) => a + teamWeekLineup(pids, w).total, 0);
+  // his projected points per game over the rest of the regular season (injuries and byes left out)
+  function regularAvg(pid) {
+    const v = ((DATA.lab.players[pid] || {}).w || []).filter((x) => x > 0);
+    return v.length ? v.reduce((a, x) => a + x, 0) / v.length : null;
+  }
+  function playoffAvg(pid, pw) {
+    const v = pw.map((w) => schedPts(pid, w)).filter((x) => x != null);
+    return v.length ? v.reduce((a, x) => a + x, 0) / v.length : null;
+  }
+  function buildDeadlinePlan(done, progress) {
+    const E = engine(), L = DATA.lab, me = String(L.my_roster_id), pw = playoffWeeksOf();
+    const po = O.playoffs.teams.find((t) => t.is_mine) || {}, stance = stanceOf(po.odds || 0);
+    const teams = Object.keys(L.rosters).filter((t) => t !== me), nW = L.weeks.length;
+    const mine = E.rosterAll(me), base = pw.length ? playoffTotal(mine, pw) : 0;
+    const W = { contender: [1.0, 0.3], bubble: [0.5, 0.8], longshot: [0.4, 0.8] }[stance.key];
+    const pool = [];
+    let i = 0;
+    const step = () => {
+      if (i < teams.length) {
+        const t = teams[i++];
+        progress(`Checking trades with ${L.rosters[t].team_name} (${i} of ${teams.length})…`);
+        E.exploreTrades({ partner: t, poolSize: 7, max: 120 }).offers.forEach((x) => {
+          if (x.gainMe < -2 || x.chance < 0.2) return;
+          const pg = pw.length ? (playoffTotal(mine.filter((p) => !x.give.includes(p)).concat(x.get), pw) - base) / pw.length : 0;
+          pool.push(Object.assign({}, x, { pg, score: W[0] * pg + W[1] * x.gainMe / nW + 6 * x.chance }));
+        });
+        setTimeout(step, 0);
+        return;
+      }
+      progress("Working out playoff odds for the best deals…");
+      setTimeout(() => {
+        pool.sort((a, b) => b.score - a.score);
+        const picks = [], used = new Set();
+        const helps = stance.key === "contender" ? (x) => x.pg >= 0.5 : (x) => x.gainMe / nW >= 0.5 || x.pg >= 0.5;
+        for (const x of pool) {                       // variety: each player in at most one deal
+          const ids = x.give.concat(x.get);
+          if (!helps(x) || ids.some((p) => used.has(p))) continue;
+          ids.forEach((p) => used.add(p));
+          picks.push(x);
+          if (picks.length === 3) break;
+        }
+        picks.forEach((x) => { const r = E.evaluateTrade(x.partner, x.give, x.get, { sims: 2000 }); x.odds = r.odds.me; });
+        done({ at: D.generated_at, stance: stance.key, odds: po.odds, picks: picks.map((x) => ({ partner: x.partner, give: x.give, get: x.get,
+          gainMe: x.gainMe, gainThem: x.gainThem, chance: x.chance, pg: Math.round(10 * x.pg) / 10, odds: x.odds, fits: x.fits })), checked: pool.length });
+      }, 30);
+    };
+    step();
+  }
+  function deadlineHtml() {
+    const left = deadlineLeft();
+    if (left == null || !DATA.lab || !O) return "";
+    const L = DATA.lab, P = L.players, R = L.rosters, me = String(L.my_roster_id), pw = playoffWeeksOf();
+    const po = O.playoffs.teams.find((t) => t.is_mine) || {}, st = stanceOf(po.odds || 0);
+    const saved = store.get("deadlinePlan", null), plan = saved && saved.at === D.generated_at ? saved : null;
+    const pc = (v) => `${Math.round(100 * v)}%`;
+    let html = `<h2 id="deadline">Deadline plan <span class="muted">${left <= 0 ? "deadline this week" : `${left} week${left === 1 ? "" : "s"} left`}</span></h2>
+      <p class="lead-text">Your stance comes from your playoff odds. Deals are checked with every team and ranked by what they add in the playoff weeks
+      (${pw.length ? `weeks ${pw.join(", ")}` : "when known"}) as well as the rest of the regular season, and by the chance they're accepted.</p>
+      <div class="card card-pad"><span class="chip ${st.cls}">${st.label}</span> <b>${esc(po.odds_text || "–")}</b> playoff odds<div class="subtle" style="margin-top:6px">${st.text}</div></div>`;
+    // best deals
+    if (plan && plan.picks.length) {
+      html += `<div class="stack" style="margin-top:12px">${plan.picks.map((x, i) => {
+        const names = (ids) => ids.map((p) => (P[p] ? plink(p, P[p].n) : esc(p))).join(" + ");
+        const p = Math.round(100 * x.chance);
+        return `<div class="trade offer"><div class="trade-head"><div class="pname">${i + 1}. ${esc((R[x.partner] || {}).team_name || "")}</div>
+            ${x.odds ? `<span class="subtle">${(() => { const d = Math.round(100 * (x.odds[1] - x.odds[0])); return d ? `playoff odds <b>${d > 0 ? "+" : "−"}${Math.abs(d)}</b>` : "no change to playoff odds"; })()}</span>` : ""}</div>
+          <div style="margin:4px 0 6px">Give <b>${names(x.give)}</b> · get <b>${names(x.get)}</b></div>
+          <div class="gains"><span class="gain me">Playoff weeks ${signed(x.pg)}/wk</span><span class="gain">Rest of season ${signed(x.gainMe)}</span>
+            <span class="chance"><span class="chance-bar"><span style="width:${p}%"></span></span>${p}% accept</span></div>
+          <div class="acts"><button type="button" class="mini" data-act="deadline-load" data-src="deadline" data-i="${i}">Open in Lab</button>
+            ${starBtn("deadline", i, isShort(x))}${copyBtn("deadline", i)}</div></div>`;
+      }).join("")}</div>
+      <p class="subtle">Checked ${plan.checked} realistic deals. <button type="button" class="linkish" data-act="deadline-build">Check again</button></p>`;
+    } else if (plan) {
+      html += `<p class="subtle" style="margin-top:10px">No deal clearly helps your playoff weeks without costing you. Try the Lab with a specific target.</p>`;
+    } else {
+      html += `<div id="deadline-run" style="margin-top:12px"><button type="button" class="btn" data-act="deadline-build" style="width:100%">Find my best deadline deals</button>
+        <p class="subtle">Checks every team (takes a few seconds), then shows the three best deals for your situation.</p></div>`;
+    }
+    // sell before the schedule turns / buy players whose schedule gets easier
+    if (pw.length) {
+      const mine = new Set(engine().rosterAll(me));
+      const turn = [...mine].filter((p) => P[p] && P[p].r >= 6 && !isHeld(p)).map((p) => ({ p, a: playoffAvg(p, pw), now: regularAvg(p), byes: pw.filter((w) => schedPts(p, w) === 0).length }))
+        .filter((x) => x.a != null && x.now && (x.byes || x.a < 0.85 * x.now)).sort((a, b) => (a.a / a.now) - (b.a / b.now)).slice(0, 4);
+      const sell = ((T && T.sell_high) || []).filter((r) => r.roster_id === T.my_roster_id && !isHeld(r.id) && !turn.some((x) => x.p === r.id)).slice(0, 2);
+      if (turn.length || sell.length) {
+        html += `<div class="pd-h" style="margin-top:14px">Consider moving before the deadline</div><div class="stack">${
+          turn.map((x) => `<div class="todo"><span class="chip warn">${x.byes ? "Playoff bye" : "Schedule turns"}</span><div class="todo-t"><b>${plink(x.p, P[x.p].n)}</b>:
+            ${x.byes ? `bye in a playoff week, ` : ""}about ${num(x.a)} pts/wk in the playoff weeks vs ${num(x.now)} in the weeks before.</div>
+            <div class="todo-a"><button type="button" class="mini" data-act="shop" data-pid="${esc(x.p)}">Shop</button></div></div>`).join("")}${
+          sell.map((r) => `<div class="todo"><span class="chip info">Sell high</span><div class="todo-t"><b>${plink(r.id, r.name)}</b> is scoring above what his usage supports.</div>
+            <div class="todo-a"><button type="button" class="mini" data-act="shop" data-pid="${esc(r.id)}">Shop</button></div></div>`).join("")}</div>`;
+      }
+      // targets: would start for me in the playoffs and have an easier schedule then
+      const myLine = pw.map((w) => teamWeekLineup([...mine], w));
+      const weakest = (pos) => Math.min(...myLine.map((l) => Math.min(...l.lineup.filter(([slot]) => (FLEX_OK[slot] || [slot]).includes(pos)).map((x) => x[2]), 99)));
+      const targets = Object.keys(P).filter((p) => P[p].o != null && String(P[p].o) !== me && P[p].r >= 6 && ["QB", "RB", "WR", "TE"].includes(P[p].p))
+        .map((p) => ({ p, a: playoffAvg(p, pw), now: regularAvg(p) })).filter((x) => x.a != null && x.now && x.a >= 1.12 * x.now && x.a > weakest(P[x.p].p) + 2)
+        .sort((a, b) => b.a - a.a).slice(0, 5);
+      if (targets.length) {
+        html += `<div class="pd-h" style="margin-top:14px">Targets with easier playoff schedules</div><div class="stack">${
+          targets.map((x) => `<div class="todo"><span class="chip good">${esc(P[x.p].p)}</span><div class="todo-t"><b>${plink(x.p, P[x.p].n)}</b> (${esc((R[P[x.p].o] || {}).team_name || "")}):
+            about ${num(x.a)} pts/wk in the playoff weeks vs ${num(x.now)} in the weeks before, and he'd start for you.</div>
+            <div class="todo-a"><button type="button" class="mini" data-act="trade-for" data-pid="${esc(x.p)}">Trade for</button></div></div>`).join("")}</div>`;
+      }
+    }
+    return `<section class="deadline">${html}</section>`;
+  }
+  function runDeadline() {
+    const box = $("deadline-run");
+    const say = (t) => { const el = $("deadline-run"); if (el) el.innerHTML = `<div class="card"><div class="empty">${esc(t)}</div></div>`; };
+    if (!box) { const s = document.querySelector("#tab-trades .deadline"); if (s) s.insertAdjacentHTML("beforeend", `<div id="deadline-run"></div>`); }
+    say("Starting…");
+    buildDeadlinePlan((plan) => { store.set("deadlinePlan", plan); refresh("trades");
+      const h = $("deadline"); if (h) h.scrollIntoView({ block: "start", behavior: "smooth" }); }, say);
   }
 
   function openInLab(partner, give, get, opts) {
@@ -3140,6 +3274,9 @@
     else if (act === "player") openPlayer(pid);
     else if (act === "pin") togglePin(b.dataset.sec);
     else if (act === "star") toggleShort(offerFrom(b));
+    else if (act === "deadline-build") runDeadline();
+    else if (act === "deadline-open") { selectTab("trades", true, false); setTimeout(() => { const h = $("deadline"); if (h) h.scrollIntoView({ block: "start" }); }, 50); }
+    else if (act === "deadline-load") { const x = offerFrom(b); if (x) openInLab(x.partner, x.give, x.get); }
     else if (act === "copy-offer") copyOffer(offerFrom(b));
     else if (act === "load-short") {
       const x = SHORT[Number(b.dataset.i)], before = { partner: labState.partner, give: labState.give.slice(), get: labState.get.slice() };

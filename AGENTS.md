@@ -427,6 +427,20 @@ kept), then hill-climbs single bench swaps while win chance rises ≥ 0.4 pts. R
 sit pairs with the win chance if only that swap is made. Home → Start/sit shows it first; the
 to-do list uses it (falls back to slot-by-slot verdicts when there is no plan).
 
+## Trade deadline plan (Moves → Trades)
+
+`deadlineHtml()` at the top of Trades while the deadline is ahead: stance from my playoff odds
+(`stanceOf`: contender ≥ 60%, bubble ≥ 30%, long shot), then on demand (`runDeadline` →
+`buildDeadlinePlan`) `exploreTrades` with every team (pool 7, top 120 each), keeping deals that
+don't cost me more than 2 pts ROS and have a 20%+ chance. They're re-ranked by playoff-week gain
+(`playoffTotal`: best lineup over the playoff weeks from card schedules) and ROS gain, weighted
+by stance, with each player in at most one of the top 3, and playoff odds from
+`evaluateTrade` (2,000 sims). The result is kept in `store` "deadlinePlan" until the data
+updates. Also lists my players whose playoff-week projection drops 15%+ below their projection
+for the weeks before (`regularAvg`, so injuries don't look like a schedule problem) or who have a
+playoff bye, sell-high names, and other teams' players whose playoff weeks look 12%+ better and
+who would start for me. A to-do appears in the last 2 weeks before the deadline.
+
 ## Trade Lab shortlist and "Copy offer"
 
 - `engine().scoreOffer(partner, give, get)` (lab.js) scores one offer exactly like
