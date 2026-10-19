@@ -210,8 +210,8 @@ def explain(trade: dict, proj: dict, profiles: dict, my_rid: int, names: dict, m
 
     give_pos = {proj[p]["position"] for p in trade["give"]}
     get_pos = {proj[p]["position"] for p in trade["get"]}
-    reasons = [f"You give {', '.join(desc(p) for p in trade['give'])} for "
-               f"{', '.join(desc(p) for p in trade['get'])}."]
+    reasons = [(f"You give {', '.join(desc(p) for p in trade['give'])} for "
+               f"{', '.join(desc(p) for p in trade['get'])}.")]
     for pos in sorted(get_pos):
         if pos in me["needs"]:
             reasons.append(f"Your {pos} starters project {abs(me['vs_median'][pos]):.1f} pts/week below the league median.")

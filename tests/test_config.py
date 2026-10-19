@@ -1,6 +1,12 @@
 import pytest
 
-from nfl_assistant.config import ConfigError, apply_env, load_config, parse_nicknames, parse_targets
+from nfl_assistant.config import (
+    ConfigError,
+    apply_env,
+    load_config,
+    parse_nicknames,
+    parse_targets,
+)
 
 
 def write(tmp_path, text):

@@ -10,11 +10,37 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from . import (brief, cards, dashboard, faab, factors, lab, league, lineups, model, nflverse, outlook, projections,
-               recap, roles, scanner, startsit, teams, tendencies, trades, waivers)
+from . import (
+    brief,
+    cards,
+    dashboard,
+    faab,
+    factors,
+    lab,
+    league,
+    lineups,
+    model,
+    nflverse,
+    outlook,
+    projections,
+    recap,
+    roles,
+    scanner,
+    startsit,
+    teams,
+    tendencies,
+    trades,
+    waivers,
+)
 from .config import ROOT, ConfigError, load_config
 from .output import prune, write_site_data, write_snapshot
-from .players import find_player, ir_allowed_statuses, player_brief, player_name, slim_players
+from .players import (
+    find_player,
+    ir_allowed_statuses,
+    player_brief,
+    player_name,
+    slim_players,
+)
 from .sleeper import SleeperClient
 
 
@@ -85,7 +111,7 @@ def build_dashboard(ctx: dict, cfg: dict, managers: dict, cache_dir, now) -> dic
         rows = nflverse.parse_rows(nflverse.download_weekly(url, cache_dir))
         checks = nflverse.crosscheck(list(my_roster.get("players") or []), players, points, completed,
                                      rows, league["scoring_settings"], cfg["crosscheck"]["tolerance_points"])
-    except Exception as exc:  # second source down shouldn't stop the dashboard
+    except Exception as exc:  # noqa: BLE001 - second source down shouldn't stop the dashboard
         warnings.append(f"Couldn't load nflverse stats for the cross-check ({exc}). Points shown are Sleeper's only.")
         checks = {}
     played = {pid: set(c["played_weeks"]) for pid, c in checks.items()}

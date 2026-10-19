@@ -29,7 +29,7 @@ def test_lab_players_align_weeks_and_zero_byes_and_played():
 def test_tradeable_matches_trades_rule():
     recs = {"ok": P("WR", 10), "ir": P("WR", 10, status="IR"), "k": P("K", 9), "new": P("WR", 9, gt=0, gp=0)}
     compact = lab.lab_players(recs, WEEKS, {}, {}, {})
-    for pid, p in recs.items():
+    for pid in recs:
         assert lab.tradeable(compact[pid]) == trades.tradeable(pid, recs)
 
 

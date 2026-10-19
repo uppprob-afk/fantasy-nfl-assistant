@@ -13,6 +13,7 @@ from pathlib import Path
 
 import httpx
 
+
 # Sleeper scoring key -> function(nflverse row) giving the stat count.
 def _n(row, col):
     try:
@@ -94,7 +95,7 @@ def match_player(sleeper_player: dict, by_gsis: dict, by_name: dict) -> str | No
     candidates = by_name.get(key, [])
     if len(candidates) > 1:
         candidates = [c for c in candidates if c[1] == sleeper_player.get("team")] or candidates
-    return candidates[0][0] if len(set(c[0] for c in candidates)) == 1 else None
+    return candidates[0][0] if len({c[0] for c in candidates}) == 1 else None
 
 
 def index_rows(rows: list[dict]):

@@ -159,7 +159,7 @@ def position_ranks(proj: dict) -> dict[str, tuple[int, int]]:
     for pid, p in proj.items():
         by_pos.setdefault(p["position"], []).append((p["ros"], pid))
     out = {}
-    for pos, rows in by_pos.items():
+    for rows in by_pos.values():
         rows.sort(reverse=True)
         for i, (_, pid) in enumerate(rows, 1):
             out[pid] = (i, len(rows))
