@@ -107,6 +107,14 @@ def run(page, scheme: str) -> None:
     page.wait_for_timeout(1500)
     check("You" in page.locator("#lab-result").inner_text(), f"{scheme}: offer loads into the Lab")
 
+    # deadline plan (only while the deadline is still ahead)
+    page.locator('#subnav button[data-sub="trades"]').click()
+    page.wait_for_timeout(200)
+    if page.locator('#tab-trades [data-act="deadline-build"]').count():
+        page.locator('#tab-trades [data-act="deadline-build"]').first.click()
+        page.wait_for_selector("#tab-trades .deadline .offer, #tab-trades .deadline p.subtle", timeout=60000)
+        check(page.locator("#tab-trades .deadline").count() == 1 and wide(), f"{scheme}: deadline plan builds")
+
     # Players search
     page.locator('#tabs button[data-tab="players"]').click()
     page.wait_for_timeout(200)
