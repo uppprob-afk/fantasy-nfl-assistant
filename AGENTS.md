@@ -427,6 +427,19 @@ kept), then hill-climbs single bench swaps while win chance rises ≥ 0.4 pts. R
 sit pairs with the win chance if only that swap is made. Home → Start/sit shows it first; the
 to-do list uses it (falls back to slot-by-slot verdicts when there is no plan).
 
+## Advice scorecard (Model tab)
+
+`advice.py`: every run `run.build_advice` saves the advice being shown for the current week to
+`data/advice.json` (kept by the private repo's history): start / sit pairs from `win_plan`
+(or slot-by-slot swaps), the top 3 "upgrade" waiver ideas with the player to cut, and my
+sell-high flags with points per game so far. Start / sit advice whose players haven't played is
+replaced by the latest run's; once one of its players has played it's frozen (so the last
+advice before kickoff is graded). `advice.grade` scores finished weeks with league points per
+player-week from the card logs (Sleeper, or `calc` for free agents) and my actual starters
+from the matchups: right / wrong, followed or not, points gained by following and missed by
+ignoring good calls. Output goes in `model.json` `advice`; `adviceHtml` draws it at the top of
+the Model tab. Recording started in week 6 of 2026; nothing earlier can be graded.
+
 ## FAAB budget plan (top of Waivers)
 
 Worked out in the browser from `faab.json` (`faabPlan` / `faabPlanHtml`, a fold-out that

@@ -2793,13 +2793,44 @@
   // ---------- Brief ----------
   // ---------- Model: how accurate projections have been, and what the model learned ----------
   const MD = DATA.model;
+  // ---------- Model → Advice scorecard ----------
+  function adviceHtml() {
+    const A = MD && MD.advice;
+    let html = `<h2>Advice scorecard</h2><p class="lead-text">Each update saves the advice it shows you, and after the games it's graded on what
+      actually happened. Start/sit is right when the player it said to start outscored the one it said to sit (the last advice before kickoff counts);
+      "followed" means he really was in your lineup. Waiver adds compare his points per game since with the player you'd have cut.
+      Sell-high is right when the player cooled off afterwards.</p>`;
+    if (!A || !A.summary) return html + `<div class="card"><div class="empty">Starts recording with the next update.</div></div>`;
+    const s = A.summary, ss = s.startsit;
+    if (!ss.calls && !s.waivers.calls && !s.sell.calls) {
+      return html + `<div class="card"><div class="empty">Recording since week ${esc(A.first_week || "–")}: the first grades appear once that week's games are over.</div></div>`;
+    }
+    const rate = (r, n) => (n ? `${r} of ${n}` : "–");
+    html += `<div class="tiles head">
+      ${tileHtml("Start/sit right", rate(ss.right, ss.calls), ss.calls ? `${Math.round(100 * ss.right / ss.calls)}% of calls` : "no calls yet")}
+      ${tileHtml("Gained by following", `${signed(ss.gained)}`, `${ss.followed} call${ss.followed === 1 ? "" : "s"} followed`)}
+      ${tileHtml("Missed by ignoring", ss.missed ? num(ss.missed) : "0", "good calls you didn't make")}
+      ${tileHtml("Waiver adds right", rate(s.waivers.right, s.waivers.calls), s.sell.calls ? `sell-high ${rate(s.sell.right, s.sell.calls)}` : "")}</div>`;
+    const row = (chip, cls, body) => `<div class="todo"><span class="chip ${cls}">${chip}</span><div class="todo-t">${body}</div></div>`;
+    const list = [];
+    A.startsit.slice(0, 12).forEach((x) => list.push(row(x.right ? "Right" : "Wrong", x.right ? "good" : "bad",
+      `W${x.week}: start <b>${plink(x.in, x.in_name)}</b> ${num(x.in_pts)}${x.out ? ` over <b>${plink(x.out, x.out_name)}</b> ${num(x.out_pts)}` : ""}
+      <span class="subtle">· ${x.followed ? "you followed it" : "you didn't"} (${signed(x.diff)})</span>`)));
+    A.waivers.slice(0, 6).forEach((x) => list.push(row(x.right ? "Right" : "Wrong", x.right ? "good" : "bad",
+      `W${x.week} waivers: <b>${plink(x.id, x.name)}</b> ${num(x.ppg)}/g since${x.drop ? ` vs <b>${plink(x.drop, x.drop_name)}</b> ${x.drop_ppg == null ? "–" : num(x.drop_ppg)}/g` : ""}`)));
+    A.sell.slice(0, 6).forEach((x) => list.push(row(x.right ? "Right" : "Wrong", x.right ? "good" : "bad",
+      `W${x.week} sell-high: <b>${plink(x.id, x.name)}</b> ${num(x.before)}/g before → ${num(x.after)}/g since`)));
+    if (list.length) html += `<details class="recent"><summary>Every graded call (${A.startsit.length + A.waivers.length + A.sell.length})</summary><div class="stack todo-list">${list.join("")}</div></details>`;
+    return html;
+  }
+
   function renderModel() {
     const host = $("tab-model");
     if (!MD) { host.innerHTML = `<div class="empty">No model report yet. Run an update.</div>`; return; }
     const bt = MD.backtest || {}, bd = MD.backtest_default || {}, L = MD.learned || {}, live = MD.live || {};
     const pctTxt = (x) => (x == null ? "–" : Math.round(100 * x) + "%");
     const better = bt.naive_mae ? 1 - bt.mae / bt.naive_mae : null;
-    let html = `<h2>How accurate are the projections?</h2>
+    let html = adviceHtml() + `<h2>How accurate are the projections?</h2>
       <p class="lead-text">Every update re-runs the model for each completed week this season using only what was known before kickoff,
       (games before that week, that week's official injury report, Vegas lines), then compares it with what players actually scored:
       ${bt.games || 0} player-games so far, fantasy-relevant players only, <b>including ${bt.injured_or_partial || 0} games where the player was hurt or sat</b> (scored as 0),
