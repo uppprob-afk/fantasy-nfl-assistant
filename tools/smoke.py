@@ -107,6 +107,11 @@ def run(page, scheme: str) -> None:
     page.wait_for_timeout(1500)
     check("You" in page.locator("#lab-result").inner_text(), f"{scheme}: offer loads into the Lab")
 
+    # FAAB budget plan
+    page.locator('#subnav button[data-sub="faab"]').click()
+    page.wait_for_timeout(200)
+    check("Keep in reserve".upper() in page.locator("#tab-faab .faab-plan").inner_text().upper(), f"{scheme}: FAAB budget plan")
+
     # deadline plan (only while the deadline is still ahead)
     page.locator('#subnav button[data-sub="trades"]').click()
     page.wait_for_timeout(200)

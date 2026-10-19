@@ -427,6 +427,15 @@ kept), then hill-climbs single bench swaps while win chance rises ≥ 0.4 pts. R
 sit pairs with the win chance if only that swap is made. Home → Start/sit shows it first; the
 to-do list uses it (falls back to slot-by-slot verdicts when there is no plan).
 
+## FAAB budget plan (top of Waivers)
+
+Worked out in the browser from `faab.json` (`faabPlan` / `faabPlanHtml`, a fold-out that
+remembers open / closed): reserve = one emergency pickup at the 90th-percentile winning bid
+this season (15% of the budget until there are 5 paid claims), capped at what I have; weekly
+guide = (remaining − reserve) / waiver weeks left through the last playoff week; rivals' budgets
+(most any rival has, teams that can outbid my whole budget, teams nearly out ≤ $5 or 5%) and how
+many rivals can match bids of $1 / 5 / 10 / the reserve / 25 / 50.
+
 ## Trade report card (League → Trades)
 
 `tradelog.py` scores every completed league trade for each side: points the received players
