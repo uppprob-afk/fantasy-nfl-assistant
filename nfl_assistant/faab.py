@@ -6,7 +6,7 @@ would have won: runner-up bid + 1, or the league minimum if nobody else bid).
 """
 
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from statistics import mean, median
 
 from .players import player_brief
@@ -19,7 +19,7 @@ def _bid(tx: dict) -> int:
 
 
 def _date(ms) -> str | None:
-    return datetime.fromtimestamp(ms / 1000, timezone.utc).date().isoformat() if ms else None
+    return datetime.fromtimestamp(ms / 1000, UTC).date().isoformat() if ms else None
 
 
 def _was_outbid(tx: dict) -> bool:
@@ -153,7 +153,7 @@ def bid_to_beat(rival_bids: list[int], share: float) -> int | None:
     if not rival_bids:
         return None
     bids = sorted(rival_bids)
-    for bid in range(0, bids[-1] + 2):
+    for bid in range(bids[-1] + 2):
         if sum(b < bid for b in bids) / len(bids) >= share:
             return bid
     return bids[-1] + 1

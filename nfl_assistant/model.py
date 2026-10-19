@@ -89,9 +89,9 @@ def backtest_records(rows_prior: list[dict], rows_this: list[dict], snaps: list[
         starter = {}                                   # team -> QB with most attempts this week
         for key, plogs in logs.items():
             for g in plogs:
-                if g["season"] == season and g["week"] == w and g.get("position") == "QB" and (g.get("attempts") or 0) >= 10:
-                    if g["team"] not in starter or g["attempts"] > starter[g["team"]][1]:
-                        starter[g["team"]] = (key, g["attempts"])
+                if (g["season"] == season and g["week"] == w and g.get("position") == "QB" and (g.get("attempts") or 0) >= 10
+                        and (g["team"] not in starter or g["attempts"] > starter[g["team"]][1])):
+                    starter[g["team"]] = (key, g["attempts"])
         ranks = (ranks_by_week or {}).get(w) or {}
         tiers = pj.rank_tiers([(v[0], v[1], pj.established_ppg(before.get(k, []))) for k, v in ranks.items()]) if ranks else {}
         cands = []
@@ -143,7 +143,7 @@ def project(rec: dict, params: dict | None) -> tuple[float, float]:
     if rec.get("qb_change") and P.get("qb_factor") and pos in P["qb_factor"]:
         m *= 1 + pj.pp(P, "qb_change", pos) * (P["qb_factor"][pos]["factor"] - 1)
     avail = pj.availability(rec.get("status"), 0, rec.get("practice"), P["availability"]) if rec.get("status") else 1.0
-    return r["rate"] * m * avail, r["sd"] * (avail if avail < 1 else 1)
+    return r["rate"] * m * avail, r["sd"] * (min(1, avail))
 
 
 # --- scoring ------------------------------------------------------------------------

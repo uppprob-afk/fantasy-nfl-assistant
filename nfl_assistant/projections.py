@@ -106,7 +106,7 @@ def schedule(games: list[dict], season: str) -> dict[int, dict[str, dict]]:
         if spread not in (None, "") and total not in (None, ""):
             s, t = float(spread), float(total)
             imp_home, imp_away = (t + s) / 2, (t - s) / 2
-        num = lambda k: float(g[k]) if g.get(k) not in (None, "") else None
+        num = lambda k, g=g: float(g[k]) if g.get(k) not in (None, "") else None
         base = {"played": played, "gameday": g.get("gameday"), "gametime": g.get("gametime"),
                 "roof": g.get("roof") or None, "wind": num("wind"), "temp": num("temp"),
                 "neutral": g.get("location") == "Neutral", "stadium": g.get("stadium")}
@@ -734,7 +734,7 @@ def apply_qb_change(proj: dict[str, dict], logs: dict, players: dict, season: st
     pid_of_nid = {r.get("nid"): pid for pid, r in proj.items() if r.get("nid")}
     depth1 = {p.get("team"): pid for pid, p in players.items()
               if p.get("position") == "QB" and p.get("depth_chart_order") == 1 and p.get("team")}
-    for pid, r in proj.items():
+    for r in proj.values():
         pos, team = r["position"], r["team"]
         strength = pp(P, "qb_change", pos)
         if pos not in factor or not strength or team not in primary:
@@ -770,14 +770,14 @@ def apply_inheritance(proj: dict[str, dict], volume: dict, params: dict | None) 
         if len(pids) < 2 or team not in volume:
             continue
         v = volume[team]
-        def extra_pts(pid, dc, dt):
+        def extra_pts(pid, dc, dt, v=v, pos=pos):
             ro = proj[pid]["role"]
             return (v["carries"] * dc * ro["e_car"] + v["targets"] * dt * ro["e_tgt"]) * P["bias"].get(pos, 1.0)
-        member = lambda pid, avail: {"id": pid, "pos": pos, "avail": avail, "car_share": proj[pid]["role"]["car_share"],
+        member = lambda pid, avail, pos=pos: {"id": pid, "pos": pos, "avail": avail, "car_share": proj[pid]["role"]["car_share"],
                                      "tgt_share": proj[pid]["role"]["tgt_share"]}
         weeks = {w for pid in pids for w in list(proj[pid]["weekly"]) + list(proj[pid].get("playoff_weeks") or {})}
         for w in sorted(weeks):
-            src = lambda pid: proj[pid]["weekly"].get(w) or (proj[pid].get("playoff_weeks") or {}).get(w)
+            src = lambda pid, w=w: proj[pid]["weekly"].get(w) or (proj[pid].get("playoff_weeks") or {}).get(w)
             rows = {pid: src(pid) for pid in pids if src(pid) and not src(pid).get("bye")}
             group = [member(pid, x.get("avail", 1.0)) for pid, x in rows.items()]
             for a in group:

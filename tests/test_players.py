@@ -1,4 +1,9 @@
-from nfl_assistant.players import ir_allowed_statuses, is_ir_eligible, player_name, slim_players
+from nfl_assistant.players import (
+    ir_allowed_statuses,
+    is_ir_eligible,
+    player_name,
+    slim_players,
+)
 
 
 def test_ir_only_allowed_by_default(league):

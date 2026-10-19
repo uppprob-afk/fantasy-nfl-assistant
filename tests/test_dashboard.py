@@ -99,6 +99,7 @@ def test_playoff_weeks_from_settings():
 
 def test_prune_drops_nulls_and_output_is_compact(tmp_path):
     import json
+
     from nfl_assistant.output import prune, write_site_data
     assert prune({"a": None, "b": [1, {"c": None, "d": 2}], "e": {"f": None}}) == {"b": [1, {"d": 2}], "e": {}}
     write_site_data(tmp_path, "x", {"k": [1, 2]})

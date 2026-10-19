@@ -3,7 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from nfl_assistant import dashboard, faab, tendencies as T
+from nfl_assistant import dashboard, faab
+from nfl_assistant import tendencies as T
 
 FIX = Path(__file__).parent / "fixtures"
 

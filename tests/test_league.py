@@ -33,7 +33,7 @@ def test_power_rankings_blend_and_weights():
     assert w == {"actual": 0.0, "projected": 0.9, "efficiency": 0.1}
     assert [r["roster_id"] for r in rows] == [2, 3, 1]          # week 0: projection only
     rows, w = league.power_rankings({1: 130, 2: 100, 3: 115}, {1: 100, 2: 130, 3: 115}, {1: 0.9, 2: 0.9, 3: 0.9}, 15)
-    assert w["actual"] > w["projected"] and [r["roster_id"] for r in rows][0] == 1   # late season: results count more
+    assert w["actual"] > w["projected"] and next(r["roster_id"] for r in rows) == 1   # late season: results count more
     assert rows[0]["rank"] == 1
 
 
