@@ -3364,7 +3364,7 @@
       try { if (v === "auto") localStorage.removeItem("theme"); else localStorage.setItem("theme", v); } catch (e) { /* ignore */ }
       $("theme-seg").querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
     }));
-    $("more-reload").addEventListener("click", () => location.reload());
+    $("more-reload").addEventListener("click", () => checkFresh(true));
   }
 
   function setupTheme() {
@@ -3393,7 +3393,7 @@
       $("install-btn").hidden = true;
     });
     window.addEventListener("appinstalled", () => { $("install-btn").hidden = true; });
-    $("refresh-btn").addEventListener("click", () => location.reload());
+    $("refresh-btn").addEventListener("click", () => checkFresh(true));
   }
 
   async function isOffline() {
@@ -3536,11 +3536,64 @@
   selectTab(known.includes(initial) ? initial : "home");
   NAV.ready = true;
   setTimeout(() => ensureMoreCards(), 2500);
+  // ---------- Always show the newest data ----------
+  // Phones keep the app open in the background for days, and the offline cache shows saved data
+  // first, so a page could sit on old numbers. On opening, on coming back after 10+ minutes away
+  // and on ↻, ask the server (past every cache) when the data was made; if it's newer, drop the
+  // saved data and reload. A sign-in page instead of data means the Cloudflare Access sign-in
+  // has expired.
+  async function newestDataAt() {
+    const res = await fetch(`data/dashboard.json?ping=${Date.now()}`, { cache: "no-store", redirect: "manual" });
+    if (res.type === "opaqueredirect" || res.status === 401 || res.status === 403) return { login: true };
+    if (!res.ok || !(res.headers.get("content-type") || "").includes("json")) return {};
+    return { at: (await res.json()).generated_at };
+  }
+  async function clearSavedData() {
+    try {
+      for (const k of await caches.keys()) {
+        const c = await caches.open(k);
+        for (const r of await c.keys()) if (new URL(r.url).pathname.includes("/data/")) await c.delete(r);
+      }
+    } catch (e) { /* no cache storage */ }
+  }
+  function statusNote(id, html, label, go) {
+    if ($(id)) return;
+    $("status").insertAdjacentHTML("afterbegin", `<div class="status-note" id="${id}">${html} <button type="button" class="mini">${label}</button></div>`);
+    $(id).querySelector("button").addEventListener("click", go);
+  }
+  let lastCheck = 0;
+  async function checkFresh(manual) {
+    lastCheck = Date.now();
+    let r;
+    try { r = await newestDataAt(); } catch (e) { if (manual) location.reload(); return; }   // offline
+    if (r.login) {
+      statusNote("login-note", "Your sign-in has expired, so new data can't load.", "Sign in", () => { location.href = location.pathname; });
+      return;
+    }
+    if (r.at && D && new Date(r.at) > new Date(D.generated_at)) {
+      let last = 0;
+      try { last = Number(sessionStorage.getItem("freshReload") || 0); } catch (e) { /* ignore */ }
+      if (!manual && Date.now() - last < 5 * 60000) {        // never loop: one automatic reload per 5 minutes
+        statusNote("fresh-note", `Newer data is available (updated ${esc(agoText(Date.now() - new Date(r.at).getTime()))}).`, "Show it",
+          async () => { await clearSavedData(); location.reload(); });
+        return;
+      }
+      try { sessionStorage.setItem("freshReload", String(Date.now())); } catch (e) { /* ignore */ }
+      await clearSavedData();
+      location.reload();
+      return;
+    }
+    if (manual) toast(`You have the latest data (updated ${esc(agoText(Date.now() - new Date(D.generated_at).getTime()))}). New data arrives with each scheduled update.`);
+  }
+  setTimeout(() => { if (navigator.onLine !== false) checkFresh(false); }, 1200);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && Date.now() - lastCheck > 10 * 60000) checkFresh(false);
+  });
   if (navigator.serviceWorker) navigator.serviceWorker.addEventListener("message", (e) => {
     if (!e.data || e.data.type !== "data-updated" || $("fresh-note")) return;
     $("status").insertAdjacentHTML("afterbegin", `<div class="status-note" id="fresh-note">Newer data has downloaded.
       <button type="button" class="mini" id="fresh-reload">Show it</button></div>`);
-    $("fresh-reload").addEventListener("click", () => location.reload());
+    $("fresh-reload").addEventListener("click", async () => { await clearSavedData(); location.reload(); });
   });
   window.addEventListener("popstate", () => {
     if (NAV.ignorePop) { NAV.ignorePop--; return; }

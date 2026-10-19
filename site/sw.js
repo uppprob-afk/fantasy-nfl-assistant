@@ -5,7 +5,7 @@
    - App files: network first, cache as fallback.
    - Navigations go to the network untouched (so a login page in front of the site, such as
      Cloudflare Access, keeps working); only a failed navigation falls back to the cached page. */
-const CACHE = "fantasy-nfl-v2";
+const CACHE = "fantasy-nfl-v3";
 const SHELL = ["./", "./index.html", "./styles.css", "./app.js", "./manifest.webmanifest",
   "./icons/icon-192.png", "./icons/icon-512.png", "./icons/apple-touch-icon.png"];
 
@@ -52,7 +52,8 @@ const ok = (res) => res && res.ok && res.type === "basic" && !res.redirected;
 async function staleWhileRevalidate(event, req) {
   const cache = await caches.open(CACHE);
   const cached = await cache.match(req, { ignoreSearch: true });
-  const refresh = fetch(req).then(async (res) => {
+  // no-cache: always check with the server (the browser's own cache must not hand back old data)
+  const refresh = fetch(req, { cache: "no-cache" }).then(async (res) => {
     if (!ok(res)) return res;
     const fresh = res.clone();
     if (cached) {
