@@ -561,7 +561,17 @@ have been built (the rest build fresh when opened). Don't assume another tab's e
 
 The header subtitle shows "Updated <relative time>" (`showUpdated`, refreshed every minute;
 amber when older than 1 day on an NFL game day in US Eastern time (Thu / Sun / Mon), else
-4 days). The ↻ button only reloads; new data comes from scheduled or manual pipeline runs.
+4 days). New data comes from scheduled or manual pipeline runs.
+
+Phones keep the app open in the background for days and the service worker serves saved data
+first, so `checkFresh` asks the server for `data/dashboard.json?ping=…` (bypasses the service
+worker; `cache: "no-store"`, `redirect: "manual"`) on opening, on coming back after 10+ minutes
+and on ↻ / Settings → Reload. If its `generated_at` is newer, it deletes the saved `/data/`
+entries from Cache Storage and reloads (automatically at most once per 5 minutes, then a "Show
+it" note, so it can't loop). A redirect / 401 / 403 means the Cloudflare Access sign-in expired:
+a "Sign in" note reloads the page through Access. The service worker revalidates data with
+`cache: "no-cache"` so the browser's HTTP cache can't hand back old files. Bump `CACHE` in
+`sw.js` when its caching rules change.
 
 ## Ask Claude (no API)
 
