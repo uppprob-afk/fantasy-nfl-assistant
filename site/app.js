@@ -616,6 +616,51 @@
     </div>`;
   }
 
+  // ---------- FAAB budget plan (top of Waivers) ----------
+  // How much to keep back (one emergency pickup at the price big claims have cost in this league),
+  // a weekly guide for the rest, and what rivals can still afford.
+  function quantile(sorted, q) {
+    if (!sorted.length) return null;
+    const i = (sorted.length - 1) * q, lo = Math.floor(i), hi = Math.ceil(i);
+    return sorted[lo] + (sorted[hi] - sorted[lo]) * (i - lo);
+  }
+  function faabPlan() {
+    const me = F.managers.find((m) => m.roster_id === F.my_roster_id) || {}, mine = me.remaining || 0;
+    const cw = D.league.current_week, pw = playoffWeeksOf(), last = pw.length ? Math.max(...pw) : 17;
+    const weeksLeft = Math.max(1, last - cw + 1);
+    const wins = F.waiver_log.map((x) => x.bid).filter((b) => b != null && b > 0).sort((a, b) => a - b);
+    // a big add costs about the 90th-percentile winning bid (or 15% of the budget until there's history)
+    const big = wins.length >= 5 ? Math.round(quantile(wins, 0.9)) : Math.round(0.15 * F.budget);
+    const reserve = Math.min(mine, big);
+    const weekly = Math.floor(Math.max(0, mine - reserve) / weeksLeft);
+    const rivals = F.managers.filter((m) => m.roster_id !== F.my_roster_id).sort((a, b) => b.remaining - a.remaining);
+    const maxOther = rivals.length ? rivals[0].remaining : 0;
+    const avgSpent = Math.round(F.managers.reduce((a, m) => a + (F.budget - m.remaining), 0) / F.managers.length);
+    const broke = rivals.filter((m) => m.remaining <= Math.max(5, 0.05 * F.budget));
+    return { mine, weeksLeft, last, big, reserve, weekly, rivals, maxOther, avgSpent, broke, spent: F.budget - mine, nWins: wins.length };
+  }
+  function faabPlanHtml() {
+    const x = faabPlan();
+    const levels = [...new Set([1, 5, 10, x.big, 25, 50].filter((v) => v > 0 && v <= F.budget))].sort((a, b) => a - b);
+    const can = (v) => x.rivals.filter((m) => m.remaining >= v).length;
+    let html = `<p class="subtle" style="margin-top:8px">Keep enough for one emergency pickup (a star's backup when he gets hurt, or a breakout), priced at what
+      big claims have cost in your league this season, and spread the rest over the waiver weeks left (through week ${esc(x.last)}, the playoffs included).</p>
+      <div class="tiles head">${tileHtml("Keep in reserve", money(x.reserve), x.nWins >= 5 ? `the top 10% of winning bids cost $${x.big}+` : "15% of the budget until there's history")}
+        ${tileHtml("Spend per week", money(x.weekly), `${x.weeksLeft} waiver week${x.weeksLeft === 1 ? "" : "s"} left`)}
+        ${tileHtml("Spent so far", money(x.spent), `league average $${x.avgSpent}`)}
+        ${tileHtml("Most a rival has", money(x.maxOther), x.rivals.length ? esc(x.rivals[0].team_name) : "")}</div>`;
+    const notes = [];
+    if (x.mine > x.maxOther) notes.push(`You have more FAAB than anyone: <b>${money(x.maxOther + 1)}</b> wins any claim outright.`);
+    else if (x.mine < x.maxOther) notes.push(`${can(x.mine + 1)} team${can(x.mine + 1) === 1 ? "" : "s"} can outbid your whole budget.`);
+    if (x.broke.length) notes.push(`Nearly out of money: ${x.broke.map((m) => `<b>${esc(m.team_name)}</b> (${money(m.remaining)})`).join(", ")}. They can't compete for anyone
+      expensive, so when they're your only rival a small bid is safer.`);
+    if (x.mine - x.reserve <= 0) notes.push(`Your whole budget is your reserve now: only bid on a real need.`);
+    if (notes.length) html += `<div class="card card-pad subtle" style="margin-top:10px">${notes.map((n) => `<p>${n}</p>`).join("")}</div>`;
+    html += `<div class="card table-wrap" style="margin-top:10px"><table class="named"><thead><tr><th>A bid of</th><th>Rivals who can match it</th></tr></thead><tbody>${
+      levels.map((v) => `<tr><td>${money(v)}${v > x.mine ? ` <span class="subtle">(more than you have)</span>` : ""}</td><td>${can(v)} of ${x.rivals.length}</td></tr>`).join("")}</tbody></table></div>`;
+    return html;
+  }
+
   function renderFaab() {
     if (!F) { $("tab-faab").innerHTML = `<div class="empty">No FAAB data yet.</div>`; return; }
     const me = F.managers.find((m) => m.roster_id === F.my_roster_id) || {};
@@ -625,6 +670,7 @@
       <div class="stat"><div class="v">${money(me.overpaid)}</div><div class="l">Overpaid</div></div>
     </div>`;
 
+    html += `<details class="recent faab-plan"${store.get("faabPlanOpen", true) ? " open" : ""}><summary>Budget plan: keep ${money(faabPlan().reserve)}, spend about ${money(faabPlan().weekly)} a week</summary>${faabPlanHtml()}</details>`;
     // bid ideas: available players ranked by what they'd add to my team, by position
     html += `<h2>Bid ideas</h2>
       <p class="lead-text">Available players ranked by what they'd add to <b>your</b> lineup for the rest of the season (same maths as the
@@ -704,6 +750,8 @@
         : `<div class="empty">None.</div>`}</div>`;
 
     $("tab-faab").innerHTML = html;
+    const fp = document.querySelector("#tab-faab .faab-plan");
+    if (fp) fp.addEventListener("toggle", () => store.set("faabPlanOpen", fp.open));
     const drawList = (v) => { $("faab-list").innerHTML = availableList(v); };
     wireSeg("faab-pos", "faabPos", drawList);
     drawList(store.get("faabPos", "best"));
