@@ -1664,6 +1664,77 @@
     if (!quiet) toast(on ? "Unpinned from the top of Home" : "Pinned to the top of Home", () => togglePin(sec, true));
   }
 
+  // ---------- Scout your opponent (Home → matchup) ----------
+  // Their shaky starters, the bench player they'll probably switch in, where the matchup is won or
+  // lost slot by slot, the boom-or-bust players it turns on, and what a Questionable starter sitting
+  // would do to your win chance.
+  const normCdf = (z) => { const t = 1 / (1 + 0.2316419 * Math.abs(z)), d = 0.3989423 * Math.exp(-z * z / 2);
+    const p = d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274)))); return z > 0 ? 1 - p : p; };
+  const winChance = (a, b, sa, sb) => normCdf((a - b) / Math.sqrt(Math.max(sa * sa + sb * sb, 1)));
+  function oppScout(m) {
+    const [me, op] = m.teams, slots = O.slots;
+    const rows = (t) => t.players.map((r, i) => Object.assign({ slot: slots[i] }, r || {}));
+    const mine = rows(me), theirs = rows(op);
+    const live = (r) => r.id && r.status !== "played";
+    if (!theirs.some(live) && !mine.some(live)) return null;
+    const shaky = theirs.filter((r) => r.status !== "played").map((r) => {
+      if (!r.id) return Object.assign(r, { why: "empty slot" });
+      const s = nm(r.id).injury_status;
+      if (s) return Object.assign(r, { why: s });
+      if ((r.pts || 0) <= 0.5) return Object.assign(r, { why: "not playing" });
+      return null;
+    }).filter(Boolean);
+    // a bench player still to play who's projected clearly higher than a starter still to play
+    let swaps = [];
+    const L = DATA.lab, wi = L ? L.weeks.indexOf(Number(O.week)) : -1;
+    if (L && wi >= 0 && L.rosters[op.roster_id]) {
+      const thisWeek = (p) => (L.players[p] ? L.players[p].w[wi] || 0 : 0);   // 0 = already played, bye or out
+      const set = new Set(op.starters || []), used = new Set();
+      const bench = engine().rosterAll(String(op.roster_id)).filter((p) => !set.has(p) && thisWeek(p) > 0).sort((a, b) => thisWeek(b) - thisWeek(a));
+      theirs.filter((r) => r.status !== "played").sort((a, b) => (a.pts || 0) - (b.pts || 0)).forEach((r) => {
+        const ok = FLEX_OK[r.slot] || [r.slot];
+        const b = bench.find((p) => !used.has(p) && ok.includes(L.players[p].p) && thisWeek(p) >= (r.pts || 0) + 2);
+        if (b) { used.add(b); swaps.push({ slot: r.slot, id: b, pts: thisWeek(b), out: r.id ? r : null }); }
+      });
+    }
+    const edges = mine.map((r, i) => ({ slot: r.slot, me: r, them: theirs[i], d: (r.pts || 0) - ((theirs[i] && theirs[i].pts) || 0) }));
+    const swing = [...mine.map((r) => Object.assign({ side: "you" }, r)), ...theirs.map((r) => Object.assign({ side: "them" }, r))]
+      .filter((r) => live(r) && r.sd).sort((a, b) => b.sd - a.sd).slice(0, 3);
+    const base = winChance(me.mean, op.mean, me.sd, op.sd);
+    const whatIf = shaky.filter((r) => r.id && r.why === "Questionable" && r.pts > 0).map((r) => {
+      const sub = swaps.find((x) => x.out && x.out.id === r.id) || null;
+      const after = winChance(me.mean, op.mean - r.pts + (sub ? sub.pts : 0), me.sd, op.sd);
+      return { r, sub, after };
+    });
+    return { me, op, shaky, swaps, edges, swing, base, whatIf };
+  }
+  function oppScoutHtml(m) {
+    const x = oppScout(m);
+    if (!x) return "";
+    const pc = (v) => `${Math.round(100 * v)}%`;
+    const who = (r) => (r && r.id ? `<b>${plink(r.id, nm(r.id).name)}</b>` : "an empty slot");
+    const bits = [];
+    if (x.shaky.length) bits.push(`${x.shaky.length} shaky starter${x.shaky.length > 1 ? "s" : ""}`);
+    if (x.swaps.length) bits.push(`likely switch: ${esc(nm(x.swaps[0].id).name)}`);
+    let html = "";
+    if (x.shaky.length) html += `<div class="pd-h">Their shaky starters</div><div class="stack">${x.shaky.map((r) =>
+      `<div class="todo"><span class="chip ${r.why === "Questionable" ? "warn" : "bad"}">${esc(r.why)}</span><div class="todo-t">${esc(r.slot)}: ${who(r)}${r.id ? ` · ${num(r.pts)} proj` : ""}</div></div>`).join("")}</div>`;
+    if (x.swaps.length) html += `<div class="pd-h" style="margin-top:12px">They'll probably start instead</div><div class="stack">${x.swaps.map((s) =>
+      `<div class="todo"><span class="chip info">${esc(s.slot)}</span><div class="todo-t">${who(s)} (${num(s.pts)} proj)${s.out ? ` over ${who(s.out)} (${num(s.out.pts)})` : ""}: their best lineup isn't set yet.</div></div>`).join("")}</div>`;
+    if (x.whatIf.length) html += `<div class="subtle" style="margin-top:10px">${x.whatIf.map((w) =>
+      `If ${who(w.r)} sits${w.sub ? ` and they start ${who(w.sub)}` : " and they don't replace him"}: your win chance ${pc(x.base)} → <b>${pc(w.after)}</b>.`).join("<br>")}</div>`;
+    const top = x.edges.slice().sort((a, b) => b.d - a.d);
+    const yours = top.filter((e) => e.d >= 1).slice(0, 2), theirs = top.filter((e) => e.d <= -1).reverse().slice(0, 2);
+    const edge = (e) => `<div class="todo"><span class="chip ${e.d > 0 ? "good" : "bad"}">${esc(e.slot)}</span><div class="todo-t">${who(e.me)} ${num(e.me.pts || 0)} vs ${who(e.them)} ${num((e.them && e.them.pts) || 0)}
+      <span class="subtle">(${signed(e.d)})</span></div></div>`;
+    if (yours.length || theirs.length) html += `<div class="pd-h" style="margin-top:12px">Where it's won or lost</div><div class="stack">${yours.map(edge).join("")}${theirs.map(edge).join("")}</div>`;
+    if (x.swing.length) html += `<div class="subtle" style="margin-top:10px">It turns on the boom-or-bust players: ${x.swing.map((r) =>
+      `${who(r)} (${r.side === "you" ? "yours" : "theirs"}, ${num(r.pts)} ± ${num(r.sd)})`).join(", ")}.</div>`;
+    if (!html) return "";
+    return `<details class="recent opp-scout"${store.get("scoutOpen", false) ? " open" : ""}><summary>Scout ${esc(x.op.team_name)}${bits.length ? `: ${bits.join(" · ")}` : ""}</summary>
+      <div class="card card-pad">${html}</div></details>`;
+  }
+
   function renderHome() {
     const me = D.me;
     const st = recBy[me.roster_id] || {};
@@ -1679,7 +1750,8 @@
     const secs = {};
     if (mine) {
       secs.matchup = `<h2>Week ${esc(O.week)} matchup</h2>` + matchupCard(mine) +
-        (po && po.if_win_text ? `<p class="subtle" style="margin:8px 0 0">Playoff odds if you win this week <b>${esc(po.if_win_text)}</b> · if you lose <b>${esc(po.if_lose_text)}</b> · projected ${num(po.proj_wins)} wins.</p>` : "");
+        (po && po.if_win_text ? `<p class="subtle" style="margin:8px 0 0">Playoff odds if you win this week <b>${esc(po.if_win_text)}</b> · if you lose <b>${esc(po.if_lose_text)}</b> · projected ${num(po.proj_wins)} wins.</p>` : "")
+        + oppScoutHtml(mine);
     }
     secs.todo = todoHtml();
     secs.recap = recapTeaser();
@@ -1726,6 +1798,8 @@
           IR allowed for: ${esc(D.league.ir_allowed.join(", "))}.</p>`;
       }
     };
+    const sc = document.querySelector("#tab-home .opp-scout");
+    if (sc) sc.addEventListener("toggle", () => store.set("scoutOpen", sc.open));
     wireSeg("home-seg", "homeView", draw);
     draw(view);
   }

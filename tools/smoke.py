@@ -59,6 +59,13 @@ def run(page, scheme: str) -> None:
         page.wait_for_timeout(150)
         check(len(page.locator("#home-body").inner_text()) > 50 and wide(), f"{scheme}: Home → {v}")
 
+    # opponent scouting (only while the matchup has games left)
+    scout = page.locator("#tab-home .opp-scout")
+    if scout.count():
+        scout.locator("summary").click()
+        page.wait_for_timeout(150)
+        check(len(scout.inner_text()) > 40 and wide(), f"{scheme}: opponent scouting")
+
     # Hold before the Lab or Trades screens exist, then Home's recap link
     page.locator('#home-seg button[data-view="roster"]').click()
     page.locator("#tab-home details.prow-d > summary").first.click()
