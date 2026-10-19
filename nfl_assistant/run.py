@@ -11,6 +11,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from . import (
+    advice,
     brief,
     cards,
     dashboard,
@@ -685,6 +686,36 @@ def build_recap(ctx: dict, managers: dict, slots: list[str], outlook_data: dict,
 
 
 # --- model scorecard (backtest + live ledger + what it learned) ----------------------
+def build_advice(ctx: dict, outlook_data: dict, faab_data: dict, trade_data: dict, cards_by_id: dict,
+                 data_dir: Path) -> dict:
+    """Save the advice shown this run, then grade every finished week (Model → Advice scorecard)."""
+    cw, my_rid = ctx["current_week"], ctx["my_roster"]["roster_id"]
+    plan = outlook_data.get("win_plan")
+    if plan and plan["changes"]:
+        ss = [{"in": c["in"], "out": c["out"], "in_pts": c["in_pts"], "out_pts": c["out_pts"]} for c in plan["changes"]]
+    else:
+        ss = [{"in": r["alt"], "out": r["starter"], "in_pts": r.get("alt_pts"), "out_pts": r.get("starter_pts")}
+              for r in outlook_data.get("start_sit") or [] if r.get("verdict") == "swap" and r.get("alt")]
+    mine = next((m for m in outlook_data.get("matchups") or [] if m["is_mine"]), None)
+    locked = {p["id"] for p in (mine["teams"][0]["players"] if mine else []) if p.get("id") and p.get("status") == "played"}
+    waivers = [{"id": a["id"], "bid": (a.get("suggestion") or {}).get("bid"), "gain": a.get("gain_per_week"),
+                "drop": (a.get("drop") or [{}])[0].get("id")}
+               for a in faab_data.get("available") or [] if a.get("fit") == "upgrade"][:3]
+    sell = [{"id": r["id"], "ppg": r.get("actual_ppg")} for r in trade_data.get("sell_high") or [] if r.get("roster_id") == my_rid]
+    history = advice.save(data_dir / "advice.json", cw, ss, locked, waivers, sell)
+    points = {}
+    for pid, c in cards_by_id.items():
+        for g in c.get("log") or []:
+            v = g.get("pts") if g.get("pts") is not None else g.get("calc")
+            if v is not None and not g.get("bye"):
+                points.setdefault(pid, {})[g["week"]] = float(v)
+    lineups = {w: {p for p in (next((m for m in ms if m.get("roster_id") == my_rid), {}).get("starters") or []) if p and p != "0"}
+               for w, ms in ctx["matchups"].items()}
+    ids = {x for wk in history.values() for kind in wk.values() for a in kind.values() for x in (a.get("id"), a.get("in"), a.get("out"), a.get("drop")) if x}
+    names = {pid: player_name(ctx["players"].get(pid), pid) for pid in ids}
+    return advice.grade(history, ctx["completed_weeks"], points, lineups, names)
+
+
 def build_model_page(ctx: dict, mdl: dict, proj: dict, points: dict, extra_ids: list[str], now,
                      data_dir: Path) -> dict:
     """Save this run's projections to the live ledger, score past ones, record the settings."""
@@ -925,6 +956,7 @@ def main() -> int:
     write_site_data(site_data, "cards", prune({pid: c for pid, c in all_cards.items() if pid in core_ids}))
     write_site_data(site_data, "cards_more", prune({pid: c for pid, c in all_cards.items() if pid not in core_ids}))
     model_page = build_model_page(ctx, mdl, proj, points, pool_ids, now, ROOT / "data")
+    model_page["advice"] = build_advice(ctx, outlook_data, faab_data, trade_data, all_cards, ROOT / "data")
     write_site_data(site_data, "model", model_page)
     write_site_data(site_data, "recap", build_recap(ctx, managers, slots, outlook_data, league_data, faab_data, roles,
                                                     model_page, ROOT / "data"))

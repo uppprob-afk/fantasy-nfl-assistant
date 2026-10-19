@@ -125,6 +125,10 @@ def run(page, scheme: str) -> None:
     page.wait_for_timeout(200)
     check(page.locator("#ps-results").inner_text().strip() != "", f"{scheme}: player search results")
 
+    page.locator('#tabs button[data-tab="model"]').click()
+    page.wait_for_timeout(200)
+    check("Advice scorecard" in page.locator("#tab-model").inner_text(), f"{scheme}: advice scorecard")
+
     check(not errors, f"{scheme}: no page errors {errors[:2]}")
 
 
