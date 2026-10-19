@@ -427,6 +427,16 @@ kept), then hill-climbs single bench swaps while win chance rises ≥ 0.4 pts. R
 sit pairs with the win chance if only that swap is made. Home → Start/sit shows it first; the
 to-do list uses it (falls back to slot-by-slot verdicts when there is no plan).
 
+## Scout your opponent (Home → matchup)
+
+`oppScout(m)` / `oppScoutHtml(m)`: a fold-out under the matchup card (remembers open / closed)
+while games are left. Their starters still to play with an injury status, an empty slot or no
+projection; likely switches (a bench player still to play, projected 2+ pts above one of their
+starters still to play at an eligible slot, using this week's `lab.players[].w`, where 0 means
+already played / bye / out); "if X (Questionable) sits" win chance with a normal approximation
+(`winChance`, `normCdf`) with or without the likely replacement; the two biggest slot-by-slot
+edges each way; and the three live starters with the widest ranges (boom-or-bust swing players).
+
 ## Advice scorecard (Model tab)
 
 `advice.py`: every run `run.build_advice` saves the advice being shown for the current week to
