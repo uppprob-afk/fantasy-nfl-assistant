@@ -87,7 +87,7 @@ def run(page, scheme: str) -> None:
 
     # League views
     page.locator('#tabs button[data-tab="league"]').click()
-    for v in ["teams", "recap", "standings", "race", "power"]:
+    for v in ["teams", "recap", "trades", "standings", "race", "power"]:
         page.locator(f'#league-seg button[data-view="{v}"]').click()
         page.wait_for_timeout(150)
         check(len(page.locator("#tab-league").inner_text()) > 100 and wide(), f"{scheme}: League → {v}")

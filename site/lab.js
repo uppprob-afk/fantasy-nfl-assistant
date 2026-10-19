@@ -270,13 +270,17 @@
     const seen = (p) => (P[p].gt >= 2 && P[p].ap != null ? P[p].ap : P[p].r);
     // managers value one good player over two decent ones: best player + a third of the rest
     const look = (ids) => { const v = ids.map(seen).sort((a, b) => b - a); return v[0] + 0.35 * v.slice(1).reduce((a, x) => a + x, 0); };
-    function acceptance(g, r, gainThem, needs, myNeeds) {
+    // managers who've made more trades this season say yes more often: a small shift either way
+    const TC = L.trade_counts || {}, teamIds = Object.keys(L.rosters);
+    const avgTrades = teamIds.reduce((a, t) => a + (TC[t] || 0), 0) / (teamIds.length || 1);
+    const activity = (t) => Math.max(-0.5, Math.min(0.5, 0.3 * ((TC[t] || 0) - avgTrades)));
+    function acceptance(g, r, gainThem, needs, myNeeds, t) {
       const fits = [];
       [...new Set(g.map((p) => P[p].p))].forEach((pos) => { if (needs.includes(pos)) fits.push(`fills their ${pos} need`); });
       [...new Set(r.map((p) => P[p].p))].forEach((pos) => { if (myNeeds.includes(pos)) fits.push(`fills your ${pos} need`); });
       const theirFill = fits.filter((f) => f.startsWith("fills their")).length;
       const perceived = look(g) - look(r);
-      const z = gainThem / 6 + 0.5 * Math.min(theirFill, 2) + Math.max(-1.5, Math.min(1.5, perceived / 8));
+      const z = gainThem / 6 + 0.5 * Math.min(theirFill, 2) + Math.max(-1.5, Math.min(1.5, perceived / 8)) + activity(t);
       return { fits, perceived: round(perceived, 1), chance: round(Math.max(0.05, Math.min(0.95, 1 / (1 + Math.exp(-z)))), 2) };
     }
     /* One offer scored the same way as the suggestions (null when a player has moved teams). */
@@ -289,7 +293,7 @@
       const gainThem = round(value(theirsAll.filter((p) => !get.includes(p)).concat(give)).score - value(theirsAll).score, 1);
       const profs = leagueProfiles().profiles;
       return Object.assign({ partner: t, give: give.slice(), get: get.slice(), gainMe, gainThem, balance: balanceOf(gainMe, gainThem),
-        shape: `${give.length}-for-${get.length}` }, acceptance(give, get, gainThem, profs[t].needs, profs[me].needs));
+        shape: `${give.length}-for-${get.length}` }, acceptance(give, get, gainThem, profs[t].needs, profs[me].needs, t));
     }
 
     function exploreTrades(o) {
@@ -355,7 +359,7 @@
           if (gainMe < (give.length && get.length ? -10 : -4)) continue;  // never a big loss for me (looser for tweaks of my own trade)
           const gainThem = round(value(theirsAll.filter((p) => !r.includes(p)).concat(g)).score - theirBase, 1);
           if (gainThem < -25) continue;                                     // they'd laugh at it
-          const { fits, perceived, chance } = acceptance(g, r, gainThem, needs, myNeeds);
+          const { fits, perceived, chance } = acceptance(g, r, gainThem, needs, myNeeds, t);
           out.push({ partner: t, give: g, get: r, gainMe, gainThem, balance: balanceOf(gainMe, gainThem), fits,
             perceived, chance, shape: `${g.length}-for-${r.length}`,
             built: give.length && get.length && g.length === give.length && r.length === get.length && g.every((p) => give.includes(p)) && r.every((p) => get.includes(p)) });

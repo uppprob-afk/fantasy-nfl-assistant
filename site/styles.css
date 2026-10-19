@@ -584,6 +584,15 @@ details.tm > summary::-webkit-details-marker { display: none; }
 .ch-sw.ref { border-top: 2px dashed var(--muted); }
 .ch-sw.band { height: 10px; border: 0; border-radius: 2px; background: color-mix(in srgb, var(--accent) 18%, transparent); }
 
+/* ---------- League → Trades (report card) ---------- */
+.rt-sides { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-top: 8px; }
+.rt-team { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-weight: 650; margin-bottom: 4px; }
+.rt-team .chip { margin-left: 4px; }
+.rt-total { font-size: 18px; font-variant-numeric: tabular-nums; }
+.rt-p { padding: 4px 0; border-top: 1px solid var(--border); font-size: 14px; }
+.rt-p .subtle { font-size: 12.5px; }
+tr.mine td { font-weight: 650; }
+
 /* ---------- tile stacks: one rounded tile per item, space between ---------- */
 .stack { display: grid; gap: 10px; margin-bottom: 12px; }
 .stack > * { background: var(--surface); border: 1px solid var(--border) !important; border-radius: var(--r-lg); overflow: hidden; }
