@@ -490,6 +490,13 @@ to-do list uses it (falls back to slot-by-slot verdicts when there is no plan).
 - `selectTab(name, exact, keepScroll)` remembers each tab's scroll position (`SCROLL`); pass
   `keepScroll = false` when jumping to a specific item (go / find / recap links).
 
+## Start-up speed
+
+Screens are built the first time they're opened (`ensureTab` in `selectTab`, map in `RENDER`),
+not all at start-up; building every screen up front cost about a second on a phone. To redraw
+a screen after a change, call `refresh("lab", "trades", ...)`: it only rebuilds screens that
+have been built (the rest build fresh when opened). Don't assume another tab's elements exist.
+
 ## Freshness
 
 The header subtitle shows "Updated <relative time>" (`showUpdated`, refreshed every minute;
@@ -589,6 +596,11 @@ carried between runs in the Actions cache. Pin `astral-sh/setup-uv` to a full ve
 
 Tests cover all calculation logic with saved neutral sample data in `tests/fixtures/`.
 **Tests never call live APIs.**
+
+Browser smoke test (every screen, light and dark, phone width, main buttons; fails on page
+errors, empty screens or sideways scroll): `uv run python -m nfl_assistant.anonymize` then
+`uv run --with playwright python tools/smoke.py` (needs Google Chrome). Run it after any
+change to `site/`.
 
 ## Git workflow
 

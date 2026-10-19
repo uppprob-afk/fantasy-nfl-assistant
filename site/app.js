@@ -2495,8 +2495,9 @@
     labState = { partner: String(partner), give: give.slice(), get: get.slice(),
       autoSuggest: !!(opts && opts.suggest), shopAll: !!(opts && opts.shopAll), offers: null };
     store.set("labState", labState);
+    const fresh = !BUILT.has("lab");
     selectTab("lab");
-    renderTradeLab();
+    if (!fresh) renderTradeLab();
     window.scrollTo(0, 0);
   }
 
@@ -2573,7 +2574,7 @@
     // Re-draw, keeping open player panels open and the page where it was.
     const open = [...document.querySelectorAll("#tab-home details.prow-d[open]")].map((d) => d.dataset.pid);
     const y = window.scrollY;
-    renderHome(); renderTrades(); renderTradeLab();
+    refresh("home", "trades", "lab");
     open.forEach((id) => { const d = document.querySelector(`#tab-home details.prow-d[data-pid="${CSS.escape(id)}"]`); if (d) d.open = true; });
     window.scrollTo(0, y);
   }
@@ -2934,12 +2935,21 @@
   // `exact` = a sub-tab was picked directly (some sub-tabs share their section's name,
   // e.g. "trades" = Ideas, so the name alone would jump back to the last sub-tab).
   const SCROLL = {};
+  // Each screen is built the first time it's opened (building all twelve at start-up made the
+  // app slow to open on phones). refresh() re-builds a screen only if it has been built.
+  const RENDER = { home: () => renderHome(), league: () => renderLeague(), news: () => renderNews(), faab: () => renderFaab(),
+    trades: () => renderTrades(), lab: () => renderTradeLab(), nfl: () => renderNFL(), players: () => renderPlayers(),
+    model: () => renderModel(), brief: () => renderBrief(), more: () => renderMore(), glossary: () => renderGlossary() };
+  const BUILT = new Set();
+  function ensureTab(sub) { if (!BUILT.has(sub) && RENDER[sub]) { BUILT.add(sub); RENDER[sub](); } }
+  function refresh(...subs) { subs.forEach((sub) => { if (BUILT.has(sub)) RENDER[sub](); }); }
   function selectTab(name, exact, keepScroll) {
     const visible = [...document.querySelectorAll(".tab-panel")].find((x) => !x.hidden);
     if (visible) SCROLL[visible.id] = window.scrollY;
     const sec = sectionOf(name);
     const sub = SECTIONS[name] && !exact ? (lastSub[sec] || SECTIONS[sec][0][0]) : name;
     lastSub[sec] = sub;
+    ensureTab(sub);
     document.querySelectorAll("#tabs button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === sec)));
     document.querySelectorAll(".tab-panel").forEach((s) => { s.hidden = s.id !== "tab-" + sub; });
     const subs = SECTIONS[sec];
@@ -3138,8 +3148,8 @@
       toast("Offer loaded into the Lab", () => { labState = Object.assign({}, labState, before); store.set("labState", labState); renderTradeLab(); });
       setTimeout(() => { const r = $("lab-result"); if (r) r.scrollIntoView({ block: "start", behavior: "smooth" }); }, 60);
     }
-    else if (act === "seen") { markSeen(); renderHome(); renderNews(); toast("Marked as seen"); }
-    else if (act === "recap") { store.set("leagueView", "recap"); renderLeague(); selectTab("league", true, false); }
+    else if (act === "seen") { markSeen(); refresh("home", "news"); toast("Marked as seen"); }
+    else if (act === "recap") { store.set("leagueView", "recap"); refresh("league"); selectTab("league", true, false); }
     else if (act === "lab-team") { openInLab(Number(b.dataset.rid), [], []); }
     else if (act === "watch") toggleSet(WATCH, "watch", pid, b, "★ Watching", "☆ Watch");
     else if (act === "compare") toggleCompare(pid);
@@ -3154,14 +3164,14 @@
       if (d) { d.open = false; const r = d.getBoundingClientRect(); if (r.top < 70) window.scrollBy({ top: r.top - 80, behavior: "smooth" }); }
     }
     else if (act === "go") {
-      if (b.dataset.tab === "startsit") { store.set("homeView", "startsit"); renderHome(); selectTab("home", true);
+      if (b.dataset.tab === "startsit") { store.set("homeView", "startsit"); refresh("home"); selectTab("home", true);
         setTimeout(() => { const el = $("home-seg"); if (el) el.scrollIntoView({ block: "start", behavior: "smooth" }); }, 50); }
       else selectTab(b.dataset.tab, true, false);
     }
     else if (act === "find") {
       SEARCH = Object.assign(SEARCH || {}, { q: b.dataset.name, pos: "ALL", own: "all", team: "", roles: [], status: "any", flags: [] });
       store.set("playerSearch", SEARCH);
-      renderPlayers(); selectTab("players", true, false);
+      refresh("players"); selectTab("players", true, false);
     }
     else if (act === "team") openTeam(b.dataset.team);
     else if (act === "improve") runImprove();
@@ -3195,7 +3205,6 @@
   showStatus(D.generated_at);
 
   initVisit();
-  renderHome(); renderLeague(); renderNews(); renderFaab(); renderTrades(); renderTradeLab(); renderNFL(); renderPlayers(); renderModel(); renderBrief(); renderMore(); renderGlossary();
   renderBadges();
   tidyExplanations(document);
   new MutationObserver(() => tidyExplanations(document.querySelector("main"))).observe(document.querySelector("main"), { childList: true, subtree: true });
