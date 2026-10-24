@@ -103,16 +103,18 @@ def run(page, scheme: str) -> None:
     page.locator('#tabs button[data-tab="moves"]').click()
     page.locator('#subnav button[data-sub="lab"]').click()
     page.click("#lab-suggest")
-    page.wait_for_selector("#lab-offers .offer", timeout=20000)
-    check(page.locator("#lab-offers .offer").count() > 0, f"{scheme}: Lab finds offers")
-    page.locator('#lab-offers [data-act="star"]').first.click()
-    check("(1)" in page.locator("#lab-short summary").inner_text(), f"{scheme}: shortlist saves")
-    page.locator('#lab-offers [data-act="copy-offer"]').first.click()
-    page.wait_for_timeout(200)
-    check(not page.locator("#toast").is_hidden(), f"{scheme}: copy offer responds")
-    page.locator("#lab-offers [data-offer]").first.click()
-    page.wait_for_timeout(1500)
-    check("You" in page.locator("#lab-result").inner_text(), f"{scheme}: offer loads into the Lab")
+    page.wait_for_selector("#lab-offers .offer, #lab-offers .empty", timeout=20000)
+    if page.locator("#lab-offers .offer").count():
+        page.locator('#lab-offers [data-act="star"]').first.click()
+        check("(1)" in page.locator("#lab-short summary").inner_text(), f"{scheme}: shortlist saves")
+        page.locator('#lab-offers [data-act="copy-offer"]').first.click()
+        page.wait_for_timeout(200)
+        check(not page.locator("#toast").is_hidden(), f"{scheme}: copy offer responds")
+        page.locator("#lab-offers [data-offer]").first.click()
+        page.wait_for_timeout(1500)
+        check("You" in page.locator("#lab-result").inner_text(), f"{scheme}: offer loads into the Lab")
+    else:                                   # season over: nothing left to trade for
+        check(page.locator("#lab-offers .empty").is_visible(), f"{scheme}: Lab says no offers")
 
     # FAAB budget plan
     page.locator('#subnav button[data-sub="faab"]').click()

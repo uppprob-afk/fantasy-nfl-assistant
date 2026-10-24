@@ -1199,11 +1199,13 @@
   }
 
   function lineupsHtml() {
-    return `<p class="lead-text">Your best projected lineup for every remaining regular-season week, byes and injuries included.</p>
+    if (!O.weeks.length) return `<div class="card"><div class="empty">The season is over: no weeks left to set a lineup for.</div></div>`;
+    return `<p class="lead-text">Your best projected lineup for every remaining week, byes and injuries included.</p>
       <div class="weekchips" id="lu-weeks">${O.weeks.map((w, i) => `<button type="button" data-w="${w}" aria-pressed="${i === 0}">Wk ${w}</button>`).join("")}</div>
       <div id="lu-body"></div><div class="card table-wrap" style="margin-top:12px" id="lu-season"></div>`;
   }
   function wireLineups(rid) {
+    if (!O.weeks.length || !$("lu-body")) return;
     let week = O.weeks[0];
     const draw = () => {
       const lw = O.lineups[String(rid)][String(week)];
@@ -1743,7 +1745,7 @@
     let html = `<div class="stats">
       <div class="stat"><div class="v">${record(st)}</div><div class="l">Record · #${st.rank}</div></div>
       <div class="stat"><div class="v">${po ? esc(po.odds_text) : "–"} ${po ? sparkline(me.roster_id) : ""}</div>
-        <div class="l">Playoff odds ${po ? oddsDelta(me.roster_id) : ""}</div></div>
+        <div class="l">${O && O.playoffs.settled ? "Playoffs" : `Playoff odds ${po ? oddsDelta(me.roster_id) : ""}`}</div></div>
       <div class="stat"><div class="v">$${st.faab_remaining}</div><div class="l">FAAB left</div></div>
     </div>`;
     html += sinceHtml();
