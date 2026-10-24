@@ -550,6 +550,18 @@ who would start for me. A to-do appears in the last 2 weeks before the deadline.
 - `selectTab(name, exact, keepScroll)` remembers each tab's scroll position (`SCROLL`); pass
   `keepScroll = false` when jumping to a specific item (go / find / recap links).
 
+## Season phases
+
+`run.season_weeks(settings, week)` → (weeks still to play, playoff weeks projected beyond them,
+phase). Regular season: the rest of the regular season, plus the playoff weeks as extra
+projections. Fantasy playoffs: the playoff weeks still to play become "the weeks" (lineups,
+Lab, trades, start/sit all use them; card schedules still flag them as playoff weeks). After the
+last playoff week: no weeks, phase "over". `ctx["phase"]` and `outlook.phase` carry it. Outside
+the regular season there's nothing to simulate, so `build_outlook` returns final standings
+(`final_standings`: seeds by wins then points, "In (#2 seed)" / "Out") with
+`playoffs.settled = true` and no key games. The site checks `O.weeks.length` before drawing
+week-by-week views.
+
 ## Start-up speed
 
 Screens are built the first time they're opened (`ensureTab` in `selectTab`, map in `RENDER`),
@@ -666,6 +678,11 @@ carried between runs in the Actions cache. Pin `astral-sh/setup-uv` to a full ve
 
 Tests cover all calculation logic with saved neutral sample data in `tests/fixtures/`.
 **Tests never call live APIs.**
+
+`tests/test_pipeline.py` runs the whole update (`run.main`) end to end on the sample league with
+a fake Sleeper client and fake nflverse downloads (no network), at four points of the season:
+mid-season, the last regular-season week, the fantasy playoffs and after the season. Add a case
+there whenever the pipeline gains a new stage or a new kind of week.
 
 Browser smoke test (every screen, light and dark, phone width, main buttons; fails on page
 errors, empty screens or sideways scroll): `uv run python -m nfl_assistant.anonymize` then

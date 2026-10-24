@@ -90,7 +90,7 @@ def fetch(client: SleeperClient, cfg: dict) -> dict:
     players = client.players()
     say(f"  Season {league['season']}, week {current_week}; {last_scored} week(s) completed.")
     return {"state": state, "league": league, "me": me, "rosters": rosters, "users": users,
-            "my_roster": my_roster, "current_week": current_week,
+            "my_roster": my_roster, "current_week": current_week, "phase": season_weeks(settings, current_week)[2],
             "completed_weeks": list(range(start, last_scored + 1)),
             "matchups": matchups, "future_matchups": future, "transactions": transactions, "trending": trending,
             "players": players}
@@ -370,8 +370,7 @@ def build_projections(ctx: dict, nfl: dict, params: dict | None = None, today: s
     league, players = ctx["league"], ctx["players"]
     slots = lineups.lineup_slots(league["roster_positions"])
     teams = league.get("total_rosters") or 10
-    reg_end = int(league["settings"].get("playoff_week_start") or 15) - 1
-    weeks = list(range(ctx["current_week"], reg_end + 1))
+    weeks, beyond, _ = season_weeks(league["settings"], ctx["current_week"])
     starters = starter_counts(teams, slots)
     rostered = {pid for r in ctx["rosters"] for pid in (r.get("players") or [])}
     candidates = set(rostered) | {
@@ -381,11 +380,25 @@ def build_projections(ctx: dict, nfl: dict, params: dict | None = None, today: s
              or (p.get("search_rank") or 10**9) <= 400)}
     proj = projections.build(players, candidates, nfl["prior"], nfl["this"], nfl["snaps"], nfl["games"],
                              league["scoring_settings"], league["season"], weeks, starters,
-                             playoff_weeks(league["settings"]), params,
+                             beyond, params,
                              factors.current_practice(nfl.get("injuries") or [], league["season"], ctx["current_week"]),
                              fetch_forecasts(projections.schedule(nfl["games"], league["season"]), today, cache_dir)
                              if today and cache_dir else {})
     return proj, weeks, slots
+
+
+def season_weeks(settings: dict, current_week: int) -> tuple[list[int], list[int], str]:
+    """(weeks still to play, playoff weeks projected beyond them, phase).
+
+    Regular season: the rest of the regular season, plus the fantasy playoff weeks.
+    Fantasy playoffs: the playoff weeks still to play (they become "the weeks left").
+    After the last playoff week: nothing ("over")."""
+    po = playoff_weeks(settings)
+    reg_end = int(settings.get("playoff_week_start") or 15) - 1
+    if current_week <= reg_end:
+        return list(range(current_week, reg_end + 1)), po, "regular"
+    left = [w for w in po if w >= current_week]
+    return left, [], "playoffs" if left else "over"
 
 
 def playoff_weeks(settings: dict) -> list[int]:
@@ -506,6 +519,16 @@ def sim_standings(rosters: list[dict]) -> dict[int, dict]:
             for r in rosters}
 
 
+def final_standings(standings: dict, managers: dict, n_playoff: int, my_rid: int) -> list[dict]:
+    """After the regular season: seeds by wins, then points for (Sleeper's default), and who made it."""
+    order = sorted(standings, key=lambda r: (-standings[r]["wins"], -standings[r]["ties"], -standings[r]["pf"]))
+    return [{**managers[rid], **standings[rid], "seed": i + 1, "odds": 1.0 if i < n_playoff else 0.0,
+             "odds_text": f"In (#{i + 1} seed)" if i < n_playoff else "Out", "seed1": 1.0 if i == 0 else 0.0,
+             "proj_wins": float(standings[rid]["wins"]), "if_win": None, "if_lose": None,
+             "if_win_text": None, "if_lose_text": None, "is_mine": rid == my_rid}
+            for i, rid in enumerate(order)]
+
+
 def build_outlook(ctx: dict, managers: dict, proj: dict, weeks: list[int], slots: list[str], now) -> dict:
     league, players, rosters = ctx["league"], ctx["players"], ctx["rosters"]
     my_rid = ctx["my_roster"]["roster_id"]
@@ -585,9 +608,20 @@ def build_outlook(ctx: dict, managers: dict, proj: dict, weeks: list[int], slots
             else:
                 ow = lineups_by_team[rid][w]
                 dist[(rid, w)] = (ow["total"], ow["sd"])
-    strength = {rid: outlook.team_strength_sd(pids, proj, slots, weeks[-1]) for rid, pids in roster_of.items()}
     standings = sim_standings(rosters)
     n_playoff = int(league["settings"].get("playoff_teams") or 4)
+    if ctx.get("phase", "regular") != "regular":
+        # regular season over: who made it is settled, there's nothing left to simulate
+        teams = final_standings(standings, managers, n_playoff, my_rid)
+        return {"generated_at": now.isoformat(timespec="minutes"), "week": cw, "weeks": weeks, "phase": ctx["phase"],
+                "reg_season_end": int(league["settings"].get("playoff_week_start") or 15) - 1, "playoff_teams": n_playoff,
+                "my_roster_id": my_rid, "slots": slots, "matchups": matchups, "start_sit": sit, "win_plan": win_plan,
+                "lineups": {str(rid): {str(w): v for w, v in ws.items()} for rid, ws in lineups_by_team.items()},
+                "managers": {str(rid): managers[rid] for rid in roster_of},
+                "playoffs": {"teams": teams, "key_games": [], "sims": 0, "confidence": "high",
+                             "completed_weeks": len(ctx["completed_weeks"]), "settled": True},
+                "names": names}
+    strength = {rid: outlook.team_strength_sd(pids, proj, slots, weeks[-1]) for rid, pids in roster_of.items()}
     seed = int(now.strftime("%Y%m%d"))
     sim = outlook.simulate(standings, sched, dist, strength, n_playoff, seed=seed)
     done = len(ctx["completed_weeks"])
@@ -615,7 +649,7 @@ def build_outlook(ctx: dict, managers: dict, proj: dict, weeks: list[int], slots
         keys.append({**k, "a_label": managers[k["a"]]["label"], "b_label": managers[k["b"]]["label"],
                      "a_team": managers[k["a"]]["team_name"], "b_team": managers[k["b"]]["team_name"],
                      "if_a_text": outlook.round_odds(k["if_a"], conf), "if_b_text": outlook.round_odds(k["if_b"], conf)})
-    return {"generated_at": now.isoformat(timespec="minutes"), "week": cw, "weeks": weeks,
+    return {"generated_at": now.isoformat(timespec="minutes"), "week": cw, "weeks": weeks, "phase": "regular",
             "reg_season_end": weeks[-1] if weeks else cw, "playoff_teams": n_playoff,
             "my_roster_id": my_rid, "slots": slots, "matchups": matchups, "start_sit": sit, "win_plan": win_plan,
             "lineups": {str(rid): {str(w): v for w, v in ws.items()} for rid, ws in lineups_by_team.items()},
@@ -881,9 +915,14 @@ def build_cards(ctx: dict, proj: dict, points: dict, weeks: list[int], nfl: dict
     rostered = {pid for r in ctx["rosters"] for pid in (r.get("players") or [])}
     league = ctx["league"]
     starters = starter_counts(league.get("total_rosters") or 10, lineups.lineup_slots(league["roster_positions"]))
-    return {pid: cards.build_card(pid, proj.get(pid), points.get(pid, {}), ctx["completed_weeks"], sched,
-                                  ranks, trade_data["replacement"], len(weeks), flags, starters)
-            for pid in rostered | set(extra or [])}
+    out = {pid: cards.build_card(pid, proj.get(pid), points.get(pid, {}), ctx["completed_weeks"], sched,
+                                 ranks, trade_data["replacement"], len(weeks), flags, starters)
+           for pid in rostered | set(extra or [])}
+    po = set(playoff_weeks(ctx["league"]["settings"]))
+    for c in out.values():
+        for s in c.get("schedule") or []:
+            s["playoff"] = s["playoff"] or s["week"] in po
+    return out
 
 
 # --- main -------------------------------------------------------------------
@@ -994,7 +1033,10 @@ def main() -> int:
     if my_mu:
         say(f"This week: {round(100 * my_mu['teams'][0]['win_prob'])}% to win "
             f"({my_mu['teams'][0]['mean']} vs {my_mu['teams'][1]['mean']}).")
-    say(f"Playoff odds: {me_po['odds_text']} (if win {me_po['if_win_text']}, if lose {me_po['if_lose_text']}).")
+    if me_po.get("if_win_text"):
+        say(f"Playoff odds: {me_po['odds_text']} (if win {me_po['if_win_text']}, if lose {me_po['if_lose_text']}).")
+    else:
+        say(f"Playoffs: {me_po['odds_text']}.")
     say(f"Trades: {len(trade_data['ideas'])} ideas, {len(trade_data['buyers'])} motivated buyer(s).")
     for w in dash["warnings"] + faab_data["warnings"]:
         say(f"WARNING: {w}")
