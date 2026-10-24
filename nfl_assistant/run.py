@@ -35,7 +35,7 @@ from . import (
     waivers,
 )
 from .config import ROOT, ConfigError, load_config
-from .output import prune, write_site_data, write_snapshot
+from .output import prune, prune_snapshots, write_site_data, write_snapshot
 from .players import (
     find_player,
     ir_allowed_statuses,
@@ -1017,6 +1017,12 @@ def main() -> int:
     write_snapshot(snap_dir, "projections", {pid: {k: p[k] for k in ("rate", "sd", "confidence", "ros")}
                                              for pid, p in proj.items()})
 
+    sched = projections.schedule(nfl["games"], ctx["league"]["season"])
+    firsts = [min(g["gameday"] for g in teams.values() if g.get("gameday")) for teams in sched.values()
+              if any(g.get("gameday") for g in teams.values())]
+    removed = prune_snapshots(snap_dir.parent, now.date().isoformat(), firsts)
+    if removed:
+        say(f"Tidied {len(removed)} old snapshot file(s) / folder(s).")
     say(f"\nDone. {client.calls} Sleeper API calls. Snapshot saved to {snap_dir.relative_to(ROOT)}/")
     say(f"My team: {dash['me']['team_name']} ({dash['me']['label']})")
     unverified = [pid for pid, c in checks.items() if c["status"] == "unverified"]
