@@ -1,6 +1,8 @@
 """Write site data files and dated snapshots."""
 
 import json
+import shutil
+from datetime import date, timedelta
 from pathlib import Path
 
 
@@ -29,3 +31,31 @@ def prune(obj):
     if isinstance(obj, list):
         return [prune(v) for v in obj]
     return obj
+
+
+def prune_snapshots(snap_root: Path, today: str, first_gamedays: list[str], keep_days: int = 14) -> list[str]:
+    """Delete old dated snapshots, keeping what later runs read: everything from the last
+    `keep_days` days, and for older days only players.json from the last snapshot before each
+    week's first game (the model's backtest uses Sleeper's rankings as of then). Returns the
+    deleted paths (relative to `snap_root`)."""
+    if not snap_root.exists():
+        return []
+    cutoff = (date.fromisoformat(today) - timedelta(days=keep_days)).isoformat()
+    dates = sorted(d.name for d in snap_root.iterdir() if d.is_dir())
+    with_players = [d for d in dates if (snap_root / d / "players.json").exists()]
+    needed = {max(before) for g in first_gamedays if (before := [d for d in with_players if d < g])}
+    gone = []
+    for d in dates:
+        if d >= cutoff:
+            continue
+        folder = snap_root / d
+        if d in needed:
+            for f in folder.iterdir():
+                if f.name != "players.json":
+                    f.unlink()
+                    gone.append(f"{d}/{f.name}")
+        else:
+            shutil.rmtree(folder)
+            gone.append(d)
+    return gone
+

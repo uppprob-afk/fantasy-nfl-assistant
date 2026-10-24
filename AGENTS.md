@@ -550,6 +550,14 @@ who would start for me. A to-do appears in the last 2 weeks before the deadline.
 - `selectTab(name, exact, keepScroll)` remembers each tab's scroll position (`SCROLL`); pass
   `keepScroll = false` when jumping to a specific item (go / find / recap links).
 
+## Snapshot retention
+
+Each run saves a dated snapshot under `data/snapshots/` (the private repo keeps `data/`).
+`output.prune_snapshots` runs at the end of every update: snapshots from the last 14 days stay
+whole; older days keep only `players.json`, and only from the last snapshot before each NFL
+week's first game (what `snapshot_ranks` reads for the backtest's ranking prior); everything
+else is deleted. `load_previous` only ever needs the most recent snapshot.
+
 ## Season phases
 
 `run.season_weeks(settings, week)` → (weeks still to play, playoff weeks projected beyond them,
