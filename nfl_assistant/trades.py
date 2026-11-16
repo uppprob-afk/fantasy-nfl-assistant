@@ -262,6 +262,9 @@ def pitches_for_buyers(buyers: list[dict], my_rid: int, rosters: list[dict], pro
 STRENGTH_KEYS = ("QB", "RB", "WR", "TE", "FLEX")
 
 
+COSTLY_WEEK = 5.0       # points left on the bench that count as a costly lineup call
+
+
 def season_strength(matchups_by_week: dict[int, list[dict]], completed: list[int], slots: list[str],
                     position: dict[str, str]) -> dict[int, dict]:
     """Actual points per week by lineup position for every team, from the lineups they
@@ -269,10 +272,17 @@ def season_strength(matchups_by_week: dict[int, list[dict]], completed: list[int
     actual starters' points / the best lineup they could have started that week."""
     out: dict[int, dict] = {}
     for w in completed:
-        for m in matchups_by_week.get(w, []):
+        entries = matchups_by_week.get(w, [])
+        opp_pts = {}
+        for m in entries:
+            other = next((x for x in entries if x is not m and x.get("matchup_id") is not None
+                          and x.get("matchup_id") == m.get("matchup_id")), None)
+            if other is not None:
+                opp_pts[m["roster_id"]] = float(other.get("points") or sum(float(x or 0) for x in other.get("starters_points") or []))
+        for m in entries:
             rid = m["roster_id"]
             t = out.setdefault(rid, {"weeks": 0, "sum": dict.fromkeys(STRENGTH_KEYS, 0.0),
-                                     "actual": 0.0, "optimal": 0.0})
+                                     "actual": 0.0, "optimal": 0.0, "costly": 0, "lost_by_lineup": 0})
             spts = m.get("starters_points") or []
             t["weeks"] += 1
             for slot, pts in zip(slots, spts):
@@ -283,13 +293,20 @@ def season_strength(matchups_by_week: dict[int, list[dict]], completed: list[int
             pp = {pid: float(v or 0) for pid, v in (m.get("players_points") or {}).items()}
             known = [p for p in pp if p in position]
             best, _ = best_lineup(known, position, pp, slots) if known else (0.0, [])
-            t["optimal"] += max(best, sum(float(x or 0) for x in spts))   # never below what was started
+            started = sum(float(x or 0) for x in spts)
+            best = max(best, started)                                     # never below what was started
+            t["optimal"] += best
+            t["costly"] += best - started >= COSTLY_WEEK                  # left 5+ points on the bench
+            opp = opp_pts.get(rid)
+            t["lost_by_lineup"] += opp is not None and started < opp < best   # the best lineup would have won
     result = {}
     for rid, t in out.items():
         n = max(t["weeks"], 1)
         result[rid] = {"weeks": t["weeks"], "per_week": {k: round(v / n, 2) for k, v in t["sum"].items()},
                        "actual": round(t["actual"] / n, 1), "optimal": round(t["optimal"] / n, 1),
-                       "efficiency": round(t["actual"] / t["optimal"], 3) if t["optimal"] else None}
+                       "efficiency": round(t["actual"] / t["optimal"], 3) if t["optimal"] else None,
+                       "bench_left": round((t["optimal"] - t["actual"]) / n, 1), "costly_weeks": t["costly"],
+                       "lost_by_lineup": t["lost_by_lineup"]}
     if result:
         for k in STRENGTH_KEYS:
             med = median(r["per_week"][k] for r in result.values())

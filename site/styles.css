@@ -593,6 +593,11 @@ details.tm > summary::-webkit-details-marker { display: none; }
 .rt-p .subtle { font-size: 12.5px; }
 tr.mine td { font-weight: 650; }
 
+/* ---------- team drop-downs: lineup table ---------- */
+.tl-lu td:nth-child(3) { white-space: nowrap; }
+.tl-lu td:nth-child(4) { color: var(--muted); font-size: 12px; }
+.tl-bench td { font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); padding-top: 10px; }
+
 /* ---------- tile stacks: one rounded tile per item, space between ---------- */
 .stack { display: grid; gap: 10px; margin-bottom: 12px; }
 .stack > * { background: var(--surface); border: 1px solid var(--border) !important; border-radius: var(--r-lg); overflow: hidden; }

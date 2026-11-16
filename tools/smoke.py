@@ -99,6 +99,15 @@ def run(page, scheme: str) -> None:
         page.wait_for_timeout(150)
         check(len(page.locator("#tab-league").inner_text()) > 100 and wide(), f"{scheme}: League → {v}")
 
+    # a team drop-down with every section
+    page.locator('#league-seg button[data-view="teams"]').click()
+    page.wait_for_timeout(200)
+    team = page.locator("#tab-league details.tm").first
+    team.locator("summary").click()
+    page.wait_for_timeout(300)
+    heads = team.locator(".pd-ch > h3").all_inner_texts()
+    check("This week" in heads and "Manager" in heads and wide(), f"{scheme}: team drop-down sections {heads}")
+
     # Trade Lab: find trades, star one, copy one, load one
     page.locator('#tabs button[data-tab="moves"]').click()
     page.locator('#subnav button[data-sub="lab"]').click()
