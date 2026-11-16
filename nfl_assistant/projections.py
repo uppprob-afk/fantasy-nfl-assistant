@@ -60,6 +60,9 @@ DEFAULT_PARAMS = {
     "quantiles": None,         # learned floor / range / ceiling multipliers by position and level
     "by_pos": {},              # per-position overrides of any setting above
     "inherit": None,           # learned share of a missing teammate's work the next man gets
+    "rookie_scale": 1.0,       # starting point for players with no NFL games last season, x this
+    "stretch": 1.0,            # spread projections around the position average (<1 squeeze, >1 stretch)
+    "center": None,            # learned: average projection per position (what "stretch" pivots on)
     "bias": {pos: 1.0 for pos in POSITIONS}, "sd_scale": {pos: 1.0 for pos in POSITIONS},
 }
 
@@ -427,13 +430,19 @@ def rate_from(c: dict, params: dict | None = None) -> dict:
     w_this = n_eff
     k = g("baseline_games")
     baseline = c["baseline"]
+    if not c["n_prior"]:
+        baseline *= g("rookie_scale")          # rookies / no NFL games last season: lower generic starting point
     if c.get("rank_baseline") is not None and g("rank_prior") > 0:
+        # Sleeper's ranking still counts in full, so a highly ranked rookie isn't squashed
         baseline = (1 - g("rank_prior")) * baseline + g("rank_prior") * c["rank_baseline"]
     rate = (k * baseline + w_prior * c["r_prior"] + w_this * (r_this or 0.0)) / (k + w_prior + w_this)
     role = c.get("role")
     if role and g("role_blend") > 0:
         w_role = g("role_blend") * role["n"] / (role["n"] + 2)
         rate = (1 - w_role) * rate + w_role * role["rate"]
+    center = (P.get("center") or {}).get(pos)
+    if center:
+        rate = max(0.0, center + g("stretch") * (rate - center))
     rate *= P["bias"].get(pos, 1.0)
     effective = w_prior + w_this
     sd_game = c["cv"] * max(rate, 3.0)
