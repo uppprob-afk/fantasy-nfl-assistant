@@ -61,6 +61,7 @@ nfl_assistant/
   roles.py                opportunity games, team volume x share x efficiency, learned share inheritance
   scanner.py              diff vs previous snapshot (injuries, depth, teams, drops)
   projections.py          rest-of-season projection engine (rate, spread, confidence, weekly)
+  defence.py              team defence projections from the opponent's expected points
   lineups.py              optimal weekly lineups (byes/injuries handled)
   trades.py               trade values (ROS optimal lineups) + mutual-benefit trade ideas
   outlook.py              win chances, start/sit, weekly lineups, playoff simulation
@@ -123,6 +124,14 @@ tests/                    pytest + tests/fixtures/ (neutral sample data)
   (Q 0.85, D 0.25, Out 0 then 0.75, IR-type 0 for 4 weeks then 0.5); byes = 0. Confidence:
   high = 4+ full games this season and 8+ effective; medium = 4+ effective; else low.
   DEF points from nflverse defensive stats + final scores. nflverse "LA" = Sleeper "LAR".
+  **Team defences** (`defence.py`) skip rate × matchup: projection = a + b × expected
+  points-allowed tier score (league scoring, normal spread of 8 pts around the opponent's
+  expected total). Expected total = Vegas implied when posted, else opponent's points
+  scored + this defence's points allowed − league average ± 1 home edge (shrunk, 10
+  pseudo-games, last season ×0.5). a, b fitted each run on lined games (last + this season;
+  backtest refits using only games before each week). Tested 2025 → 2026: a defence's own
+  sacks / takeaways / past points added noise, so they're not used. Rate = average over
+  the games ahead; `weekly[w].allowed` is shown on the card.
 - **Trades**: team value = Σ remaining regular-season weeks of the optimal lineup with
   (1) a **free-agent floor**: every slot worth at least replacement level for that slot
   (`repl` = avg of the best 3 healthy FAs; FLEX floor = max of eligible positions), so only

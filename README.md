@@ -105,6 +105,7 @@ uv run python -m nfl_assistant.run
   ├─ dashboard.py ─── standings, rosters, season points, IR eligibility
   ├─ nflverse.py ──── recompute points with league scoring → verified / unverified
   ├─ projections.py ─ rest-of-season projections with ranges and confidence
+  ├─ defence.py ──── team defences from the opponent's expected points (Vegas line or estimate)
   ├─ lineups.py ───── optimal lineup for every week (byes, injuries)
   ├─ outlook.py ───── win chances, start/sit, playoff simulation
   ├─ trades.py ────── trade values and mutual-benefit ideas

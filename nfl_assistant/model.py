@@ -23,8 +23,8 @@ from collections import defaultdict
 from pathlib import Path
 from statistics import mean
 
+from . import defence, roles
 from . import projections as pj
-from . import roles
 from .factors import practice_bucket, weather_multiplier
 
 # Settings the tuner may try (the starting values are always included).
@@ -83,9 +83,11 @@ def backtest_records(rows_prior: list[dict], rows_this: list[dict], snaps: list[
     for r in reports or []:
         if str(r.get("season")) == str(season) and r.get("report_status") in OUT_STATUSES and r.get("gsis_id"):
             report[(r["gsis_id"], int(r.get("week") or 0))] = (r["report_status"], practice_bucket(r.get("practice_status")))
+    results = defence.results(games, (prior_season, season))
     out = []
     for w in weeks:
         before = {k: [g for g in v if g["season"] != season or g["week"] < w] for k, v in logs.items()}
+        dfit, dstr = defence.fit(dlogs, results, scoring, season, w), defence.strength(results, season, w)
         dvp = pj.defence_vs_position(before, sched, season)
         volume = roles.team_volume(logs, season, before_week=w)
         primary = pj.primary_qbs(logs, season, before_week=w)
@@ -119,7 +121,9 @@ def backtest_records(rows_prior: list[dict], rows_this: list[dict], snaps: list[
             naive = c["actual"] if c["actual"] is not None else (c["r_prior"] if c["n_prior"] else None)
             qb_change = (pos in ("RB", "WR", "TE") and team in primary and team in starter
                          and starter[team][0] != primary[team])
-            cands.append({"week": w, "key": key, "pos": pos, "comp": c, "source": source, "raw": raw,
+            def_pts = (defence.points(defence.expected_allowed(team, game, dstr)[0], scoring, dfit)
+                       if pos == "DEF" else None)
+            cands.append({"def_pts": def_pts, "week": w, "key": key, "pos": pos, "comp": c, "source": source, "raw": raw,
                           "game": {k: game.get(k) for k in ("roof", "wind", "temp", "margin")},
                           "status": status, "practice": practice, "qb_change": qb_change,
                           "actual": round(g["pts"], 2) if g else 0.0, "played": g is not None,
@@ -127,7 +131,7 @@ def backtest_records(rows_prior: list[dict], rows_this: list[dict], snaps: list[
         # keep the fantasy-relevant players (by default-settings projection) at each position
         by_pos = defaultdict(list)
         for r in cands:
-            by_pos[r["pos"]].append((pj.rate_from(r["comp"])["rate"], r))
+            by_pos[r["pos"]].append((r["def_pts"] if r["def_pts"] is not None else pj.rate_from(r["comp"])["rate"], r))
         for pos, rows in by_pos.items():
             rows.sort(key=lambda x: -x[0])
             out += [r for _, r in rows[: RELEVANT_MULTIPLE * starters.get(pos, 12)]]
@@ -147,6 +151,9 @@ def project(rec: dict, params: dict | None) -> tuple[float, float]:
     P = pj.params_or_default(params)
     pos = rec["pos"]
     r = pj.rate_from(rec["comp"], P)
+    if rec.get("def_pts") is not None:          # team defence: from the opponent's expected points
+        rate = rec["def_pts"] * P["bias"].get(pos, 1.0)
+        return rate, r["sd"] * rate / r["rate"] if r["rate"] else r["sd"]
     m = pj.multiplier_from(pos, rec["source"], rec["raw"], P)
     m *= weather_multiplier(pos, rec.get("game"), P["weather"], pj.pp(P, "weather_strength", pos))
     m *= pj.script_multiplier(pos, rec.get("game"), P)
