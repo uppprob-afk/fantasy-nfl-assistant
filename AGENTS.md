@@ -558,6 +558,25 @@ whole; older days keep only `players.json`, and only from the last snapshot befo
 week's first game (what `snapshot_ranks` reads for the backtest's ranking prior); everything
 else is deleted. `load_previous` only ever needs the most recent snapshot.
 
+## Backups and ranges that include "doesn't play"
+
+- `projections.apply_qb_depth`: QBs below their team's top QB on Sleeper's depth chart are
+  projected as chance-he-starts × his game (`x["start"]`). The next man up's chance is at least
+  the starter's chance of missing that week; others get the learned surprise-start rate
+  (`roles.learn_backup_start`: team-weeks where the usual QB didn't start without being listed
+  Out / Doubtful, shrunk toward 5%; `params["backup_start"]`, ~14% in 2025–26). Third string
+  gets a quarter of it. The card's per-game rate becomes expected points; `rate_if_starts` keeps
+  the full-game rate. Teams with no depth chart data are left alone.
+- Every projected week has `q_full` (his range if he plays) and `q` (shown: `mix_range` puts the
+  chance he doesn't play, injury × start chance, at 0). Start/sit samples from `q_full` and
+  applies that chance once. The backtest grades the same mixed range (`model.record_range`).
+- Ranges are learned from all backtest games (`learn_quantiles`). Learning from injury-free
+  games only, or widening by confidence level, both did worse on weeks the model hadn't seen
+  (Nov 2026 check), so neither is used.
+- `model.oos_coverage`: range accuracy with ranges learned without the week being tested (shown
+  on the Model tab instead of the in-sample number). The live ledger stores the shown range
+  (`q`) and grades against it (older entries: ±1 sd), with floor–ceiling coverage too.
+
 ## Season phases
 
 `run.season_weeks(settings, week)` → (weeks still to play, playoff weeks projected beyond them,

@@ -131,6 +131,13 @@ def backtest_records(rows_prior: list[dict], rows_this: list[dict], snaps: list[
     return out
 
 
+def record_range(rec: dict, p: float, P: dict) -> list[float] | None:
+    """The range the dashboard would have shown for this record: his if-he-plays range mixed
+    with the chance he sat (injury designation), so a Questionable player's floor is 0."""
+    avail = pj.availability(rec.get("status"), 0, rec.get("practice"), P["availability"]) if rec.get("status") else 1.0
+    return pj.week_range(rec["pos"], {"pts": p, "avail": avail}, P)[1]
+
+
 def project(rec: dict, params: dict | None) -> tuple[float, float]:
     """(projected points, spread) for a backtest record under `params`, including that week's
     injury designation, matchup, weather, game script and QB situation."""
@@ -162,7 +169,7 @@ def evaluate(records: list[dict], params: dict | None = None) -> dict:
         for r in rows:
             p, sd = project(r, P)
             errs.append(p - r["actual"])
-            q = pj.quantile_points(r["pos"], p, P)
+            q = record_range(r, p, P)
             if q:
                 inside += q[1] <= r["actual"] <= q[3]
                 inside_fc += q[0] <= r["actual"] <= q[4]
@@ -298,6 +305,26 @@ def learn_quantiles(records: list[dict], params: dict) -> dict:
     return out
 
 
+def oos_coverage(records: list[dict], params: dict) -> dict:
+    """Honest range check: for each week, ranges learned without that week, tested on it."""
+    P = pj.params_or_default(params)
+    inside = inside_fc = n = 0
+    for w in sorted({r["week"] for r in records}):
+        train = [r for r in records if r["week"] != w]
+        if len({r["week"] for r in train}) < 2:
+            continue
+        Pw = {**P, "quantiles": learn_quantiles(train, P)}
+        for r in records:
+            if r["week"] != w:
+                continue
+            q = record_range(r, project(r, Pw)[0], Pw)
+            if q:
+                n += 1
+                inside += q[1] <= r["actual"] <= q[3]
+                inside_fc += q[0] <= r["actual"] <= q[4]
+    return {"games": n, "coverage": round(inside / n, 3), "coverage_fc": round(inside_fc / n, 3)} if n else {"games": 0}
+
+
 LABELS = {
     "usage_blend": "Weight on usage (targets/carries) vs actual points this season",
     "prior_weight": "Weight of a last-season game vs a this-season game",
@@ -383,7 +410,8 @@ def ledger_update(path: Path, proj: dict[str, dict], names: dict[str, str], ids:
         led[f"{pid}:{w}"] = {"id": pid, "week": w, "name": names.get(pid, pid), "pos": p["position"],
                              "pts": round(x["pts"], 1), "sd": round(sd, 1), "status": p.get("status"),
                              "confidence": p["confidence"], "source": x.get("source"),
-                             "practice": p.get("practice"), "avail": x.get("avail"), "wx": x.get("wx")}
+                             "practice": p.get("practice"), "avail": x.get("avail"), "wx": x.get("wx"),
+                             "q": x.get("q"), "start": x.get("start")}
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(led, indent=0, sort_keys=True) + "\n")
     return led
@@ -396,17 +424,22 @@ def ledger_score(led: dict, completed: list[int], actual: dict[str, dict[int, fl
     for e in led.values():
         if e["week"] not in completed:
             continue
-        a = (actual.get(e["id"]) or {}).get(e["week"])
-        rows.append({**e, "actual": round(a or 0.0, 1), "error": round(e["pts"] - (a or 0.0), 1),
-                     "inside": abs(e["pts"] - (a or 0.0)) <= e["sd"]})
+        a = (actual.get(e["id"]) or {}).get(e["week"]) or 0.0
+        q = e.get("q")          # the range the dashboard showed (older entries: +-1 sd)
+        rows.append({**e, "actual": round(a, 1), "error": round(e["pts"] - a, 1),
+                     "inside": q[1] <= a <= q[3] if q else abs(e["pts"] - a) <= e["sd"],
+                     "inside_fc": q[0] <= a <= q[4] if q else None})
     if not rows:
         return {"games": 0}
     by_week = defaultdict(list)
     for r in rows:
         by_week[r["week"]].append(r)
-    summ = lambda rs: {"games": len(rs), "mae": round(mean(abs(r["error"]) for r in rs), 2),
-                       "bias": round(mean(r["error"] for r in rs), 2),
-                       "coverage": round(sum(r["inside"] for r in rs) / len(rs), 3)}
+    def summ(rs):
+        fc = [r["inside_fc"] for r in rs if r.get("inside_fc") is not None]
+        return {"games": len(rs), "mae": round(mean(abs(r["error"]) for r in rs), 2),
+                "bias": round(mean(r["error"] for r in rs), 2),
+                "coverage": round(sum(r["inside"] for r in rs) / len(rs), 3),
+                "coverage_fc": round(sum(fc) / len(fc), 3) if fc else None}
     last = max(by_week)
     misses = sorted(by_week[last], key=lambda r: -abs(r["error"]))[:8]
     return {**summ(rows), "by_week": {w: summ(v) for w, v in sorted(by_week.items())},

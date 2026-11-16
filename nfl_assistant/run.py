@@ -330,12 +330,16 @@ def build_model(ctx: dict, nfl: dict) -> dict:
     base = {"availability": factors.learn_availability(nfl.get("injuries") or [], logs),
             "weather": factors.learn_weather({**logs, **{f"DEF:{t}": v for t, v in dlogs.items()}}, scheds),
             "inherit": roles.learn_take(logs), "qb_factor": roles.learn_qb_change(logs)}
+    backup = roles.learn_backup_start(logs, nfl.get("injuries") or [])
+    base["backup_start"], base["backup_start_evidence"] = backup["rate"], backup
     records = model.backtest_records(nfl["prior"], nfl["this"], nfl["snaps"], nfl["games"],
                                      league["scoring_settings"], season, starters, ctx["completed_weeks"],
                                      nfl.get("injuries") or [], snapshot_ranks(ctx, nfl, scheds[season]))
     learned = model.learn(records, base)
+    backtest = model.evaluate(records, learned["params"])
+    backtest["out_of_sample"] = model.oos_coverage(records, learned["params"])
     return {"records": records, "learned": learned,
-            "backtest": model.evaluate(records, learned["params"]),
+            "backtest": backtest,
             "backtest_default": model.evaluate(records, None)}
 
 
