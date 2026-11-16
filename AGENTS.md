@@ -572,6 +572,19 @@ whole; older days keep only `players.json`, and only from the last snapshot befo
 week's first game (what `snapshot_ranks` reads for the backtest's ranking prior); everything
 else is deleted. `load_previous` only ever needs the most recent snapshot.
 
+## Rookie starting point and per-position spread
+
+- `rookie_scale` (tuned, global and per position): players with no NFL games last season start
+  from the generic position baseline × this, *before* Sleeper's ranking is blended in, so a
+  highly ranked rookie keeps his ranking. Nov 2026: 0.2 overall (QB 0.5, K 0.3); rookies'
+  average miss 6.55 → 3.8, bias +3.8 → −1.3.
+- `stretch` (tuned per position only, `POS_ONLY`): rate = centre + stretch × (rate − centre),
+  where `center` = the position's average projection with the starting settings
+  (`model.centers`, computed in `learn`). Positions go opposite ways (Nov 2026: K 0.4, QB 1.1,
+  TE 1.4), so there's no global value.
+- Both go through the usual rolling check on unseen weeks. With them the backtest's average miss
+  went 5.62 → 5.35 and unseen weeks 7–9 5.39 → 5.21.
+
 ## Backups and ranges that include "doesn't play"
 
 - `projections.apply_qb_depth`: QBs below their team's top QB on Sleeper's depth chart are

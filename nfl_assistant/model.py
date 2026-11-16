@@ -41,9 +41,12 @@ GRID = {
     "qb_change": (0.0, 0.5, 1.0),
     "weather_strength": (0.0, 0.25, 0.5, 0.75, 1.0),
     "role_blend": (0.0, 0.15, 0.3, 0.5, 0.75),
+    "rookie_scale": (0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0),
+    "stretch": (0.0, 0.2, 0.4, 0.6, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.6),
 }
 POS_KEYS = ("usage_blend", "prior_weight", "baseline_games", "recency", "partial_weight", "rank_prior",
-            "role_blend", "weather_strength", "matchup")
+            "role_blend", "weather_strength", "matchup", "rookie_scale", "stretch")
+POS_ONLY = ("stretch",)        # tuned per position only: positions differ in opposite directions
 MIN_GAMES_TO_TUNE = 300       # games in the backtest before any setting can change
 MIN_POS_GAMES = 150           # games at a position before it gets its own settings
 MIN_IMPROVEMENT = 0.005       # adopt new global settings only if they cut the error by 0.5%+ (the rolling check on unseen weeks is the main safeguard)
@@ -235,7 +238,7 @@ def tune(records: list[dict], base: dict | None = None) -> dict:
                             f"needed). Using the starting settings.")
         return result
     base_mae = _mae(records, defaults)
-    best, best_mae = _coordinate_search(records, defaults, list(GRID))
+    best, best_mae = _coordinate_search(records, defaults, [k for k in GRID if k not in POS_ONLY])
     params = dict(best) if best_mae <= base_mae * (1 - MIN_IMPROVEMENT) else dict(defaults)
     params["by_pos"] = {}
     by_pos = defaultdict(list)
@@ -339,6 +342,8 @@ LABELS = {
     "script_rb": "Game script: RB change per 7 pts of expected winning margin",
     "script_pass": "Game script: QB / WR / TE change per 7 pts of expected margin (opposite)",
     "qb_change": "How much of the backup-QB effect to apply",
+    "rookie_scale": "Starting point for rookies / players new to the NFL (x the usual)",
+    "stretch": "Spread of projections around the position average (1 = as is)",
 }
 
 
@@ -361,11 +366,21 @@ def changes(old: dict, new: dict) -> list[dict]:
     return out
 
 
+def centers(records: list[dict], base: dict | None) -> dict:
+    """Average projection per position with the starting settings: the pivot for "stretch"."""
+    P = pj.params_or_default({**(base or {}), "center": None})
+    by_pos = defaultdict(list)
+    for r in records:
+        by_pos[r["pos"]].append(pj.rate_from(r["comp"], P)["rate"])
+    return {pos: round(mean(v), 2) for pos, v in by_pos.items() if v}
+
+
 def learn(records: list[dict], base: dict | None = None) -> dict:
     """Tune, then a rolling check: for each of the last few weeks, re-learn without it and
     test on it. The learned settings are used only if, added up over those unseen weeks, they
     beat the starting settings. Then learn the ranges."""
     weeks = sorted({r["week"] for r in records})
+    base = {**(base or {}), "center": centers(records, base)}
     tuned = tune(records, base)
     defaults = pj.params_or_default(base)
     tuned["validation"] = None
