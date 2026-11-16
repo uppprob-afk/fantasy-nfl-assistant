@@ -42,12 +42,14 @@ def samples(p: dict | None, week: int, rng: random.Random, n: int) -> list[float
     if not todo or m <= 0:
         return None
     x = p["weekly"].get(week) or {}
-    avail = x.get("avail", 1.0) or 0.0
-    if x.get("q") and avail > 0:
-        # the range already includes the chance he sits: scale back to a full game, then
-        # apply the chance of sitting once
-        k = _knots([v / avail for v in x["q"]])
-        return [0.0 if avail < 1 and rng.random() > avail else draw(k, rng.random()) for _ in range(n)]
+    play = (x.get("avail", 1.0) or 0.0) * x.get("start", 1.0)      # injury chance x (backups) chance he starts
+    if x.get("q_full") and play > 0:
+        # his if-he-plays range, then the chance he doesn't play applied once
+        k = _knots(x["q_full"])
+        return [0.0 if play < 1 and rng.random() > play else draw(k, rng.random()) for _ in range(n)]
+    if x.get("q") and play > 0:                                    # older data: range scaled by availability
+        k = _knots([v / play for v in x["q"]])
+        return [0.0 if play < 1 and rng.random() > play else draw(k, rng.random()) for _ in range(n)]
     sd = v ** 0.5
     return [max(0.0, rng.gauss(m, sd)) for _ in range(n)]
 

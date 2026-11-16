@@ -208,3 +208,33 @@ def learn_qb_change(logs: dict[str, list[dict]]) -> dict[str, dict]:
         ratio = act / exp if exp else 1.0
         out[pos] = {"factor": round(max(QB_CAP[0], min(QB_CAP[1], (n * ratio + QB_SHRINK) / (n + QB_SHRINK))), 3), "games": n}
     return out
+
+
+BACKUP_SHRINK = 200          # pseudo team-weeks at the starting rate
+
+
+def learn_backup_start(logs: dict[str, list[dict]], reports: list[dict], start: float = 0.05) -> dict:
+    """How often a team's usual QB (most attempts so far that season, 2+ starts) didn't start
+    although he wasn't listed Out / Doubtful that week (benched, hurt late, rested): the chance
+    a backup starts with no injury news on the starter. Shrunk toward `start`."""
+    from .projections import primary_qbs
+    listed = {(str(r.get("season")), int(r.get("week") or 0), r.get("gsis_id"))
+              for r in reports or [] if r.get("report_status") in ("Out", "Doubtful")}
+    starter = defaultdict(dict)                 # (season, team) -> week -> QB with most attempts
+    for key, games in logs.items():
+        for g in games:
+            if g.get("position") == "QB" and g.get("team") and (g.get("attempts") or 0) >= 10:
+                cur = starter[(g["season"], g["team"])].get(g["week"])
+                if cur is None or g["attempts"] > cur[1]:
+                    starter[(g["season"], g["team"])][g["week"]] = (key, g["attempts"])
+    weeks = n = 0
+    for (season, team), by_week in starter.items():
+        for w, (who, _) in by_week.items():
+            usual = primary_qbs(logs, season, before_week=w).get(team)
+            if not usual or (season, w, usual) in listed:
+                continue
+            weeks += 1
+            n += who != usual
+    rate = (n + BACKUP_SHRINK * start) / (weeks + BACKUP_SHRINK)
+    return {"rate": round(rate, 3), "team_weeks": weeks, "surprise_starts": n}
+

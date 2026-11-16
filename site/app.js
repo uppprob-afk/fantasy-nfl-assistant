@@ -364,6 +364,8 @@
         <div class="subtle">${range}${wxText(nx.wx) ? ` · ${esc(wxText(nx.wx))}` : ""}</div></div>
         <div class="nx-p">${one(nx.pts)}<small>proj</small></div></div>`;
       const notes = gameDayNotes(c);
+      if (nx.start != null && nx.start < 1) notes.unshift(`Backup QB: about <b>${Math.round(100 * nx.start)}%</b> chance he starts${
+        nx.if_plays ? ` (around ${one(nx.if_plays)} if he does)` : ""}. The projection is that chance times his game, so his range starts at 0.`);
       if (notes.length) week += `<ul class="tight nx-notes">${notes.map((n) => `<li>${n}</li>`).join("")}</ul>`;
     }
     if (byeNow) week = `<div class="subtle">Bye in week ${esc(c.next3[0].week)}.</div>` + week;
@@ -2918,7 +2920,9 @@
       html += `<div class="tiles head">
         ${tileHtml("Avg miss", `${num(bt.mae)}<small> pts</small>`, `per player-game`)}
         ${tileHtml("vs a simple guess", better == null ? "–" : `${better >= 0 ? "" : "−"}${Math.abs(Math.round(100 * better))}%<small> ${better >= 0 ? "better" : "worse"}</small>`, `guess = season avg so far (${num(bt.naive_mae)})`, better > 0 ? "good" : "warn")}
-        ${tileHtml("In range", pctTxt(bt.coverage), bt.coverage_fc != null ? `target ~68% · floor–ceiling ${pctTxt(bt.coverage_fc)} (~80%)` : "target ~68%", Math.abs(bt.coverage - 0.68) > 0.08 ? "warn" : "")}
+        ${(() => { const oos = bt.out_of_sample && bt.out_of_sample.games ? bt.out_of_sample : null, c = oos || bt;
+          return tileHtml("In range", pctTxt(c.coverage), `${oos ? "on weeks it didn't learn from · " : ""}target ~68%${c.coverage_fc != null ? ` · floor–ceiling ${pctTxt(c.coverage_fc)} (~80%)` : ""}`,
+            Math.abs(c.coverage - 0.68) > 0.08 ? "warn" : ""); })()}
         ${tileHtml("Bias", `${bt.bias >= 0 ? "+" : ""}${num(bt.bias)}`, bt.bias > 0.5 ? "projects a bit high" : bt.bias < -0.5 ? "projects a bit low" : "about right")}
       </div>
       <div class="card table-wrap" style="margin-top:12px"><table class="named"><thead><tr><th>Position</th><th>Games</th><th>Avg miss</th><th>Bias</th><th>In range</th><th class="hide-sm">Simple guess</th></tr></thead>
@@ -3007,7 +3011,7 @@
       const row = (r) => `<tr><td>${esc(r.name)} <span class="subtle">${esc(r.pos)}</span></td><td>${num(r.pts)}</td><td>${num(r.actual)}</td>
         <td class="${r.error > 0 ? "down" : "up"}">${r.error > 0 ? "−" : "+"}${num(Math.abs(r.error))}</td><td>${r.inside ? "✓" : ""}</td></tr>`;
       html += `<div class="tiles head">${tileHtml("Avg miss", `${num(live.mae)}<small> pts</small>`, `${live.games} player-games`)}
-        ${tileHtml("In range", pctTxt(live.coverage), "target ~68%")}${tileHtml("Bias", `${live.bias >= 0 ? "+" : ""}${num(live.bias)}`, "")}</div>
+        ${tileHtml("In range", pctTxt(live.coverage), `target ~68%${live.coverage_fc != null ? ` · floor–ceiling ${pctTxt(live.coverage_fc)} (~80%)` : ""}`)}${tileHtml("Bias", `${live.bias >= 0 ? "+" : ""}${num(live.bias)}`, "")}</div>
         ${rows.length ? `<h2 style="font-size:1rem">Your players, week ${esc(live.last_week)}</h2><div class="card table-wrap"><table class="named">
           <thead><tr><th>Player</th><th>Proj</th><th>Scored</th><th>vs proj</th><th>In range</th></tr></thead><tbody>${rows.map(row).join("")}</tbody></table></div>` : ""}
         <h2 style="font-size:1rem">Biggest misses, week ${esc(live.last_week)}</h2><div class="card table-wrap"><table class="named">

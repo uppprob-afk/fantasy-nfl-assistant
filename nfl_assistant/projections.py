@@ -556,8 +556,8 @@ def project_weeks(rate: float, position: str, team: str | None, status: str | No
 
 
 def quantile_points(position: str, pts: float, params: dict | None) -> list[float] | None:
-    """[p10, p16, p50, p84, p90] points around a projection from the learned, lopsided
-    distribution of actual / projected at this position and projection level."""
+    """[p10, p16, p50, p84, p90] points around a projection (for a game he plays) from the
+    learned, lopsided distribution of actual / projected at this position and projection level."""
     Q = ((params or {}).get("quantiles") or {}).get(position)
     if not Q or not pts or pts <= 0:
         return None
@@ -567,6 +567,38 @@ def quantile_points(position: str, pts: float, params: dict | None) -> list[floa
     # relative to their projection than the band average)
     k = math.sqrt(ref / pts) if ref and pts > ref else 1.0
     return [round(max(0.0, pts * (1 + (m - 1) * k)), 1) for m in Q["q"][i]]
+
+
+QUANT_P = (0.10, 0.16, 0.50, 0.84, 0.90)
+
+
+def _quantile_at(qf: list[float], tau: float) -> float:
+    """Points at any percentile from the five learned ones (tails extended as in start/sit)."""
+    lo = max(0.0, qf[0] - 1.5 * max(qf[1] - qf[0], 0.5))
+    hi = qf[4] + 3.0 * max(qf[4] - qf[3], 0.5)
+    xs, ys = (0.0, *QUANT_P, 1.0), (lo, *qf, hi)
+    for i in range(1, len(xs)):
+        if tau <= xs[i]:
+            return ys[i - 1] + (ys[i] - ys[i - 1]) * (tau - xs[i - 1]) / (xs[i] - xs[i - 1])
+    return hi
+
+
+def mix_range(q_full: list[float] | None, play: float) -> list[float] | None:
+    """The range shown when he might not play: a (1 - play) chance of 0, otherwise his
+    if-he-plays range. A Questionable player's or a backup's floor is 0, not a halved game."""
+    if q_full is None or play >= 0.999:
+        return q_full
+    if play <= 0:
+        return [0.0] * 5
+    return [0.0 if t <= 1 - play else round(_quantile_at(q_full, (t - (1 - play)) / play), 1) for t in QUANT_P]
+
+
+def week_range(position: str, x: dict, params: dict | None) -> tuple:
+    """(if-he-plays range, shown range) for one projected week."""
+    play = (x.get("avail", 1.0) or 0.0) * x.get("start", 1.0)
+    full = x["pts"] / play if play > 0 else 0.0
+    q_full = quantile_points(position, full, params)
+    return q_full, mix_range(q_full, play)
 
 
 def unplayed_weeks(sched: dict, team: str | None, weeks: list[int]) -> list[int]:
@@ -648,13 +680,14 @@ def build(players: dict, candidate_ids: set[str], rows_prior: list[dict], rows_t
         out[pid] = r
     apply_inheritance(out, volume, params)
     apply_qb_change(out, logs, players, season, params)
+    apply_qb_depth(out, players, params)
     P = params_or_default(params)
     for r in out.values():                     # ranges after all adjustments
-        r["q"] = quantile_points(r["position"], r["rate"], P)
+        r["q"] = quantile_points(r["position"], r.get("rate_if_starts", r["rate"]), P)
         for src in (r.get("weekly") or {}, r.get("playoff_weeks") or {}):
             for x in src.values():
                 if not x.get("bye"):
-                    x["q"] = quantile_points(r["position"], x["pts"], P)
+                    x["q_full"], x["q"] = week_range(r["position"], x, P)
     return out
 
 
@@ -721,6 +754,49 @@ def primary_qbs(logs: dict[str, list[dict]], season: str, before_week: int | Non
                 if (g.get("attempts") or 0) >= 15:
                     starts[g["team"]][key] += 1
     return {t: max(a, key=a.get) for t, a in att.items() if starts[t][max(a, key=a.get)] >= 2}
+
+
+BACKUP_START = 0.05          # starting point: chance a backup QB starts with no injury news on the starter
+
+
+def apply_qb_depth(proj: dict[str, dict], players: dict, params: dict | None) -> None:
+    """QBs who aren't their team's expected starter (Sleeper depth chart) are projected as the
+    chance he starts x what he'd score. The next man up's chance is at least the starter's
+    chance of missing that week (injury report); otherwise the learned rate of surprise starts.
+    The per-game rate shown becomes his expected points per game; his if-he-starts rate is kept."""
+    P = params_or_default(params)
+    base = P.get("backup_start", BACKUP_START)
+    by_team = defaultdict(list)
+    for pid, r in proj.items():
+        if r["position"] == "QB" and r.get("team"):
+            by_team[r["team"]].append(((players.get(pid) or {}).get("depth_chart_order") or 99, pid))
+    for qbs in by_team.values():
+        qbs.sort()
+        if len(qbs) < 2 or qbs[0][0] == 99:
+            continue                                  # no depth chart: leave everyone as is
+        starter = proj[qbs[0][1]]
+        for order, pid in qbs[1:]:
+            r = proj[pid]
+            weeks = []
+            for src, ssrc in ((r.get("weekly") or {}, starter.get("weekly") or {}),
+                              (r.get("playoff_weeks") or {}, starter.get("playoff_weeks") or {})):
+                for w, x in src.items():
+                    if x.get("bye"):
+                        continue
+                    sx = ssrc.get(w) or {}
+                    missing = 0.0 if sx.get("bye") else 1.0 - (sx.get("avail", 1.0) or 0.0)
+                    share = max(base, missing) if order == qbs[1][0] else base * 0.25
+                    x["start"] = round(share, 3)
+                    x["pts"] = round(x["pts"] * share, 2)
+                    weeks.append(x["pts"])
+            r["backup"] = True
+            r["rate_if_starts"] = r["rate"]
+            regular = [x["pts"] for x in (r.get("weekly") or {}).values() if not x.get("bye")]
+            if regular:
+                f = (sum(regular) / len(regular)) / r["rate"] if r["rate"] else 0.0
+                r["rate"] = round(r["rate"] * f, 2)
+                r["sd"] = round(r["sd"] * max(f, 0.25), 2)
+            r["ros"] = round(sum(x["pts"] for x in (r.get("weekly") or {}).values()), 1)
 
 
 def apply_qb_change(proj: dict[str, dict], logs: dict, players: dict, season: str, params: dict | None) -> None:

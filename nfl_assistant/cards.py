@@ -134,7 +134,8 @@ def next_weeks(p: dict, n: int = 3) -> list[dict]:
                     "floor": x["q"][0] if x.get("q") else None, "ceiling": x["q"][4] if x.get("q") else None,
                     "opp": x.get("opp"), "home": x.get("home"), "avail": x.get("avail", 1.0),
                     "matchup": matchup_label(x.get("mult")), "source": x.get("source"), "wx": x.get("wx"),
-                    "inherit": x.get("inherit"), "qb_change": x.get("qb_change")})
+                    "inherit": x.get("inherit"), "qb_change": x.get("qb_change"), "start": x.get("start"),
+                    "if_plays": x["q_full"][2] if x.get("q_full") and (x.get("start") or x.get("avail", 1.0) < 1) else None})
     return out
 
 
