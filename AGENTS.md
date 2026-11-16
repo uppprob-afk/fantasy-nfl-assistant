@@ -487,6 +487,20 @@ for the weeks before (`regularAvg`, so injuries don't look like a schedule probl
 playoff bye, sell-high names, and other teams' players whose playoff weeks look 12%+ better and
 who would start for me. A to-do appears in the last 2 weeks before the deadline.
 
+## Trade Lab ranking and playoff weeks
+
+- Lab data has `po_weeks` (fantasy playoff weeks beyond the regular season), each player's
+  `pw` (projected points in those weeks) and `playoff_odds` per team. `lab.js` `poValue` = best
+  lineup over the playoff weeks (empty slots at free-agent level); every trade gets `poMe` /
+  `poThem` (playoff-week gain) and `totalMe` / `totalThem` = regular-season gain + playoff odds ×
+  playoff gain. `gainMe` / `gainThem` stay regular-season only so `tools/lab_parity.py` still
+  matches the pipeline. Chance accepted uses `totalThem`.
+- `bestScore` = chance × `totalMe` (trades that don't help me sort last). `meaningful()` = half a
+  point a week over `effWeeks` (regular weeks + odds × playoff weeks): below it a trade is "about
+  even". Offer groups: Worth it (default), Both gain, Likely accepted, Big gain for you (2× the
+  bar), Fills your need, Needs a sweetener, Small or losing. Cards show gains per week, with the
+  playoff weeks separately. Saved offers from older versions (no `totalMe`) are discarded.
+
 ## Trade Lab shortlist and "Copy offer"
 
 - `engine().scoreOffer(partner, give, get)` (lab.js) scores one offer exactly like

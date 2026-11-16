@@ -10,9 +10,10 @@ from .trades import ABSENCE_RATE, DROP_CANDIDATES, LONG_TERM_OUT, SKILL, Valuer
 
 
 def lab_players(proj: dict, weeks: list[int], names: dict[str, dict], owners: dict[str, int],
-                actual_now: dict[str, float]) -> dict[str, dict]:
+                actual_now: dict[str, float], po_weeks: list[int] | None = None) -> dict[str, dict]:
     """player_id -> compact record. w/v = projected points / variance per week (aligned with
-    `weeks`; a bye or an already-played game is 0)."""
+    `weeks`; a bye or an already-played game is 0); pw = projected points in the fantasy
+    playoff weeks beyond them (aligned with `po_weeks`)."""
     out = {}
     for pid, p in proj.items():
         w, v, op = [], [], []
@@ -30,6 +31,7 @@ def lab_players(proj: dict, weeks: list[int], names: dict[str, dict], owners: di
             "gt": p.get("games_this", 0), "gp": p.get("games_prior", 0),
             "ap": p.get("actual_ppg"), "ep": p.get("expected_ppg"),
             "a": actual_now.get(pid),   # points already scored this week (game played)
+            "pw": [round(((p.get("playoff_weeks") or {}).get(wk) or {}).get("pts", 0.0), 2) for wk in po_weeks or []],
         }
     return out
 
@@ -42,7 +44,8 @@ def tradeable(rec: dict) -> bool:
 def build_lab_data(proj: dict, weeks: list[int], slots: list[str], rosters: list[dict], managers: dict,
                    names: dict[str, dict], standings: dict[int, dict], schedule: dict[int, list],
                    this_week: dict[int, dict], my_rid: int, playoff_teams: int, confidence: str,
-                   repl: dict[str, float], roster_size: int, current_week: int) -> dict:
+                   repl: dict[str, float], roster_size: int, current_week: int,
+                   po_weeks: list[int] | None = None, playoff_odds: dict | None = None) -> dict:
     owners = {pid: r["roster_id"] for r in rosters for pid in (r.get("players") or [])}
     actual_now = {}
     for t in this_week.values():
@@ -55,7 +58,9 @@ def build_lab_data(proj: dict, weeks: list[int], slots: list[str], rosters: list
         "absence_rate": ABSENCE_RATE, "drop_candidates": DROP_CANDIDATES, "skill": list(SKILL),
         "reserve_all": sorted(reserve), "floor": valuer.floor,
         "long_term_out": sorted(LONG_TERM_OUT), "replacement": repl,
-        "players": lab_players(proj, weeks, names, owners, actual_now),
+        "players": lab_players(proj, weeks, names, owners, actual_now, po_weeks),
+        # fantasy playoff weeks beyond the regular season, valued at each team's playoff odds
+        "po_weeks": po_weeks or [], "playoff_odds": {str(k): v for k, v in (playoff_odds or {}).items()},
         "rosters": {str(r["roster_id"]): {
             "players": [pid for pid in (r.get("players") or []) if pid in proj],
             "all": list(r.get("players") or []),   # incl. players without projections (count toward roster size)
