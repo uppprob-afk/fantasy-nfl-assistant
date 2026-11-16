@@ -2286,6 +2286,8 @@
       <div class="trade-head"><span class="chip ${cls}">${esc(res.balance)}</span>${confChip(res.confidence)}</div>
       <div class="gains" style="margin:8px 0"><span class="gain me">You ${signed(res.gainMe)} pts ROS (${signed(res.perWeekMe)}/wk)</span>
         <span class="gain">Them ${signed(res.gainThem)} pts</span></div>
+      ${E.nPO && res.poMe != null ? `<div class="subtle">Playoff weeks (${E.poWeeks.join(", ")}): you ${signed(res.poMe / E.nPO)}/wk, them ${signed(res.poThem / E.nPO)}/wk.
+        Counted at each team's playoff odds, that makes your total ${signed(res.totalMe)} (${Math.abs(res.totalMe) < E.meaningful() ? "about even: under half a point a week" : `${signed(res.totalMe / E.effWeeks(res.me))}/wk`}).</div>` : ""}
       <div class="subtle">${esc(VERDICT[res.balance] || "")}</div>${whyHtml}${
         ""}<div class="acts"><button type="button" class="mini" data-act="improve">Optimise this deal</button>${starBtn("built", 0, isShort(labState))}${copyBtn("built", 0)}<button type="button" class="mini" data-act="ask" data-kind="trade">Ask Claude</button>${
         labState.offers && labState.offers.offers.length > 1 ? `<button type="button" class="mini" data-act="jump-offers">See other suggested offers ↓</button>` : ""}</div>
@@ -2340,7 +2342,7 @@
     const me = String(L.my_roster_id);
     const others = Object.keys(L.rosters).filter((t) => t !== me);
     if (!labState || !L.rosters[labState.partner]) labState = { partner: others[0], give: [], get: [] };
-    if (labState.offers && !labState.offers.mode) labState.offers = null;      // saved by an older version
+    if (labState.offers && (!labState.offers.mode || (labState.offers.offers[0] && labState.offers.offers[0].totalMe == null))) labState.offers = null;   // saved by an older version
     const mine = E.rosterOf(me), theirs = E.rosterOf(labState.partner);
     labState.give = labState.give.filter((p) => mine.includes(p));
     labState.get = labState.get.filter((p) => theirs.includes(p));
@@ -2418,23 +2420,27 @@
     }
   }
 
+  // a trade is "worth it" when it adds at least half a point a week for you (regular season plus
+  // playoff weeks at your odds); anything less sits in "Small or losing"
+  const worth = (x) => x.totalMe >= engine().meaningful();
   const OFFER_CATS = [
-    ["all", "All", () => true],
-    ["winwin", "Both gain", (x) => x.gainMe > 0 && x.gainThem > 0],
-    ["likely", "Likely accepted", (x) => x.chance >= 0.6 && x.gainMe >= -1.5],
-    ["value", "Value for you", (x) => x.gainMe >= 3 && x.gainThem >= -8 && x.chance >= 0.2],
-    ["need", "Fills your need", (x) => x.fits.some((f) => f.startsWith("fills your")) && x.gainMe >= -2 && x.gainThem >= -5],
-    ["close", "Needs a sweetener", (x) => x.gainMe > 0 && x.gainThem <= 0 && x.gainThem > -6],
+    ["all", "Worth it", worth],
+    ["winwin", "Both gain", (x) => worth(x) && x.totalThem > 0],
+    ["likely", "Likely accepted", (x) => worth(x) && x.chance >= 0.6],
+    ["value", "Big gain for you", (x) => x.totalMe >= 2 * engine().meaningful() && x.chance >= 0.2],
+    ["need", "Fills your need", (x) => worth(x) && x.fits.some((f) => f.startsWith("fills your"))],
+    ["close", "Needs a sweetener", (x) => worth(x) && x.totalThem <= 0 && x.totalThem > -6],
+    ["small", "Small or losing", (x) => !worth(x)],
   ];
-  const OFFER_SORTS = [["best", "Best match"], ["mine", "Your gain"], ["theirs", "Their gain"], ["chance", "Chance accepted"], ["fair", "Fairest"]];
+  const OFFER_SORTS = [["best", "Best for you (gain × chance)"], ["mine", "Your gain"], ["theirs", "Their gain"], ["chance", "Chance accepted"], ["fair", "Fairest"]];
   function offerView() {
     labState.view = Object.assign({ cat: "all", sort: "best", shape: "any", team: "", limit: 12 }, labState.view || {});
     return labState.view;
   }
   function filteredOffers(o) {
     const v = offerView(), cat = OFFER_CATS.find((c) => c[0] === v.cat) || OFFER_CATS[0];
-    const key = { best: (x) => engine().bestScore(x), mine: (x) => x.gainMe, theirs: (x) => x.gainThem,
-      chance: (x) => x.chance + x.gainMe / 1000, fair: (x) => Math.min(x.gainMe, x.gainThem) - Math.abs(x.gainMe - x.gainThem) / 10 }[v.sort];
+    const key = { best: (x) => engine().bestScore(x), mine: (x) => x.totalMe, theirs: (x) => x.totalThem,
+      chance: (x) => x.chance + x.totalMe / 1000, fair: (x) => Math.min(x.totalMe, x.totalThem) - Math.abs(x.totalMe - x.totalThem) / 10 }[v.sort];
     const rows = o.offers.map((x, i) => Object.assign({ i }, x))
       .filter((x) => cat[2](x) && (v.shape === "any" || x.shape === v.shape) && (!v.team || String(x.partner) === v.team))
       .sort((a, b) => key(b) - key(a));
@@ -2458,14 +2464,17 @@
     const rows = filteredOffers(o);
     const names = (ids) => ids.map((p) => plink(p, P[p].n)).join(" + ");
     const PRIMARY = ["winwin", "likely", "need", "value", "close"];
+    const E = engine(), nW = DATA.lab.weeks.length;
+    const gainsHtml = (x) => `<span class="gain me">You ${signed(x.gainMe / nW)}/wk${E.nPO && x.poMe != null ? ` · playoffs ${signed(x.poMe / E.nPO)}/wk` : ""}</span>
+      <span class="gain">Them ${signed(x.gainThem / nW)}/wk</span>`;
     const tags = (x) => { const c = PRIMARY.map((k) => OFFER_CATS.find((y) => y[0] === k)).find((y) => y[2](x));
-      return c ? `<span class="chip ${c[0] === "close" || c[0] === "value" ? "warn" : "good"}">${c[1]}</span>` : ""; };
+      return c ? `<span class="chip ${c[0] === "close" ? "warn" : "good"}">${c[1]}</span>` : worth(x) ? "" : `<span class="chip">about even for you</span>`; };
     const card = (x) => {
       const pc = Math.round(100 * x.chance);
       return `<div class="trade offer"><div class="trade-head"><div class="pname">${esc(R[x.partner].team_name)}</div><span class="subtle">${esc(x.shape)}${x.built ? " · your trade" : ""}</span></div>
         <div style="margin:4px 0 6px">Give <b>${names(x.give)}</b> · get <b>${names(x.get)}</b></div>
         <div class="otags">${tags(x)}${x.fits.map((f) => `<span class="chip">${esc(f)}</span>`).join("")}</div>
-        <div class="gains"><span class="gain me">You ${signed(x.gainMe)}</span><span class="gain">Them ${signed(x.gainThem)}</span>
+        <div class="gains">${gainsHtml(x)}
           <span class="chance" title="Rough chance they accept: from their gain, whether it fills a need and how good the players look on recent scoring">
             <span class="chance-bar"><span style="width:${pc}%"></span></span>${pc}% accept</span></div>
         <div class="acts"><button type="button" class="mini" data-offer="${x.i}">Load</button>
@@ -2480,8 +2489,11 @@
       <div class="stack">${rows.slice(0, v.limit).map(card).join("") || `<div class="empty">Nothing in this group with these filters.</div>`}</div>
       ${rows.length > v.limit ? `<button type="button" class="btn secondary" id="omore" style="width:100%">Show ${Math.min(12, rows.length - v.limit)} more (${rows.length - v.limit} left)</button>` : ""}
       <details class="recent"><summary>How these are found</summary><div class="card card-pad subtle">
-        <p>Every 1-for-1, 2-for-1, 1-for-2 and 2-for-2 around what you picked is valued for both teams (rest-of-season points, lineups, byes, roster spots).
-        Deals that would cost you more than 4 points, or are wildly uneven in total value, are left out.</p>
+        <p>Every 1-for-1, 2-for-1, 1-for-2 and 2-for-2 around what you picked is valued for both teams (rest-of-season points, lineups, byes, roster spots),
+        plus the fantasy playoff weeks, counted at each team's chance of making the playoffs. Gains are shown per week.</p>
+        <p><b>Worth it</b> = at least half a point a week better for you overall; smaller or losing deals are under <b>Small or losing</b>.
+        <b>Best for you</b> ranks by what you can expect to gain: the chance they say yes × your gain, so a sure thing that barely helps
+        doesn't beat a good deal with a fair chance.</p>
         <p><b>Chance accepted</b> is a rough guide: it rises with their gain, if the deal fills one of their weak spots, and if the players they get
         look better on this season's scoring (managers judge on what they've seen). It isn't learned from real acceptances, so treat it as a ranking.</p></div></details>`;
   }
@@ -2539,12 +2551,12 @@
         <div class="subtle">A player in this deal has moved teams or been dropped.</div>
         <div class="acts"><button type="button" class="mini" data-act="star" data-src="short" data-i="${i}">Remove</button></div></div>`;
       const w = s.was || {}, moved = [];
-      if (w.gainMe != null && Math.abs(x.gainMe - w.gainMe) >= 1) moved.push(`you ${signed(w.gainMe)} → ${signed(x.gainMe)}`);
+      if (w.gainMe != null && Math.abs(x.gainMe - w.gainMe) >= 1) moved.push(`you ${signed(w.gainMe / L.weeks.length)} → ${signed(x.gainMe / L.weeks.length)}/wk`);
       if (w.chance != null && Math.abs(x.chance - w.chance) >= 0.05) moved.push(`chance ${pc(w.chance)} → ${pc(x.chance)}`);
       const p = Math.round(100 * x.chance);
       return `<div class="trade offer"><div class="trade-head"><div class="pname">${team}</div><span class="subtle">${esc(x.shape)} · saved ${esc(agoText(Date.now() - s.at))}</span></div>
         <div style="margin:4px 0 6px">Give <b>${names(s.give)}</b> · get <b>${names(s.get)}</b></div>
-        <div class="gains"><span class="gain me">You ${signed(x.gainMe)}</span><span class="gain">Them ${signed(x.gainThem)}</span>
+        <div class="gains"><span class="gain me">You ${signed(x.gainMe / L.weeks.length)}/wk${E.nPO && x.poMe != null ? ` · playoffs ${signed(x.poMe / E.nPO)}/wk` : ""}</span><span class="gain">Them ${signed(x.gainThem / L.weeks.length)}/wk</span>
           <span class="chance"><span class="chance-bar"><span style="width:${p}%"></span></span>${p}% accept</span></div>
         ${moved.length ? `<div class="subtle">Since you saved it: ${moved.join(" · ")}</div>` : ""}
         <div class="acts"><button type="button" class="mini" data-act="load-short" data-i="${i}">Load</button>${copyBtn("short", i)}
@@ -2593,7 +2605,7 @@
       return t.charAt(0).toUpperCase() + t.slice(1) + ".";
     };
     const row = (e, i, tag) => `<div class="edit"><div class="pd-h">${esc(tag)}</div><div>${say(e)}</div>
-      <div class="gains"><span class="gain me">You ${signed(e.gainMe)}</span><span class="gain">Them ${signed(e.gainThem)}</span>
+      <div class="gains"><span class="gain me">You ${signed(e.gainMe / DATA.lab.weeks.length)}/wk</span><span class="gain">Them ${signed(e.gainThem / DATA.lab.weeks.length)}/wk</span>
         <button type="button" class="mini" data-act="apply-edit" data-i="${i}">Apply</button></div></div>`;
     const c = IMPROVE.current;
     let html = "";

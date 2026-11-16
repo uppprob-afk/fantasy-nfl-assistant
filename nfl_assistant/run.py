@@ -902,7 +902,9 @@ def build_lab(ctx: dict, managers: dict, proj: dict, weeks: list[int], slots: li
                               sim_standings(ctx["rosters"]), sim_schedule(ctx, weeks), this_week,
                               ctx["my_roster"]["roster_id"], outlook_data["playoff_teams"],
                               outlook_data["playoffs"]["confidence"], trade_data["replacement"],
-                              roster_size, ctx["current_week"])
+                              roster_size, ctx["current_week"],
+                              season_weeks(ctx["league"]["settings"], ctx["current_week"])[1],
+                              {t["roster_id"]: t["odds"] for t in outlook_data["playoffs"]["teams"]})
     data["trade_counts"] = trade_data["history"]["trades_made"]   # who actually trades (chance accepted)
     return data
 

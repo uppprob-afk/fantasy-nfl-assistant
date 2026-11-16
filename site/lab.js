@@ -265,7 +265,36 @@
        Modes: get only (buy), give only (shop: one partner or all teams), nothing (any deal with
        the partner), both (variations of the trade I built). */
     // "best match": my gain, their gain and - mostly - whether they'd plausibly say yes
-    const bestScore = (x) => 0.5 * x.gainMe + 0.25 * x.gainThem + 12 * x.chance - (x.chance < 0.15 ? 5 : 0);
+    /* Fantasy playoff weeks beyond the regular season: best lineup each week (empty slots at
+       free-agent level). A trade's playoff gain counts at the team's chance of being there. */
+    const PO = L.po_weeks || [], nPO = PO.length;
+    function poValue(pids) {
+      let total = 0;
+      for (let k = 0; k < nPO; k++) {
+        const pool = pids.filter((p) => P[p] && P[p].pw).map((p) => [p, P[p].pw[k] || 0]).sort((a, b) => b[1] - a[1]);
+        const used = new Set();
+        for (const slot of slotOrder) {
+          const ok = FLEX[slot] || [slot];
+          const pick = pool.find(([p]) => !used.has(p) && ok.includes(P[p].p));
+          const fl = floor[slot] || 0;
+          if (pick) used.add(pick[0]);
+          total += Math.max(pick ? pick[1] : 0, fl);
+        }
+      }
+      return total;
+    }
+    const oddsOf = (rid) => { const o = (L.playoff_odds || {})[String(rid)]; return o == null ? 0.5 : o; };
+    // weeks a trade is worth to a team: the regular season left plus the playoff weeks at its odds
+    const effWeeks = (rid) => nW + oddsOf(rid) * nPO;
+    // a gain smaller than half a point a week is "about even": too small to trade for
+    const meaningful = () => 0.5 * effWeeks(L.my_roster_id);
+    function totals(rid, before, after, gain) {
+      const po = round(poValue(after) - poValue(before), 1);
+      return { po, total: round(gain + oddsOf(rid) * po, 1) };
+    }
+    // ranking: what you can expect to gain = chance they say yes x your total gain. Trades that
+    // don't help you sort last however likely they are.
+    const bestScore = (x) => (x.totalMe > 0 ? x.chance * x.totalMe : x.totalMe - 1000);
     // what managers "see": this season's points per game when he's played 2+ games, else projection
     const seen = (p) => (P[p].gt >= 2 && P[p].ap != null ? P[p].ap : P[p].r);
     // managers value one good player over two decent ones: best player + a third of the rest
@@ -289,11 +318,14 @@
       if (!L.rosters[t]) return null;
       const mineAll = rosterAll(me), theirsAll = rosterAll(t);
       if (!give.every((p) => mineAll.includes(p)) || !get.every((p) => theirsAll.includes(p))) return null;
-      const gainMe = round(value(mineAll.filter((p) => !give.includes(p)).concat(get)).score - value(mineAll).score, 1);
-      const gainThem = round(value(theirsAll.filter((p) => !get.includes(p)).concat(give)).score - value(theirsAll).score, 1);
+      const m0 = value(mineAll), m1 = value(mineAll.filter((p) => !give.includes(p)).concat(get));
+      const t0 = value(theirsAll), t1 = value(theirsAll.filter((p) => !get.includes(p)).concat(give));
+      const gainMe = round(m1.score - m0.score, 1), gainThem = round(t1.score - t0.score, 1);
+      const tm = totals(me, m0.pids, m1.pids, gainMe), tt = totals(t, t0.pids, t1.pids, gainThem);
       const profs = leagueProfiles().profiles;
       return Object.assign({ partner: t, give: give.slice(), get: get.slice(), gainMe, gainThem, balance: balanceOf(gainMe, gainThem),
-        shape: `${give.length}-for-${get.length}` }, acceptance(give, get, gainThem, profs[t].needs, profs[me].needs, t));
+        poMe: tm.po, poThem: tt.po, totalMe: tm.total, totalThem: tt.total,
+        shape: `${give.length}-for-${get.length}` }, acceptance(give, get, tt.total, profs[t].needs, profs[me].needs, t));
     }
 
     function exploreTrades(o) {
@@ -307,13 +339,13 @@
       const myPool = rosterOf(me).filter((p) => tradeableRec(P[p]) && !holds.has(p) && !give.includes(p)).sort(byRos);
       const partners = o.partner ? [String(o.partner)] : Object.keys(L.rosters).filter((t) => t !== me);
       const profs = leagueProfiles().profiles;
-      const myBase = value(mineAll).score;
+      const myV = value(mineAll), myBase = myV.score, myPids = myV.pids;
       const out = [];
       let searched = 0;
       for (const t of partners) {
         const theirsAll = rosterAll(t);
         const theirPool = rosterOf(t).filter((p) => tradeableRec(P[p]) && !get.includes(p)).sort(byRos);
-        const theirBase = value(theirsAll).score;
+        const theirV = value(theirsAll), theirBase = theirV.score, theirPids = theirV.pids;
         const shapes = [];
         const mine = myPool.slice(0, nPool + 3), theirs = theirPool.slice(0, nPool + 3);
         const mp = pairs(myPool.slice(0, nPool)), tp = pairs(theirPool.slice(0, nPool));
@@ -355,12 +387,17 @@
           const rg = ros(g), rr = ros(r);
           if (!rg || !rr || rr / rg > 2.5 || rr / rg < 0.4) continue;      // keep it within reason
           searched++;
-          const gainMe = round(value(mineAll.filter((p) => !g.includes(p)).concat(r)).score - myBase, 1);
-          if (gainMe < (give.length && get.length ? -10 : -4)) continue;  // never a big loss for me (looser for tweaks of my own trade)
-          const gainThem = round(value(theirsAll.filter((p) => !r.includes(p)).concat(g)).score - theirBase, 1);
-          if (gainThem < -25) continue;                                     // they'd laugh at it
-          const { fits, perceived, chance } = acceptance(g, r, gainThem, needs, myNeeds, t);
+          const m1 = value(mineAll.filter((p) => !g.includes(p)).concat(r));
+          const gainMe = round(m1.score - myBase, 1);
+          const tm = totals(me, myPids, m1.pids, gainMe);
+          if (tm.total < (give.length && get.length ? -10 : -4)) continue;  // never a big loss for me (looser for tweaks of my own trade)
+          const t1 = value(theirsAll.filter((p) => !r.includes(p)).concat(g));
+          const gainThem = round(t1.score - theirBase, 1);
+          const tt = totals(t, theirPids, t1.pids, gainThem);
+          if (tt.total < -25) continue;                                     // they'd laugh at it
+          const { fits, perceived, chance } = acceptance(g, r, tt.total, needs, myNeeds, t);
           out.push({ partner: t, give: g, get: r, gainMe, gainThem, balance: balanceOf(gainMe, gainThem), fits,
+            poMe: tm.po, poThem: tt.po, totalMe: tm.total, totalThem: tt.total,
             perceived, chance, shape: `${g.length}-for-${r.length}`,
             built: give.length && get.length && g.length === give.length && r.length === get.length && g.every((p) => give.includes(p)) && r.every((p) => get.includes(p)) });
         }
@@ -406,6 +443,8 @@
       const after = leagueProfiles({ [me]: mine1, [them]: theirs1 });
       const gainMe = round(after.profiles[me].value.score - before.profiles[me].value.score, 1);
       const gainThem = round(after.profiles[them].value.score - before.profiles[them].value.score, 1);
+      const tm = totals(me, before.profiles[me].value.pids, after.profiles[me].value.pids, gainMe);
+      const tt = totals(them, before.profiles[them].value.pids, after.profiles[them].value.pids, gainThem);
       const weekly = L.weeks.map((week, w) => ({
         week,
         me: round(after.profiles[me].value.expected[w] - before.profiles[me].value.expected[w], 1),
@@ -440,6 +479,7 @@
       const flagged = give.concat(get).filter((p) => !tradeableRec(P[p]));
       return {
         me, them, give, get, gainMe, gainThem, perWeekMe: round(gainMe / nW, 1), balance, confidence,
+        poMe: tm.po, poThem: tt.po, totalMe: tm.total, totalThem: tt.total, oddsMe: oddsOf(me), oddsThem: oddsOf(them),
         weekly, lineupChange, reasons, flagged,
         before, after,
         odds: { me: [odds0[me].odds, odds1[me].odds], them: [odds0[them].odds, odds1[them].odds],
@@ -460,7 +500,8 @@
       return { ok: diffs.every((d) => d < 0.5), maxDiff: Math.max(...diffs) };
     }
 
-    return { lineup, value, rawValue, profile, simulate, evaluateTrade, improveTrade, exploreTrades, scoreOffer, bestScore, leagueProfiles, rosterOf, rosterAll, tradeable: tradeableRec,
+    return { lineup, value, rawValue, profile, simulate, evaluateTrade, improveTrade, exploreTrades, scoreOffer, bestScore,
+      meaningful, effWeeks, nPO, poWeeks: PO, leagueProfiles, rosterOf, rosterAll, tradeable: tradeableRec,
       setHolds: (ids) => { holds = new Set(ids || []); },
       vor, selfCheck, players: P };
   }
