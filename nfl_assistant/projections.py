@@ -11,6 +11,7 @@ The model, in plain English:
          Games where a player barely played (snap share well below normal, e.g. hurt
          early) are left out.
   week = rate x matchup adjustment x availability; 0 on a bye.
+  Team defences instead follow the opponent's expected points (see defence.py).
 Every projection carries a game-to-game spread (sd) and a confidence label.
 """
 
@@ -18,7 +19,7 @@ import math
 from collections import defaultdict
 from statistics import mean, median
 
-from . import roles
+from . import defence, roles
 from .factors import weather_multiplier
 from .nflverse import compute_points, index_rows, match_player, norm_name
 
@@ -542,8 +543,10 @@ def matchup_multiplier(position: str, game: dict, dvp: dict, avg_implied: float 
 def project_weeks(rate: float, position: str, team: str | None, status: str | None,
                   weeks: list[int], first_week: int, sched: dict, dvp: dict,
                   avg_implied: float | None, params: dict | None = None,
-                  practice: str | None = None) -> dict[int, dict]:
-    """week -> {pts, bye, mult, source, avail, wx} for the given (unplayed) weeks."""
+                  practice: str | None = None, dmodel: dict | None = None) -> dict[int, dict]:
+    """week -> {pts, bye, mult, source, avail, wx} for the given (unplayed) weeks.
+    dmodel = {fit, strength, scoring}: team defences are projected from the opponent's
+    expected points (defence.py) instead of rate x matchup."""
     P = params_or_default(params)
     out = {}
     for w in weeks:
@@ -556,9 +559,18 @@ def project_weeks(rate: float, position: str, team: str | None, status: str | No
         scr = script_multiplier(position, game, P)
         avail = availability(status, w - first_week, practice, P["availability"])
         pts = round(rate * mult * wxm * scr * avail, 2)
+        allowed = None
+        if position == "DEF" and dmodel:
+            allowed, src = defence.expected_allowed(team, game, dmodel["strength"])
+            val = defence.points(allowed, dmodel["scoring"], dmodel["fit"])
+            if val is not None:
+                val *= P["bias"].get("DEF", 1.0)
+                mult, source, wxm, scr = (val / rate if rate else 1.0), src, 1.0, 1.0
+                pts = round(val * avail, 2)
         out[w] = {"pts": pts, "bye": False, "mult": round(mult, 3), "script": round(scr, 3),
                   "q": quantile_points(position, pts, P),
                   "source": source, "avail": avail, "opp": game["opp"], "home": game["home"],
+                  **({"allowed": round(allowed, 1)} if allowed is not None else {}),
                   "wx": {"roof": game.get("roof"), "wind": game.get("wind"), "temp": game.get("temp"),
                          "forecast": bool(game.get("forecast")), "mult": round(wxm, 3)}}
     return out
@@ -647,6 +659,10 @@ def build(players: dict, candidate_ids: set[str], rows_prior: list[dict], rows_t
     bases = position_baselines(base_logs, prior_season, starters_per_pos)
     dvp = defence_vs_position(logs, sched, season)
     avg_imp = average_implied(sched)
+    results = defence.results(games, (prior_season, season))
+    dmodel = {"fit": defence.fit(dlogs, results, scoring, season), "strength": defence.strength(results, season),
+              "scoring": scoring}
+    P = params_or_default(params)
     _, by_gsis, by_name = index_rows(rows_prior + rows_this)
     first_week = weeks[0] if weeks else 0
     pos_rank = sleeper_pos_ranks(players)
@@ -677,10 +693,19 @@ def build(players: dict, candidate_ids: set[str], rows_prior: list[dict], rows_t
                         rank_baseline_for(pos, pos_rank.get(pid), tiers))
         r["nid"] = nid
         todo = unplayed_weeks(sched, team, weeks)
-        weekly = project_weeks(r["rate"], pos, team, status, todo, first_week, sched, dvp, avg_imp, params, prac)
+        po_todo = unplayed_weeks(sched, team, playoff_weeks or [])
+        dm = dmodel if pos == "DEF" else None
+        if dm:                                  # per-game rate = average over the games ahead
+            vals = [defence.points(defence.expected_allowed(team, sched[w][team], dm["strength"])[0], scoring, dm["fit"])
+                    for w in todo + po_todo if team in sched.get(w, {})]
+            vals = [v for v in vals if v is not None]
+            if vals:
+                new = mean(vals) * P["bias"].get("DEF", 1.0)
+                r["sd"] = round(r["sd"] * new / r["rate"], 2) if r["rate"] else r["sd"]
+                r["rate"] = round(new, 2)
+        weekly = project_weeks(r["rate"], pos, team, status, todo, first_week, sched, dvp, avg_imp, params, prac, dm)
         log_this = [{k: g.get(k) for k in LOG_KEYS} for g in plogs if g["season"] == season]
-        po = project_weeks(r["rate"], pos, team, status, unplayed_weeks(sched, team, playoff_weeks or []),
-                           first_week, sched, dvp, avg_imp, params)
+        po = project_weeks(r["rate"], pos, team, status, po_todo, first_week, sched, dvp, avg_imp, params, dmodel=dm)
         r.update({"id": pid, "name": p.get("full_name") or pid, "position": pos, "team": team, "status": status,
                   "practice": prac, "weekly": weekly,
                   "log": log_this, "playoff_weeks": po, "pos_td_per_touch": td_rates.get(pos),
@@ -690,7 +715,6 @@ def build(players: dict, candidate_ids: set[str], rows_prior: list[dict], rows_t
     apply_inheritance(out, volume, params)
     apply_qb_change(out, logs, players, season, params)
     apply_qb_depth(out, players, params)
-    P = params_or_default(params)
     for r in out.values():                     # ranges after all adjustments
         r["q"] = quantile_points(r["position"], r.get("rate_if_starts", r["rate"]), P)
         for src in (r.get("weekly") or {}, r.get("playoff_weeks") or {}):

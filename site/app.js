@@ -364,6 +364,8 @@
         <div class="subtle">${range}${wxText(nx.wx) ? ` · ${esc(wxText(nx.wx))}` : ""}</div></div>
         <div class="nx-p">${one(nx.pts)}<small>proj</small></div></div>`;
       const notes = gameDayNotes(c);
+      if (nx.allowed != null) notes.unshift(`${esc(nx.opp)} expected to score about <b>${Math.round(nx.allowed)}</b> pts${
+        nx.source === "vegas" ? " (Vegas line)" : " (estimated from both teams' scoring; no line yet)"}. Defence projections follow this: sacks and turnovers are mostly luck week to week.`);
       if (nx.start != null && nx.start < 1) notes.unshift(`Backup QB: about <b>${Math.round(100 * nx.start)}%</b> chance he starts${
         nx.if_plays ? ` (around ${one(nx.if_plays)} if he does)` : ""}. The projection is that chance times his game, so his range starts at 0.`);
       if (notes.length) week += `<ul class="tight nx-notes">${notes.map((n) => `<li>${n}</li>`).join("")}</ul>`;
