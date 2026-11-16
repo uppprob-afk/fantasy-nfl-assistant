@@ -639,7 +639,11 @@ def build_outlook(ctx: dict, managers: dict, proj: dict, weeks: list[int], slots
             if_a, if_b = outlook.conditional_odds(sim, g, rid)
             if_win, if_lose = (if_a, if_b) if g[1] == rid else (if_b, if_a)
         odds = sim["made"].get(rid, 0) / sim["n"]
+        left = sum(1 for g in sim["games"] if rid in (g[1], g[2]))
         teams.append({**managers[rid], **standings[rid], "odds": round(odds, 3),
+                      "seed_odds": [round(c / sim["n"], 3) for c in sim["seeds"][rid]],
+                      "games_left": left, "wins_needed": outlook.wins_needed(sim["by_wins"][rid], left),
+                      "clinched": sim["made"].get(rid, 0) == sim["n"], "eliminated": sim["made"].get(rid, 0) == 0,
                       "odds_text": outlook.round_odds(odds, conf),
                       "seed1": round(sim["seed1"].get(rid, 0) / sim["n"], 3),
                       "proj_wins": round(sim["avg_wins"][rid], 1),

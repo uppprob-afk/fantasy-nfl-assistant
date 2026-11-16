@@ -1959,6 +1959,131 @@
     return `<p class="subtle" style="margin:12px 0">Every team at a glance: form, odds, luck, strengths, needs and how the manager behaves. Tap a team for its full profile.</p>
       <div class="stack">${order.map((rid) => teamTile(teamProfile(rid))).join("")}</div>`;
   }
+  // ---------- Team drop-downs: extra detail (League → Teams) ----------
+  // Playoff-week strength for every team, from card schedules (computed once per load).
+  let PO_STRENGTH = null;
+  function playoffStrength() {
+    if (PO_STRENGTH) return PO_STRENGTH;
+    const pw = playoffWeeksOf(), E = engine(), L = DATA.lab;
+    const per = {};
+    if (pw.length && E) Object.keys(L.rosters).forEach((r) => {
+      const ids = E.rosterAll(r);
+      per[r] = pw.reduce((a, w) => a + teamWeekLineup(ids, w).total, 0) / pw.length;
+    });
+    const order = Object.keys(per).sort((a, b) => per[b] - per[a]);
+    PO_STRENGTH = { weeks: pw, per, rank: Object.fromEntries(order.map((r, i) => [r, i + 1])), n: order.length };
+    return PO_STRENGTH;
+  }
+  // this week's matchup, shaky starters, ceiling / floor and boom-or-bust starters
+  function teamWeekHtml(x) {
+    if (!O) return "";
+    const m = O.matchups.find((mm) => mm.teams.some((t) => t.roster_id === x.rid));
+    if (!m) return `<div class="subtle">No game this week.</div>`;
+    const t = m.teams.find((tt) => tt.roster_id === x.rid), o = m.teams.find((tt) => tt.roster_id !== x.rid);
+    const pc = (v) => `${Math.round(100 * v)}%`;
+    const done = t.sd < 0.5 && o.sd < 0.5;          // every game finished
+    let h = `<div class="tiles head">${done
+      ? tileHtml("Week " + esc(O.week), `${num(t.mean)}–${num(o.mean)}`, `final vs ${esc(o.team_name)} · ${t.mean > o.mean ? "won" : t.mean < o.mean ? "lost" : "tied"}`)
+      : tileHtml("Week " + esc(O.week), `${pc(t.win_prob)}`, `to win vs ${esc(o.team_name)} · ${num(t.mean)}–${num(o.mean)} proj`)}
+      ${done ? "" : t.sd < 0.5 ? tileHtml("Scored", num(t.mean), "all their games are over")
+        : tileHtml("Typical / ceiling", `${num(Math.max(0, t.mean - t.sd), 0)}–${num(t.mean + t.sd, 0)}`, `floor ~${num(Math.max(0, t.mean - 1.28 * t.sd), 0)} · ceiling ~${num(t.mean + 1.28 * t.sd, 0)}`)}</div>`;
+    const P = DATA.lab.players, wi = DATA.lab.weeks.indexOf(Number(O.week));
+    const proj = (pid) => (wi >= 0 && P[pid] ? P[pid].w[wi] : null);
+    const role = (pid) => ((CARDS[pid] || {}).role || {}).label;
+    const rows = O.slots.map((slot, i) => Object.assign({ slot }, t.players[i] || {}));
+    const shaky = rows.filter((r) => r.status !== "played" && (!r.id || nm(r.id).injury_status || (r.pts || 0) <= 0.5));
+    if (shaky.length) h += `<div class="subtle" style="margin-top:8px">Shaky starters: ${shaky.map((r) => r.id
+      ? `${plink(r.id, nm(r.id).name)} (${esc(nm(r.id).injury_status || "not playing")})` : `empty ${esc(r.slot)}`).join(", ")}.</div>`;
+    const set = new Set(rows.map((r) => r.id).filter(Boolean));
+    const bench = ((DATA.lab.rosters[x.key] || {}).players || []).filter((p) => !set.has(p) && P[p])
+      .sort((a, b) => (proj(b) || 0) - (proj(a) || 0));
+    const worst = (pos) => Math.min(...rows.filter((r) => r.id && r.status !== "played" && (FLEX_OK[r.slot] || [r.slot]).includes(pos)).map((r) => r.pts || 0), 99);
+    const line = (cells) => `<tr>${cells.map((c) => `<td>${c}</td>`).join("")}</tr>`;
+    h += `<div class="card table-wrap" style="margin-top:8px"><table class="named tl-lu"><thead><tr><th>Slot</th><th>Player</th><th>Proj</th><th>Role</th></tr></thead><tbody>${
+      rows.map((r) => line([esc(r.slot), r.id ? `${plink(r.id, nm(r.id).name)}${injuryChip(nm(r.id))}` : `<span class="muted">empty</span>`,
+        r.id ? `${num(r.pts)}${r.status === "played" ? ` <span class="subtle">final</span>` : ""}` : "–", esc(role(r.id) || "")])).join("")}
+      ${bench.length ? `<tr class="tl-bench"><td colspan="4">Bench</td></tr>` + bench.map((p) => { const v = proj(p);
+        const better = v != null && v > worst(P[p].p) + 1;
+        return line(["BN", `${plink(p, P[p].n)}${P[p].s ? ` <span class="chip ${P[p].s === "Questionable" ? "warn" : "bad"}">${esc(P[p].s)}</span>` : ""}`,
+          `${!v ? "–" : num(v)}${better ? ` <span class="chip warn">beats a starter</span>` : ""}`, esc(role(p) || "")]); }).join("") : ""}</tbody></table></div>
+      <div class="subtle">Bench "–" = his game is over, he's on bye or he's out this week.</div>`;
+    const boom = rows.filter((r) => r.id && r.status !== "played").map((r) => { const nx = ((CARDS[r.id] || {}).next3 || []).find((w) => w.week === Number(O.week));
+      return nx && nx.ceiling != null ? { r, swing: nx.ceiling - nx.floor, nx } : null; }).filter(Boolean).sort((a, b) => b.swing - a.swing).slice(0, 2);
+    if (boom.length) h += `<div class="subtle" style="margin-top:6px">Boom-or-bust: ${boom.map((b) => `${plink(b.r.id, nm(b.r.id).name)} (${num(b.nx.floor)}–${num(b.nx.ceiling)})`).join(", ")}.</div>`;
+    return h;
+  }
+  // seed chances, projected record, what they need; luck in detail
+  function playoffPictureHtml(x) {
+    const po = x.po || {}, pc = (v) => `${Math.round(100 * v)}%`, n = O ? O.playoff_teams : 4;
+    if (!po.seed_odds) return po.odds_text ? `<div class="subtle" style="margin-top:8px">Playoffs: <b>${esc(po.odds_text)}</b>.</div>` : "";
+    const seeds = po.seed_odds.slice(0, n).map((v, i) => `#${i + 1} ${pc(v)}`).join(" · ");
+    const g = (x.st.wins || 0) + (x.st.losses || 0) + (x.st.ties || 0) + (po.games_left || 0);
+    const need = po.clinched ? "In the playoffs in every simulated season." : po.eliminated ? "Out of the playoffs in every simulated season."
+      : po.wins_needed == null ? `Even winning out may not be enough (${po.games_left} left).`
+      : po.wins_needed === 0 ? "Likely in even without another win." : `Needs about <b>${po.wins_needed} of the last ${po.games_left}</b> to get in.`;
+    return `<div class="subtle" style="margin-top:8px">Seed chances: ${seeds}. Projected final record ${num(po.proj_wins)}–${num(g - po.proj_wins)}. ${need}</div>`;
+  }
+  function luckHtml(x) {
+    const games = ((LG && LG.weekly) || {})[x.key] || [], close = games.filter((gm) => gm.opp_pts != null && Math.abs(gm.pts - gm.opp_pts) < 10);
+    const cw = close.filter((gm) => gm.result === "W").length, cl = close.filter((gm) => gm.result === "L").length;
+    const ap = x.ap || {}, pa = x.W.paRank[x.key];
+    const bits = [];
+    if (close.length) bits.push(`close games (under 10 pts) <b>${cw}–${cl}</b>`);
+    if (pa) bits.push(`faced the ${ordinal(pa)} most points of ${x.W.n}`);
+    if (ap.expected_wins != null) bits.push(`about <b>${num(ap.expected_wins)}</b> wins against an average schedule (has ${num(ap.actual_wins)})`);
+    return bits.length ? `<div class="subtle" style="margin-top:6px">Luck: ${bits.join(" · ")}.</div>` : "";
+  }
+  // season so far vs rest of season by position; playoff-week strength
+  function rosterTrendHtml(x) {
+    const now = x.th.per_week || {}, ros = x.tt.per_week || {};
+    const keys = Object.keys(ros).filter((k) => now[k] != null);
+    let h = "";
+    if (keys.length) h += `<div class="card table-wrap" style="margin-top:8px"><table class="named"><thead><tr><th>Slot</th><th>Season so far</th><th>Rest of season</th><th></th></tr></thead><tbody>${
+      keys.map((k) => { const d = ros[k] - now[k];
+        return `<tr><td><b>${k}</b></td><td>${num(now[k])}</td><td>${num(ros[k])}</td><td class="${d > 1 ? "up" : d < -1 ? "down" : ""}">${d > 1 ? "▲ surging" : d < -1 ? "▼ fading" : "steady"}</td></tr>`; }).join("")}</tbody></table></div>
+      <div class="subtle">Points per week from each lineup slot: what they've actually started vs what the projections expect from here.</div>`;
+    const ps = playoffStrength();
+    if (ps.weeks.length && ps.per[x.key] != null) h += `<div class="subtle" style="margin-top:6px">Playoff weeks (${ps.weeks.join(", ")}): best lineup projects <b>${num(ps.per[x.key])}</b>/wk, <b>${ordinal(ps.rank[x.key])}</b> of ${ps.n} in the league.</div>`;
+    return h;
+  }
+  // lineup decisions, recent moves, trade record, waiver threat
+  function managerExtraHtml(x) {
+    const th = x.th, me = myRid(), isMe = x.rid === me;
+    const all = (T && T.history && T.history.teams) || [];
+    const effRank = all.filter((t) => t.efficiency != null).sort((a, b) => b.efficiency - a.efficiency).findIndex((t) => t.roster_id === x.rid) + 1;
+    let h = "";
+    if (th.bench_left != null) h += `<div class="pd-h" style="margin-top:10px">Lineup decisions</div><div class="subtle">Left <b>${num(th.bench_left)}</b> pts/wk on the bench
+      (${Math.round(100 * (th.efficiency || 0))}% of the best possible lineup${effRank ? `, ${ordinal(effRank)} best of ${all.length}` : ""}) · ${th.costly_weeks || 0} week${th.costly_weeks === 1 ? "" : "s"} with 5+ pts left
+      · ${th.lost_by_lineup ? `<b>${th.lost_by_lineup}</b> loss${th.lost_by_lineup === 1 ? "" : "es"} the best lineup would have won` : "no losses down to lineup calls"}.</div>`;
+    // recent moves
+    const moves = [];
+    (F && F.waiver_log || []).filter((w) => w.roster_id === x.rid).forEach((w) => moves.push({ t: w.processed, week: w.week, id: w.player.id, name: w.player.name,
+      text: `claimed for ${money(w.bid)}${(w.dropped || []).length ? `, dropped ${w.dropped.map((d) => esc(d.name)).join(", ")}` : ""}` }));
+    (F && F.other_moves || []).forEach((om) => (om.moves || []).filter((mv) => mv.roster_id === x.rid).forEach((mv) => (mv.added || []).forEach((a) =>
+      moves.push({ t: om.processed, week: om.week, id: a.id, name: a.name, text: `${om.type === "trade" ? "traded for" : "added free"}${(mv.dropped || []).length && om.type !== "trade" ? `, dropped ${mv.dropped.map((d) => esc(d.name)).join(", ")}` : ""}` }))));
+    const since = (pid, w) => { const lg = (CARDS[pid] || {}).log; if (!lg) return "";
+      const gs = lg.filter((g) => g.week >= w && !g.bye && (g.pts != null || g.calc != null));
+      return gs.length ? ` · ${num(gs.reduce((a, g) => a + (g.pts != null ? g.pts : g.calc), 0))} pts in ${gs.length} game${gs.length === 1 ? "" : "s"} since` : ""; };
+    const recent = moves.sort((a, b) => (b.t || 0) - (a.t || 0)).slice(0, 5);
+    if (recent.length) h += `<div class="pd-h" style="margin-top:10px">Recent moves</div><ul class="tight">${recent.map((mv) =>
+      `<li>W${esc(mv.week)}: ${plink(mv.id, mv.name)} ${mv.text}<span class="subtle">${since(mv.id, mv.week)}</span></li>`).join("")}</ul>`;
+    // trade record and deadline stance
+    const rep = T && T.report && T.report.summary && T.report.summary[x.key];
+    const dl = deadlineLeft();
+    const stance = dl != null && x.po ? stanceOf(x.po.odds || 0) : null;
+    const lean = stance ? (stance.key === "longshot" ? "a likely <b>seller</b>" : (x.tt.needs || []).length ? `a likely <b>buyer</b> (needs ${esc(x.tt.needs.join(", "))})` : "probably <b>standing pat</b> (no clear need)") : "";
+    if (rep || lean) h += `<div class="pd-h" style="margin-top:10px">Trades</div><div class="subtle">${rep ? `${rep.made} trade${rep.made === 1 ? "" : "s"} this season, net <b class="${rep.net > 0.5 ? "up" : rep.net < -0.5 ? "down" : ""}">${signed(rep.net)}</b> pts (League → Trades).` : "No trades this season."}${
+      lean ? ` Before the deadline: ${stance.label.toLowerCase()} on ${esc((x.po || {}).odds_text || "")} odds, so ${lean}.` : ""}</div>`;
+    // waiver threat: my targets they're likely to bid on
+    if (!isMe && F && F.available) {
+      const threats = F.available.map((p) => { const r = [].concat(...Object.values(p.rivals || {}).filter(Array.isArray)).find((rv) => rv.roster_id === x.rid);
+        return r ? { p, r } : null; }).filter(Boolean).sort((a, b) => (b.p.gain_per_week || 0) - (a.p.gain_per_week || 0)).slice(0, 4);
+      if (threats.length) h += `<div class="pd-h" style="margin-top:10px">Waiver threat</div><div class="subtle">Likely to bid on your targets: ${threats.map(({ p, r }) =>
+        `${plink(p.id, p.name)} (${esc(p.position)}, usually ${money(r.typical)}, max ${money(r.max)})`).join(", ")}.</div>`;
+    }
+    return h;
+  }
+
   function teamTile(x) {
     const L = DATA.lab, P = L.players, me = myRid(), isMe = x.rid === me;
     const s = x.st, ap = x.ap || {}, po = x.po || {}, ab = (p) => POS_ABBR[P[p].p] || P[p].p;
@@ -1974,7 +2099,8 @@
       ${tile("Playoff odds", po.odds_text || "–", po.proj_wins != null ? `${num(po.proj_wins)} proj wins · #1 seed ${Math.round(100 * (po.seed1 || 0))}%` : "")}
       ${tile("All-play", ap.w != null ? `${ap.w}–${ap.l}` : "–", ap.luck != null ? `luck ${ap.luck >= 0 ? "+" : ""}${num(ap.luck)} wins` : "")}
       ${tile("Power", x.pw ? `#${x.pw.rank}` : "–", x.pw ? `${num(x.pw.actual)} scored · ${num(x.pw.projected)} proj/wk` : "")}</div>
-      ${po.if_win_text ? `<div class="subtle" style="margin-top:8px">This week: win → ${esc(po.if_win_text)}, lose → ${esc(po.if_lose_text)} playoff odds. ${sparkline(x.rid) || ""}</div>` : ""}`;
+      ${po.if_win_text ? `<div class="subtle" style="margin-top:8px">This week: win → ${esc(po.if_win_text)}, lose → ${esc(po.if_lose_text)} playoff odds. ${sparkline(x.rid) || ""}</div>` : ""}
+      ${playoffPictureHtml(x)}${luckHtml(x)}`;
     // 2 form
     const wsr = x.W.st[x.key] || {};
     const allWeeks = x.ws.games.map((g) => { const r = x.W.rankOf[g.week][x.key], n = x.W.teamsIn[g.week];
@@ -1991,6 +2117,7 @@
       <div class="subtle">Needs: <b>${(x.tt.needs || []).join(", ") || "none"}</b> · Depth to spare: <b>${(x.tt.surplus || []).join(", ") || "none"}</b></div>
       <div class="subtle">Best players: ${x.best.map((p) => `${plink(p, P[p].n)} (${ab(p)}, ${num(P[p].r)})`).join(", ")}</div>
       ${x.hurt.length ? `<div class="subtle">Injured: ${x.hurt.map((p) => `${esc(P[p].n)} <span class="chip ${P[p].s === "Questionable" ? "warn" : "bad"}">${esc(P[p].s)}</span>`).join(" ")}</div>` : ""}
+      ${rosterTrendHtml(x)}
       ${x.byes.length ? `<div class="subtle">Bye crunch: ${x.byes.map((b) => `week ${b.w} (${b.out.map((p) => esc(P[p].n)).join(", ")})`).join("; ")}</div>` : `<div class="subtle">No week with 2+ starters on bye.</div>`}`;
     // 4 schedule
     const tn = (r) => esc((recBy[r] || {}).team_name || r);
@@ -2024,7 +2151,7 @@
         <div class="tm-odds"><b>${esc(po.odds_text || "–")}</b><small>playoffs ${delta}</small></div>
         <div class="tm-line">${form}${tags}</div>
       </summary>
-      <div class="pd">${ch("Snapshot", snap)}${ch("Form", form2)}${ch("Roster", roster)}${ch("Schedule", sched)}${ch("Manager", mgr)}${ch(isMe ? "Ask" : "Trade fit with you", fit)}</div>
+      <div class="pd">${ch("Snapshot", snap)}${ch("This week", teamWeekHtml(x))}${ch("Form", form2)}${ch("Roster", roster)}${ch("Schedule", sched)}${ch("Manager", mgr + managerExtraHtml(x))}${ch(isMe ? "Ask" : "Trade fit with you", fit)}</div>
     </details>`;
   }
 

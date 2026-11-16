@@ -364,6 +364,20 @@ with me, and trade fit (their needs vs my surplus and back, trade ideas with the
 form (last 3 weekly ranks), luck chip, strong / thin / needs tags. Buttons: open the Trade Lab
 with that team (`lab-team`), Ask Claude (`kind: "team"`, `teamText`).
 
+
+Extra detail in each team's drop-down (helpers above `teamTile`):
+- Snapshot: `playoffPictureHtml` (seed chances `seed_odds`, projected final record, `wins_needed`
+  = fewest remaining wins that get them in half the time from `outlook.simulate`'s `by_wins`,
+  clinched / eliminated = in / out in every simulation) and `luckHtml` (close-game record under
+  10 pts, points-against rank, all-play expected wins).
+- This week (`teamWeekHtml`): matchup and win chance (or "final"/"scored"), typical range,
+  floor and ceiling from the team's mean ± sd, shaky starters, full lineup and bench with role
+  labels and "beats a starter" flags, two widest-range starters.
+- Roster: `rosterTrendHtml` (season-so-far vs rest-of-season points per slot, surging / fading)
+  and playoff-week strength (`playoffStrength`: best lineup over the playoff weeks, ranked).
+- Manager: `managerExtraHtml` (lineup decisions from `trades.season_strength`: `bench_left` per
+  week, `costly_weeks` 5+ pts, `lost_by_lineup`; last 5 claims / adds / trades with points
+  since; trade-report net and deadline lean; my waiver targets they're likely to bid on).
 ## Compare, watchlist, search
 
 - **Watchlist** (localStorage `watch`, per device): `☆ Watch` in `actionButtons` for any player

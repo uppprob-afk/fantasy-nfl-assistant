@@ -175,6 +175,9 @@ def simulate(standings: dict[int, dict], schedule: dict[int, list[tuple[int, int
     made = defaultdict(int)
     seed1 = defaultdict(int)
     wins_total = defaultdict(float)
+    seeds = {t: [0] * len(teams) for t in teams}                       # finishing position counts
+    by_wins = {t: defaultdict(lambda: [0, 0]) for t in teams}          # remaining wins -> [made, sims]
+    start = {t: standings[t]["wins"] + 0.5 * standings[t].get("ties", 0) for t in teams}
     # per game: counts of (made playoffs | a won) etc. for every team
     cond = {g: {"a_won": 0, "made_if_a": defaultdict(int), "made_if_b": defaultdict(int)} for g in games}
     for _ in range(n):
@@ -196,18 +199,33 @@ def simulate(standings: dict[int, dict], schedule: dict[int, list[tuple[int, int
         ranked = sorted(teams, key=lambda t: (-w[t], -pf[t]))
         top = set(ranked[:playoff_teams])
         seed1[ranked[0]] += 1
+        for i, t in enumerate(ranked):
+            seeds[t][i] += 1
         for t in teams:
             wins_total[t] += w[t]
             if t in top:
                 made[t] += 1
+            k = by_wins[t][round(w[t] - start[t])]
+            k[0] += t in top
+            k[1] += 1
         for g, a_won in zip(games, results):
             c = cond[g]
             c["a_won"] += a_won
             bucket = c["made_if_a"] if a_won else c["made_if_b"]
             for t in top:
                 bucket[t] += 1
-    return {"n": n, "made": dict(made), "seed1": dict(seed1),
+    return {"n": n, "made": dict(made), "seed1": dict(seed1), "seeds": seeds,
+            "by_wins": {t: dict(v) for t, v in by_wins.items()},
             "avg_wins": {t: wins_total[t] / n for t in teams}, "games": games, "cond": cond}
+
+
+def wins_needed(by_wins: dict[int, list[int]], games_left: int) -> int | None:
+    """Fewest remaining wins that get a team in at least half the time (None = no number does)."""
+    for k in range(games_left + 1):
+        made, sims = by_wins.get(k, [0, 0])
+        if sims >= 20 and made / sims >= 0.5:
+            return k
+    return None
 
 
 def conditional_odds(sim: dict, game: tuple, team: int) -> tuple[float | None, float | None]:
