@@ -37,7 +37,8 @@ TEAM_CHANGE_FACTOR = 0.5     # last season matters less after a team change
 BASELINE_GAMES = 2           # pseudo-games at the position baseline
 USAGE_BLEND = 0.5            # this season = 50% actual, 50% expected-from-usage
 PARTIAL_SNAP_RATIO = 0.6     # < 60% of own normal snap share = partial game
-VEGAS_DAMPING = 0.5
+VEGAS_DAMPING = 0.75        # tested 2025 + 2026: best once lines are compared with the team's usual total
+USUAL_IMPLIED_GAMES = 8      # pseudo-games of the league-average implied total in a team's usual total
 DVP_SHRINK_GAMES = 8
 DVP_DAMPING = 0.5
 OFFENSE_STATUS_OUT = {"IR", "PUP", "Sus", "NA", "DNR", "COV"}
@@ -499,13 +500,28 @@ def availability(status: str | None, weeks_ahead: int, practice: str | None = No
     return 1.0
 
 
-def matchup_raw(position: str, game: dict, dvp: dict, avg_implied: float | None) -> tuple[str, float | None]:
-    """(source, raw signal) before damping: Vegas implied-total ratio - 1 (DEF: opponent's,
-    inverted), or defence-vs-position ratio - 1."""
+def usual_implied(sched_prior: dict, sched_this: dict, team: str | None, before_week: int,
+                  avg_implied: float | None) -> float | None:
+    """A team's usual Vegas implied total: its lined games this season before `before_week`,
+    last season's at half weight, pulled toward the league average. A player's rate already
+    reflects his own offence, so this week's line is compared with this, not the league."""
+    if not team or not avg_implied:
+        return None
+    items = [(1.0, g[team]["implied"]) for w, g in sched_this.items() if w < before_week and team in g and g[team].get("implied")]
+    items += [(0.5, g[team]["implied"]) for g in sched_prior.values() if team in g and g[team].get("implied")]
+    k = USUAL_IMPLIED_GAMES
+    return (sum(a * x for a, x in items) + k * avg_implied) / (sum(a for a, _ in items) + k)
+
+
+def matchup_raw(position: str, game: dict, dvp: dict, avg_implied: float | None,
+                usual: float | None = None) -> tuple[str, float | None]:
+    """(source, raw signal) before damping: Vegas implied-total ratio - 1 against the team's
+    usual total (`usual`; league average when unknown; DEF: opponent's, inverted), or
+    defence-vs-position ratio - 1."""
     if game.get("implied") is not None and avg_implied:
         if position == "DEF":
             return "vegas", (avg_implied - game["opp_implied"]) / avg_implied
-        return "vegas", game["implied"] / avg_implied - 1
+        return "vegas", game["implied"] / (usual or avg_implied) - 1
     d = dvp.get((game["opp"], position))
     return ("neutral", None) if d is None else ("opponent", d - 1)
 
@@ -534,19 +550,21 @@ def script_multiplier(position: str, game: dict | None, params: dict | None = No
 
 
 def matchup_multiplier(position: str, game: dict, dvp: dict, avg_implied: float | None,
-                       params: dict | None = None) -> tuple[float, str]:
+                       params: dict | None = None, usual: float | None = None) -> tuple[float, str]:
     """(multiplier, source). Vegas implied totals when available, else dampened defence-vs-position."""
-    source, raw = matchup_raw(position, game, dvp, avg_implied)
+    source, raw = matchup_raw(position, game, dvp, avg_implied, usual)
     return multiplier_from(position, source, raw, params), source
 
 
 def project_weeks(rate: float, position: str, team: str | None, status: str | None,
                   weeks: list[int], first_week: int, sched: dict, dvp: dict,
                   avg_implied: float | None, params: dict | None = None,
-                  practice: str | None = None, dmodel: dict | None = None) -> dict[int, dict]:
+                  practice: str | None = None, dmodel: dict | None = None,
+                  usual: float | None = None) -> dict[int, dict]:
     """week -> {pts, bye, mult, source, avail, wx} for the given (unplayed) weeks.
     dmodel = {fit, strength, scoring}: team defences are projected from the opponent's
-    expected points (defence.py) instead of rate x matchup."""
+    expected points (defence.py) instead of rate x matchup. usual = the team's usual implied
+    total (usual_implied)."""
     P = params_or_default(params)
     out = {}
     for w in weeks:
@@ -554,7 +572,7 @@ def project_weeks(rate: float, position: str, team: str | None, status: str | No
         if not game:
             out[w] = {"pts": 0.0, "bye": True}
             continue
-        mult, source = matchup_multiplier(position, game, dvp, avg_implied, params)
+        mult, source = matchup_multiplier(position, game, dvp, avg_implied, params, usual)
         wxm = weather_multiplier(position, game, P["weather"], pp(P, "weather_strength", position))
         scr = script_multiplier(position, game, P)
         avail = availability(status, w - first_week, practice, P["availability"])
@@ -659,6 +677,8 @@ def build(players: dict, candidate_ids: set[str], rows_prior: list[dict], rows_t
     bases = position_baselines(base_logs, prior_season, starters_per_pos)
     dvp = defence_vs_position(logs, sched, season)
     avg_imp = average_implied(sched)
+    sched_prior = schedule(games, prior_season)
+    usual_of = lambda team: usual_implied(sched_prior, sched, team, first_week or 99, avg_imp)
     results = defence.results(games, (prior_season, season))
     dmodel = {"fit": defence.fit(dlogs, results, scoring, season), "strength": defence.strength(results, season),
               "scoring": scoring}
@@ -703,9 +723,10 @@ def build(players: dict, candidate_ids: set[str], rows_prior: list[dict], rows_t
                 new = mean(vals) * P["bias"].get("DEF", 1.0)
                 r["sd"] = round(r["sd"] * new / r["rate"], 2) if r["rate"] else r["sd"]
                 r["rate"] = round(new, 2)
-        weekly = project_weeks(r["rate"], pos, team, status, todo, first_week, sched, dvp, avg_imp, params, prac, dm)
+        u = usual_of(team)
+        weekly = project_weeks(r["rate"], pos, team, status, todo, first_week, sched, dvp, avg_imp, params, prac, dm, u)
         log_this = [{k: g.get(k) for k in LOG_KEYS} for g in plogs if g["season"] == season]
-        po = project_weeks(r["rate"], pos, team, status, po_todo, first_week, sched, dvp, avg_imp, params, dmodel=dm)
+        po = project_weeks(r["rate"], pos, team, status, po_todo, first_week, sched, dvp, avg_imp, params, dmodel=dm, usual=u)
         r.update({"id": pid, "name": p.get("full_name") or pid, "position": pos, "team": team, "status": status,
                   "practice": prac, "weekly": weekly,
                   "log": log_this, "playoff_weeks": po, "pos_td_per_touch": td_rates.get(pos),

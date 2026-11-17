@@ -136,12 +136,28 @@ def test_availability(status, ahead, expected):
 def test_matchup_multiplier_vegas_and_opponent():
     g = {"opp": "MIA", "implied": 27.5, "opp_implied": 17.5}
     m, src = P.matchup_multiplier("WR", g, {}, 22.5)
-    assert src == "vegas" and m == pytest.approx(1 + 0.5 * (27.5 / 22.5 - 1))
+    assert src == "vegas" and m == pytest.approx(1 + P.VEGAS_DAMPING * (27.5 / 22.5 - 1))
     m, _ = P.matchup_multiplier("DEF", g, {}, 22.5)
     assert m == pytest.approx(1 + (22.5 - 17.5) / 22.5)
     g2 = {"opp": "MIA", "implied": None}
     assert P.matchup_multiplier("WR", g2, {("MIA", "WR"): 1.5}, 22.5) == (1.1, "opponent")   # capped
     assert P.matchup_multiplier("WR", g2, {}, 22.5) == (1.0, "neutral")
+
+
+def test_vegas_line_is_compared_with_the_teams_usual_total():
+    g = {"opp": "MIA", "implied": 27.5, "opp_implied": 17.5}
+    assert P.matchup_multiplier("WR", g, {}, 22.5, usual=27.5) == (1.0, "vegas")      # a usual week for a good offence
+    up, _ = P.matchup_multiplier("WR", g, {}, 22.5, usual=25.0)
+    assert up == pytest.approx(1 + P.VEGAS_DAMPING * (27.5 / 25.0 - 1))
+
+
+def test_usual_implied_uses_earlier_lined_games_and_shrinks():
+    this = {1: {"KC": {"implied": 28.0}}, 2: {"KC": {"implied": 30.0}}, 3: {"KC": {"implied": 40.0}}, 4: {"KC": {"implied": None}}}
+    prior = {1: {"KC": {"implied": 26.0}}}
+    k = P.USUAL_IMPLIED_GAMES
+    assert P.usual_implied(prior, this, "KC", 3, 22.0) == pytest.approx((28 + 30 + 0.5 * 26 + k * 22) / (2.5 + k))
+    assert P.usual_implied({}, {}, "KC", 5, 22.0) == 22.0
+    assert P.usual_implied(prior, this, None, 3, 22.0) is None and P.usual_implied(prior, this, "KC", 3, None) is None
 
 
 def test_project_weeks_byes_and_injuries():

@@ -120,7 +120,10 @@ tests/                    pytest + tests/fixtures/ (neutral sample data)
   change, cap 17] × last-season PPG + this-season games × (50% actual + 50% usage-expected
   PPG)) / total weight. Partial games (snap share < 60% of own median; two latest low =
   role change unless currently injured) excluded. Weekly = rate × matchup (Vegas implied
-  totals when available, else shrunk + dampened defence-vs-position, ±10%) × availability
+  total vs the team's **usual** implied total — `usual_implied`: earlier lined games, last
+  season ×0.5, 8 pseudo-games of league average — since the rate already reflects his own
+  offence; comparing with the league average double-counted good offences. Damping 0.75,
+  tuned per position; else shrunk + dampened defence-vs-position, ±10%) × availability
   (Q 0.85, D 0.25, Out 0 then 0.75, IR-type 0 for 4 weeks then 0.5); byes = 0. Confidence:
   high = 4+ full games this season and 8+ effective; medium = 4+ effective; else low.
   DEF points from nflverse defensive stats + final scores. nflverse "LA" = Sleeper "LAR".
