@@ -32,7 +32,7 @@ GRID = {
     "usage_blend": (0.2, 0.35, 0.5, 0.65, 0.8),
     "prior_weight": (0.25, 0.4, 0.5, 0.65, 0.8, 1.0),
     "baseline_games": (1, 1.5, 2, 3, 4),
-    "matchup": (0.25, 0.4, 0.5, 0.6, 0.75),     # applied to both vegas_damping and dvp_damping
+    "matchup": (0.25, 0.4, 0.5, 0.6, 0.75, 0.9, 1.0),     # applied to both vegas_damping and dvp_damping
     "recency": (1.0, 0.95, 0.9, 0.85, 0.8, 0.7),
     "partial_weight": (0.0, 0.25, 0.5, 0.75, 1.0),
     "rank_prior": (0.0, 0.25, 0.5, 0.75, 1.0),
@@ -78,6 +78,7 @@ def backtest_records(rows_prior: list[dict], rows_this: list[dict], snaps: list[
     base_logs = {**logs, **{f"DEF:{t}": v for t, v in dlogs.items()}}
     bases = pj.position_baselines(base_logs, prior_season, starters)
     avg_imp = pj.average_implied(sched)
+    sched_prior = pj.schedule(games, prior_season)
     everyone = {**logs, **{f"DEF:{t}": v for t, v in dlogs.items()}}
     report = {}
     for r in reports or []:
@@ -117,7 +118,7 @@ def backtest_records(rows_prior: list[dict], rows_this: list[dict], snaps: list[
             c["role"] = roles.role_components(prev, season, pos, team, volume, usage)
             if key in ranks:
                 c["rank_baseline"] = pj.rank_baseline_for(pos, ranks[key][1], tiers)
-            source, raw = pj.matchup_raw(pos, game, dvp, avg_imp)
+            source, raw = pj.matchup_raw(pos, game, dvp, avg_imp, pj.usual_implied(sched_prior, sched, team, w, avg_imp))
             naive = c["actual"] if c["actual"] is not None else (c["r_prior"] if c["n_prior"] else None)
             qb_change = (pos in ("RB", "WR", "TE") and team in primary and team in starter
                          and starter[team][0] != primary[team])
