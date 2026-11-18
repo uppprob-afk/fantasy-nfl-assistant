@@ -268,19 +268,24 @@
     /* Fantasy playoff weeks beyond the regular season: best lineup each week (empty slots at
        free-agent level). A trade's playoff gain counts at the team's chance of being there. */
     const PO = L.po_weeks || [], nPO = PO.length;
+    // one playoff week k: best lineup on `pw`, each slot worth at least free-agent level
+    function poLineup(pids, k) {
+      const pool = pids.filter((p) => P[p] && P[p].pw).map((p) => [p, P[p].pw[k] || 0]).sort((a, b) => b[1] - a[1]);
+      const used = new Set();
+      const out = [];
+      let total = 0;
+      for (const slot of slotOrder) {
+        const ok = FLEX[slot] || [slot];
+        const pick = pool.find(([p]) => !used.has(p) && ok.includes(P[p].p));
+        const fl = floor[slot] || 0;
+        if (pick) { used.add(pick[0]); out.push([slot, pick[0]]); }
+        total += Math.max(pick ? pick[1] : 0, fl);
+      }
+      return { total, lineup: out };
+    }
     function poValue(pids) {
       let total = 0;
-      for (let k = 0; k < nPO; k++) {
-        const pool = pids.filter((p) => P[p] && P[p].pw).map((p) => [p, P[p].pw[k] || 0]).sort((a, b) => b[1] - a[1]);
-        const used = new Set();
-        for (const slot of slotOrder) {
-          const ok = FLEX[slot] || [slot];
-          const pick = pool.find(([p]) => !used.has(p) && ok.includes(P[p].p));
-          const fl = floor[slot] || 0;
-          if (pick) used.add(pick[0]);
-          total += Math.max(pick ? pick[1] : 0, fl);
-        }
-      }
+      for (let k = 0; k < nPO; k++) total += poLineup(pids, k).total;
       return total;
     }
     const oddsOf = (rid) => { const o = (L.playoff_odds || {})[String(rid)]; return o == null ? 0.5 : o; };
@@ -452,14 +457,59 @@
         meAfter: after.profiles[me].value.expected[w],
         themAfter: after.profiles[them].value.expected[w],
       }));
-      const nextIdx = Math.min(L.weeks.indexOf(L.current_week + 1) >= 0 ? L.weeks.indexOf(L.current_week + 1) : 0, nW - 1);
-      const startersAt = (prof) => new Set(prof.value.weekly[nextIdx].lineup.map(([, p]) => p));
+      // weeks with games still to play (the current week counts until everyone has played)
+      const live = L.weeks.map((_, w) => w).filter((w) => mine0.concat(theirs0).some((p) => P[p] && P[p].w[w] > 0));
+      const nextIdx = live.length ? live[0] : 0;
+      const startersAt = (prof, w) => new Set(prof.value.weekly[w].lineup.map(([, p]) => p));
       const changes = (b, a) => ({ in: [...a].filter((p) => !b.has(p)), out: [...b].filter((p) => !a.has(p)) });
       const lineupChange = {
         week: L.weeks[nextIdx],
-        me: changes(startersAt(before.profiles[me]), startersAt(after.profiles[me])),
-        them: changes(startersAt(before.profiles[them]), startersAt(after.profiles[them])),
+        me: changes(startersAt(before.profiles[me], nextIdx), startersAt(after.profiles[me], nextIdx)),
+        them: changes(startersAt(before.profiles[them], nextIdx), startersAt(after.profiles[them], nextIdx)),
       };
+      // every remaining week (then the playoff weeks): both teams' lineups slot by slot, before and after
+      const bySlot = (lu, pts) => {
+        const left = lu.slice();
+        return L.slots.map((slot) => {
+          const i = left.findIndex(([s]) => s === slot);
+          if (i < 0) return { slot, pid: null, pts: floor[slot] || 0 };
+          const pid = left.splice(i, 1)[0][1];
+          return { slot, pid, pts: pts(pid) };
+        });
+      };
+      const side = (prof, w) => {
+        const pids = prof.value.pids, lu = prof.value.weekly[w].lineup, on = new Set(lu.map(([, p]) => p));
+        return { slots: bySlot(lu, (p) => P[p].w[w]), total: round(prof.value.weekly[w].total, 1), expected: round(prof.value.expected[w], 1),
+          sd: round(prof.value.weekly[w].sd, 1), bench: pids.filter((p) => P[p] && !on.has(p)).sort((a, b) => P[b].w[w] - P[a].w[w]) };
+      };
+      const poSide = (pids, k) => {
+        const x = poLineup(pids, k), on = new Set(x.lineup.map(([, p]) => p));
+        return { slots: bySlot(x.lineup, (p) => P[p].pw[k] || 0), total: round(x.total, 1), expected: round(x.total, 1), sd: null,
+          bench: pids.filter((p) => P[p] && !on.has(p)).sort((a, b) => (P[b].pw[k] || 0) - (P[a].pw[k] || 0)) };
+      };
+      const B = before.profiles, A = after.profiles;
+      const lineups = live.map((w) => ({ week: L.weeks[w], playoff: false,
+        me: { before: side(B[me], w), after: side(A[me], w) }, them: { before: side(B[them], w), after: side(A[them], w) } }))
+        .concat(PO.map((week, k) => ({ week, playoff: true,
+          me: { before: poSide(B[me].value.pids, k), after: poSide(A[me].value.pids, k) },
+          them: { before: poSide(B[them].value.pids, k), after: poSide(A[them].value.pids, k) } })));
+      const playoffWeekly = PO.map((week, k) => ({ week,
+        me: round(poLineup(A[me].value.pids, k).total - poLineup(B[me].value.pids, k).total, 1),
+        them: round(poLineup(A[them].value.pids, k).total - poLineup(B[them].value.pids, k).total, 1) }));
+      // how often each player in the deal starts: for his team now, and for his new team
+      const startCount = (prof, pid) => live.filter((w) => startersAt(prof, w).has(pid)).length;
+      const starts = {};
+      give.forEach((p) => { starts[p] = { now: startCount(B[me], p), then: startCount(A[them], p) }; });
+      get.forEach((p) => { starts[p] = { now: startCount(B[them], p), then: startCount(A[me], p) }; });
+      // a typical week and a bad one (1 in 10), regular-season weeks with games left
+      const spread = (prof) => {
+        const ws = live.map((w) => prof.value.weekly[w]);
+        if (!ws.length) return null;
+        const mean = live.reduce((s, w) => s + prof.value.expected[w], 0) / live.length;
+        const sd = Math.sqrt(ws.reduce((s, x) => s + x.sd ** 2, 0) / ws.length);
+        return { mean: round(mean, 1), sd: round(sd, 1), low: round(mean - 1.28 * sd, 1), high: round(mean + 1.28 * sd, 1) };
+      };
+      const risk = { me: [spread(B[me]), spread(A[me])], them: [spread(B[them]), spread(A[them])] };
       const sims = (opts && opts.sims) || 4000;
       const odds0 = simulate({}, { n: sims, mode: "value" });
       const odds1 = simulate({ [me]: mine1, [them]: theirs1 }, { n: sims, mode: "value" });
@@ -480,7 +530,7 @@
       return {
         me, them, give, get, gainMe, gainThem, perWeekMe: round(gainMe / nW, 1), balance, confidence,
         poMe: tm.po, poThem: tt.po, totalMe: tm.total, totalThem: tt.total, oddsMe: oddsOf(me), oddsThem: oddsOf(them),
-        weekly, lineupChange, reasons, flagged,
+        weekly, lineupChange, lineups, playoffWeekly, starts, liveWeeks: live.map((w) => L.weeks[w]), risk, reasons, flagged,
         before, after,
         odds: { me: [odds0[me].odds, odds1[me].odds], them: [odds0[them].odds, odds1[them].odds],
                 meWins: [odds0[me].wins, odds1[me].wins], themWins: [odds0[them].wins, odds1[them].wins] },
