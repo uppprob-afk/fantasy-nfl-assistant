@@ -122,6 +122,12 @@ def run(page, scheme: str) -> None:
         page.locator("#lab-offers [data-offer]").first.click()
         page.wait_for_timeout(1500)
         check("You" in page.locator("#lab-result").inner_text(), f"{scheme}: offer loads into the Lab")
+        weeks = page.locator("#lab-lu-week button")
+        if weeks.count() > 1:
+            weeks.nth(1).click()
+            page.locator('#lab-lu-side button[data-view="them"]').click()
+            page.wait_for_timeout(150)
+            check(page.locator("#lab-lu table.lu tr").count() > 3 and wide(), f"{scheme}: Lab lineup week / team toggles")
     else:                                   # season over: nothing left to trade for
         check(page.locator("#lab-offers .empty").is_visible(), f"{scheme}: Lab says no offers")
 

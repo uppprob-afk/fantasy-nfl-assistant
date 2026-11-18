@@ -527,6 +527,21 @@ who would start for me. A to-do appears in the last 2 weeks before the deadline.
   bar), Fills your need, Needs a sweetener, Small or losing. Cards show gains per week, with the
   playoff weeks separately. Saved offers from older versions (no `totalMe`) are discarded.
 
+## Trade Lab result page
+
+`evaluateTrade` (lab.js) also returns `liveWeeks` (weeks with games left, current week included
+until everyone has played), `lineups` (both teams' best lineup slot by slot, before / after, for
+each live week then each playoff week via `poLineup`; empty slots = free-agent floor),
+`playoffWeekly` (per-playoff-week change), `starts` (weeks each deal player starts for the current team
+and for the new one) and `risk` (typical week, 1-in-10 good / bad week before and after).
+`lineupChange` uses the first live week (it used week + 1, which hid a traded player on bye).
+`renderLabResult` shows: headline + Why (`startsLines`: who leaves / joins the lineup and for how
+many weeks), deal players with every week's opponent and projection plus last 3 games
+(`labTileExtra`), "Lineups week by week" with You / Them and week toggles (`labLineupHtml`,
+`LAB_LU`, `wireLabLineups`), week by week incl. playoff rows, range of outcomes, "About <team>"
+(`labPartnerHtml`: record, odds, weak spots, players who rarely start for them, need / surplus
+fit, next meeting, waivers), playoff odds and positional strength.
+
 ## Trade Lab shortlist and "Copy offer"
 
 - `engine().scoreOffer(partner, give, get)` (lab.js) scores one offer exactly like

@@ -2392,17 +2392,103 @@
     "bad for both": "Neither team's projected lineup improves.",
   };
 
+  // who starts how often, in plain words, for the headline and the Why list
+  function startsLines(res) {
+    const P = DATA.lab.players, n = res.liveWeeks.length, out = [];
+    if (!n) return out;
+    const wk = (k) => `${k} of ${n} week${n === 1 ? "" : "s"}`;
+    res.give.forEach((p) => {
+      const s = res.starts[p];
+      out.push(s.now ? `${P[p].n} leaves your lineup: would have started ${wk(s.now)} for you${s.then ? `, and starts ${wk(s.then)} for them` : ", and would sit on their bench"}.`
+        : `${P[p].n} wasn't starting for you in the weeks left${s.then ? `, but starts ${wk(s.then)} for them` : ""}.`);
+    });
+    res.get.forEach((p) => {
+      const s = res.starts[p];
+      out.push(s.then ? `${P[p].n} joins your lineup for ${wk(s.then)}${s.now ? "" : " (on their bench now)"}.`
+        : `${P[p].n} wouldn't start for you in the weeks left: only adds depth.`);
+    });
+    return out;
+  }
+
+  // a deal player's next games and recent form, inside the tile
+  function labTileExtra(pid, res) {
+    const L = DATA.lab, r = L.players[pid], c = CARDS[pid];
+    const live = res.liveWeeks.map((w) => L.weeks.indexOf(w));
+    const games = live.map((i) => `<span class="lw${r.op[i] === "BYE" ? " bye" : ""}"><span>W${L.weeks[i]}</span>${r.op[i] === "BYE" ? "BYE" : `${esc(r.op[i] || "–")} <b>${num(r.w[i])}</b>`}</span>`)
+      .concat((L.po_weeks || []).map((w, k) => `<span class="lw po"><span>W${w}</span>${(r.pw || [])[k] ? `<b>${num(r.pw[k])}</b>` : "–"}</span>`)).join("");
+    const played = c && c.log ? c.log.filter((g) => !g.bye && !g.partial).slice(-3) : [];
+    const form = played.length ? `Last ${played.length}: ${played.map((g) => num(g.pts)).join(" · ")}` : "";
+    const role = c && c.role && c.role.label ? esc(c.role.label) : "";
+    const ppg = r.ap != null && r.gt ? `${num(r.ap)} pts/game this season (${r.gt} game${r.gt === 1 ? "" : "s"})` : "";
+    return `<div class="lab-weeks">${games}</div>${[form, ppg, role].filter(Boolean).length ? `<div class="pmeta">${[form, ppg, role].filter(Boolean).join(" · ")}</div>` : ""}`;
+  }
+
+  const LAB_LU = { week: null, side: "me" };
+  function labLineupHtml(res) {
+    const L = DATA.lab, P = L.players;
+    if (!res.lineups.length) return `<div class="empty">No games left this season.</div>`;
+    if (!res.lineups.some((x) => String(x.week) === String(LAB_LU.week))) LAB_LU.week = String(res.lineups[0].week);
+    const x = res.lineups.find((l) => String(l.week) === String(LAB_LU.week));
+    const side = x[LAB_LU.side], wi = L.weeks.indexOf(x.week);
+    const incoming = new Set(LAB_LU.side === "me" ? res.get : res.give), leaving = new Set(LAB_LU.side === "me" ? res.give : res.get);
+    const cell = (c) => {
+      if (!c.pid) return `<span class="subtle">Free agent</span> <span class="pmeta">~${num(c.pts)}</span>`;
+      const r = P[c.pid];
+      const tag = incoming.has(c.pid) ? ` <span class="chip good">new</span>` : leaving.has(c.pid) ? ` <span class="chip bad">traded</span>` : "";
+      const opp = !x.playoff && r.op[wi] ? ` <span class="pmeta">${esc(r.op[wi])}</span>` : "";
+      return `${plink(c.pid, r.n)}${tag}${r.s && !x.playoff ? ` <span class="chip ${r.s === "Questionable" ? "warn" : "bad"}">${esc(r.s)}</span>` : ""}${opp} <span class="pmeta">${num(c.pts)}</span>`;
+    };
+    const rows = side.before.slots.map((c, i) => {
+      const d = side.after.slots[i];
+      return `<tr class="${c.pid !== d.pid ? "chg" : ""}"><td><span class="slot ${esc(c.slot)}">${esc(c.slot)}</span></td><td>${cell(c)}</td><td>${cell(d)}</td></tr>`;
+    }).join("");
+    const benchNote = (ids) => ids.filter((p) => incoming.has(p) || leaving.has(p)).map((p) =>
+      `${esc(P[p].n)}${!x.playoff && P[p].op[wi] === "BYE" ? " (bye)" : !x.playoff && P[p].s ? ` (${esc(P[p].s)})` : ""}`);
+    const bB = benchNote(side.before.bench), bA = benchNote(side.after.bench);
+    const team = LAB_LU.side === "me" ? "Your" : `${esc(L.rosters[res.them].team_name)}'s`;
+    const d = side.after.total - side.before.total;
+    return `<table class="lu"><thead><tr><th>Slot</th><th>Now</th><th>After trade</th></tr></thead><tbody>${rows}
+      <tr class="tot"><td>Total</td><td>${num(side.before.total)}</td><td>${num(side.after.total)} <span class="${d > 0.05 ? "up" : d < -0.05 ? "down" : "muted"}">(${signed(d)})</span></td></tr></tbody></table>
+      <div class="subtle lu-note">${[bB.length ? `On the bench now: ${bB.join(", ")}.` : "", bA.length ? `On the bench after: ${bA.join(", ")}.` : "",
+        x.playoff ? `Fantasy playoff week: counts at ${team.toLowerCase() === "your" ? "your" : "their"} ${Math.round(100 * (LAB_LU.side === "me" ? res.oddsMe : res.oddsThem))}% playoff odds.` : "",
+        "Best lineup by projection; an empty slot counts as the best free agent."].filter(Boolean).join(" ")}</div>`;
+  }
+
+  function labPartnerHtml(res) {
+    const L = DATA.lab, P = L.players, rid = Number(res.them), x = teamProfile(rid);
+    const s = x.st || {}, po = x.po || {}, tp = x.tp || {}, fm = x.fm || {};
+    const after = res.after.profiles[res.them], before = res.before.profiles[res.them];
+    // their bench players who rarely start: the ones they can most easily spare
+    const starts = {};
+    before.value.weekly.forEach((wk) => wk.lineup.forEach(([, p]) => { starts[p] = (starts[p] || 0) + 1; }));
+    const spare = before.value.pids.filter((p) => P[p] && DATA.lab.skill.includes(P[p].p) && (starts[p] || 0) <= 1 && !res.get.includes(p))
+      .sort((a, b) => P[b].ros - P[a].ros).slice(0, 3);
+    const lines = [
+      `${record(s)} (#${s.rank ?? "–"}) · playoff odds ${esc(po.odds_text || "–")} · ${x.th.trades || 0} trade${x.th.trades === 1 ? "" : "s"} this season`,
+      `Weak spots: <b>${esc(before.needs.join(", ") || "none")}</b>${after.needs.join() !== before.needs.join() ? ` → after the trade <b>${esc(after.needs.join(", ") || "none")}</b>` : ""} · depth to spare: <b>${esc(before.surplus.join(", ") || "none")}</b>`,
+      spare.length ? `Rarely start for them: ${spare.map((p) => `${plink(p, P[p].n)} (${esc(P[p].p)}, ${num(P[p].r)}/wk)`).join(", ")}` : "",
+      x.theyNeedMine.length ? `They need <b>${esc(x.theyNeedMine.join(", "))}</b>, where you have depth.` : "",
+      x.iNeedTheirs.length ? `You need <b>${esc(x.iNeedTheirs.join(", "))}</b>, where they have depth.` : "",
+      x.nextVsMe ? `You play them in week ${x.nextVsMe.w}: anything you send them counts against you that week.` : "",
+      tp.style ? `Waivers: ${esc(tp.style)}${fm.remaining != null ? `, ${money(fm.remaining)} FAAB left` : ""}.` : "",
+    ].filter(Boolean);
+    return `<div class="card card-pad">${lines.map((l) => `<div class="pt-line">${l}</div>`).join("")}
+      <div class="subtle" style="margin-top:6px">Switch the lineup above to “Them” to see their team week by week.</div></div>`;
+  }
+
   function renderLabResult(res) {
     const L = DATA.lab, E = engine(), P = L.players;
     const conf = L.confidence;
-    const name = (pid) => esc(P[pid].n);
     const cls = res.balance.startsWith("balanced") ? "good" : (res.balance.startsWith("favours you") ? "warn" : "bad");
     const tile = (pid) => {
-      const r = P[pid];
+      const r = P[pid], st = res.starts[pid], n = res.liveWeeks.length;
+      const mineNow = res.give.includes(pid);
       return `<div class="tp" data-pid="${esc(pid)}" role="button" tabindex="0"><div class="pl">${esc(r.n)}${
         r.s ? ` <span class="chip ${r.s === "Questionable" ? "warn" : "bad"}">${esc(r.s)}</span>` : ""}${CARDS[pid] ? ` <span class="chev">▸</span>` : ""}</div>
         <div class="pmeta">${esc(r.p)} · ${esc(r.t)} · <b>${num(r.r)}</b>/wk (${num(Math.max(r.r - r.sd, 0), 0)}–${num(r.r + r.sd, 0)})</div>
-        <div class="pmeta">ROS ${num(r.ros, 0)} · ${E.vor(pid) >= 0 ? "+" : ""}${num(E.vor(pid), 0)} vs repl. ${confChip(r.c)}</div></div>`;
+        <div class="pmeta">ROS ${num(r.ros, 0)} · ${E.vor(pid) >= 0 ? "+" : ""}${num(E.vor(pid), 0)} vs repl. ${confChip(r.c)}</div>
+        ${st && n ? `<div class="pmeta">Starts ${st.now}/${n} wks for ${mineNow ? "you" : "them"} → ${st.then}/${n} for ${mineNow ? "them" : "you"}</div>` : ""}
+        ${labTileExtra(pid, res)}</div>`;
     };
     const notes = [];
     const names = (ids) => ids.map((p) => P[p] ? P[p].n : p).join(", ");
@@ -2410,7 +2496,7 @@
     if (res.moves.them.drop.length) notes.push(`They'd cut ${names(res.moves.them.drop)} to make room. Counted in their value.`);
     res.flagged.forEach((pid) => notes.push(`${P[pid].n} has little trade value here (kicker/defence, long-term injury or no games yet).`));
     const whyHtml = `<div class="pd-h" style="margin-top:12px">Why</div><ul class="tight">${
-      res.reasons.concat(notes).map((r) => `<li>${esc(r)}</li>`).join("") || "<li>No positional need is filled either way; the change comes from overall projected points.</li>"}</ul>`;
+      startsLines(res).concat(res.reasons, notes).map((r) => `<li>${esc(r)}</li>`).join("") || "<li>No positional need is filled either way; the change comes from overall projected points.</li>"}</ul>`;
     let html = `<div class="card card-pad">
       <div class="trade-head"><span class="chip ${cls}">${esc(res.balance)}</span>${confChip(res.confidence)}</div>
       <div class="gains" style="margin:8px 0"><span class="gain me">You ${signed(res.gainMe)} pts ROS (${signed(res.perWeekMe)}/wk)</span>
@@ -2424,31 +2510,48 @@
     html += `<h2>Players in the deal</h2><div class="card card-pad has-detail"><div class="swap">
       <div><div class="col-label">You give</div>${res.give.map(tile).join("")}</div><div class="arrow">⇄</div>
       <div><div class="col-label">You get</div>${res.get.map(tile).join("")}</div></div>
+      <div class="subtle">Each player's projection for every week left (opponent, @ = away), then the fantasy playoff weeks. Tap a player for the full card.</div>
       <div class="trade-detail" hidden></div></div>`;
 
+    if (!res.lineups.some((x) => String(x.week) === String(LAB_LU.week))) LAB_LU.week = res.lineups.length ? String(res.lineups[0].week) : null;
+    html += `<h2>Lineups week by week</h2><div class="card card-pad">
+      <div class="lu-ctrl">${segHtml("lab-lu-side", [["me", "You"], ["them", "Them"]], LAB_LU.side)}
+        ${segHtml("lab-lu-week", res.lineups.map((x) => [String(x.week), `${x.playoff ? "PO " : "Wk "}${x.week}`]), LAB_LU.week)}</div>
+      <div id="lab-lu">${labLineupHtml(res)}</div></div>`;
+
+    const dealByes = res.give.concat(res.get).flatMap((pid) => P[pid].b.map((w) => [w, pid]));
+    const live = new Set(res.liveWeeks);
+    html += `<h2>Week by week</h2><div class="card table-wrap"><table class="named">
+      <thead><tr><th>Week</th><th>You</th><th>Them</th><th class="hide-sm">Your proj</th></tr></thead><tbody>${
+      res.weekly.filter((w) => live.has(w.week)).map((w) => {
+        const byes = dealByes.filter(([wk]) => wk === w.week).map(([, pid]) => esc(P[pid].n));
+        return `<tr><td>Wk ${w.week}${byes.length ? ` <span class="subtle">bye: ${byes.join(", ")}</span>` : ""}</td>
+          ${deltaCell(w.me)}${deltaCell(w.them)}<td class="hide-sm">${num(w.meAfter)}</td></tr>`;
+      }).join("")}${res.playoffWeekly.map((w) => `<tr class="po-row"><td>Playoffs wk ${w.week}</td>${deltaCell(w.me)}${deltaCell(w.them)}<td class="hide-sm"></td></tr>`).join("")}</tbody></table></div>
+      <p class="subtle">Change in each team's expected points per week (best lineup, byes, injury cover and roster-spot moves),
+        so the regular-season rows add up to the headline gain. Playoff rows are the best lineup those weeks; they count at each team's playoff odds.</p>`;
+
+    const rk = (pair) => pair[0] && pair[1] ? `${num(pair[0].mean)} → <b>${num(pair[1].mean)}</b>` : "–";
+    const bad = (pair) => pair[0] && pair[1] ? `${num(pair[0].low)} → <b>${num(pair[1].low)}</b>` : "–";
+    const good = (pair) => pair[0] && pair[1] ? `${num(pair[0].high)} → <b>${num(pair[1].high)}</b>` : "–";
+    const hurt = res.get.filter((p) => P[p].s).map((p) => `${esc(P[p].n)} is ${esc(P[p].s)}`)
+      .concat(res.get.filter((p) => P[p].c === "low").map((p) => `${esc(P[p].n)}'s projection is based on few games`));
+    const swing = res.risk.me[0] && res.risk.me[1] ? res.risk.me[1].sd - res.risk.me[0].sd : 0;
+    html += `<h2>Range of outcomes</h2><div class="card table-wrap"><table class="named">
+      <thead><tr><th>Per week</th><th>You</th><th>Them</th></tr></thead><tbody>
+      <tr><td>Typical week</td><td>${rk(res.risk.me)}</td><td>${rk(res.risk.them)}</td></tr>
+      <tr><td>Good week (1 in 10)</td><td>${good(res.risk.me)}</td><td>${good(res.risk.them)}</td></tr>
+      <tr><td>Bad week (1 in 10)</td><td>${bad(res.risk.me)}</td><td>${bad(res.risk.them)}</td></tr></tbody></table></div>
+      <p class="subtle">${Math.abs(swing) >= 0.5 ? `Your week-to-week swings get ${swing > 0 ? "bigger" : "smaller"} (±${num(res.risk.me[0].sd)} → ±${num(res.risk.me[1].sd)}). ` : ""}${
+        hurt.length ? hurt.join("; ") + ". " : ""}Every starter also has about a ${Math.round(100 * L.absence_rate)}% chance of an unexpected absence each week; that's already in the gains above.</p>`;
+
+    html += `<h2>About ${esc(L.rosters[res.them].team_name)}</h2>${labPartnerHtml(res)}`;
 
     html += `<h2>Playoff odds</h2><div class="card card-pad">
       ${oddsLine("You", res.odds.me, conf)}${oddsLine(esc(L.rosters[res.them].team_name), res.odds.them, conf)}
       <div class="subtle">Projected wins: you ${num(res.odds.meWins[0])} → ${num(res.odds.meWins[1])} ·
         them ${num(res.odds.themWins[0])} → ${num(res.odds.themWins[1])}. Bracketed numbers are the change in percentage points (calculated before rounding). Same simulated seasons
         before and after, so the change is the trade, not luck.</div></div>`;
-
-    const lc = res.lineupChange;
-    const list = (ids) => ids.length ? ids.map(name).join(", ") : "no change";
-    html += `<h2>Lineup in week ${esc(lc.week)}</h2><div class="card card-pad">
-      <div><b>You:</b> start ${list(lc.me.in)}${lc.me.out.length ? `; out of the lineup: ${list(lc.me.out)}` : ""}</div>
-      <div><b>Them:</b> start ${list(lc.them.in)}${lc.them.out.length ? `; out of the lineup: ${list(lc.them.out)}` : ""}</div></div>`;
-
-    const dealByes = res.give.concat(res.get).flatMap((pid) => P[pid].b.map((w) => [w, pid]));
-    html += `<h2>Week by week</h2><div class="card table-wrap"><table class="named">
-      <thead><tr><th>Week</th><th>You</th><th>Them</th><th class="hide-sm">Your proj</th></tr></thead><tbody>${
-      res.weekly.map((w) => {
-        const byes = dealByes.filter(([wk]) => wk === w.week).map(([, pid]) => name(pid));
-        return `<tr><td>Wk ${w.week}${byes.length ? ` <span class="subtle">bye: ${byes.join(", ")}</span>` : ""}</td>
-          ${deltaCell(w.me)}${deltaCell(w.them)}<td class="hide-sm">${num(w.meAfter)}</td></tr>`;
-      }).join("")}</tbody></table></div>
-      <p class="subtle">Change in each team's expected points per week (best lineup, byes, injury cover and roster-spot moves),
-        so the rows add up to the headline gain.</p>`;
 
     const keys = ["QB", "RB", "WR", "TE", "FLEX"];
     const pm0 = res.before.profiles[res.me], pm1 = res.after.profiles[res.me];
@@ -2460,8 +2563,14 @@
       <p class="subtle">Your needs before: ${esc(pm0.needs.join(", ") || "none")} → after: ${esc(pm1.needs.join(", ") || "none")}.
         Theirs: ${esc(pt0.needs.join(", ") || "none")} → ${esc(pt1.needs.join(", ") || "none")}.</p>`;
 
-
     return html;
+  }
+
+  // the lineup toggles redraw just that card
+  function wireLabLineups(res) {
+    const draw = () => { $("lab-lu").innerHTML = labLineupHtml(res); };
+    wireSeg("lab-lu-side", "_labLuSide", (v) => { LAB_LU.side = v; draw(); });
+    wireSeg("lab-lu-week", "_labLuWeek", (v) => { LAB_LU.week = v; draw(); });
   }
 
   function renderTradeLab() {
@@ -2545,6 +2654,14 @@
         const res = E.evaluateTrade(labState.partner, labState.give, labState.get);
         $("lab-result").innerHTML = renderLabResult(res);
         wireExpanders($("lab-result"), (pid) => labPlayer(pid));
+        wireLabLineups(res);
+        // recent form for players outside the main cards arrives a moment later
+        if (res.give.concat(res.get).some((p) => !CARDS[p])) ensureMoreCards(() => {
+          if (!$("lab-result")) return;
+          $("lab-result").innerHTML = renderLabResult(res);
+          wireExpanders($("lab-result"), (pid) => labPlayer(pid));
+          wireLabLineups(res);
+        });
       }, 30);
     }
   }
@@ -3258,7 +3375,10 @@
       `Dashboard verdict: ${res.balance}. Rest-of-season value change: me ${signed(res.gainMe)} pts (${signed(res.perWeekMe)}/wk), them ${signed(res.gainThem)} pts. Confidence: ${res.confidence}.`,
       `Playoff odds: me ${pct(res.odds.me[0])} -> ${pct(res.odds.me[1])}, them ${pct(res.odds.them[0])} -> ${pct(res.odds.them[1])}.`,
       "Reasons: " + (res.reasons.join(" ") || "none listed"),
-      `Lineup week ${res.lineupChange.week}: I start ${res.lineupChange.me.in.map(pnm).join(", ") || "no change"}; they start ${res.lineupChange.them.in.map(pnm).join(", ") || "no change"}.`,
+      `Lineup week ${res.lineupChange.week}: I start ${res.lineupChange.me.in.map(pnm).join(", ") || "no change"}${res.lineupChange.me.out.length ? `, out of my lineup: ${res.lineupChange.me.out.map(pnm).join(", ")}` : ""}; they start ${res.lineupChange.them.in.map(pnm).join(", ") || "no change"}${res.lineupChange.them.out.length ? `, out of theirs: ${res.lineupChange.them.out.map(pnm).join(", ")}` : ""}.`,
+      "Who starts: " + (startsLines(res).join(" ") || "no change"),
+      "Playoff weeks (my change / their change): " + (res.playoffWeekly.map((w) => `W${w.week} ${signed(w.me)}/${signed(w.them)}`).join(", ") || "none"),
+      res.risk.me[1] ? `My typical week ${res.risk.me[0].mean} -> ${res.risk.me[1].mean} pts, bad week (1 in 10) ${res.risk.me[0].low} -> ${res.risk.me[1].low}.` : "",
       "Week by week (my change / their change): " + res.weekly.map((w) => `W${w.week} ${signed(w.me)}/${signed(w.them)}`).join(", "),
       (res.moves.me.drop.length ? `I'd have to cut ${res.moves.me.drop.map(pnm).join(", ")}. ` : "") + (res.moves.them.drop.length ? `They'd cut ${res.moves.them.drop.map(pnm).join(", ")}.` : ""),
       "", "## Players in the deal", ...res.give.concat(res.get).map(playerText)];
